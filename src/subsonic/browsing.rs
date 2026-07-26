@@ -291,7 +291,7 @@ impl From<ArtistRow> for ArtistId3 {
 /// A macro rather than a constant so `concat!` can build each full statement at
 /// compile time: sqlx will not take SQL assembled at runtime, and it is right
 /// not to.
-macro_rules! artist_columns {
+macro_rules! artist_columns_head {
     () => {
         "
     SELECT a.public_id, a.name, a.sort_name, a.mbid,
@@ -308,7 +308,13 @@ macro_rules! artist_columns {
                    )) AS album_count,
            s.starred_at
       FROM artists a
-      LEFT JOIN user_artist_stats s ON s.artist_id = a.id AND s.user_id = ?
+      LEFT JOIN user_artist_stats s ON s.artist_id = a.id AND s.user_id = "
+    };
+}
+
+macro_rules! artist_columns_tail {
+    () => {
+        "
      WHERE (EXISTS (
                 SELECT 1 FROM track_artists ta
                   JOIN tracks t ON t.id = ta.track_id
@@ -319,6 +325,13 @@ macro_rules! artist_columns {
                   JOIN tracks t ON t.album_id = aa.album_id
                  WHERE aa.artist_id = a.id AND t.missing_since IS NULL
             ))"
+    };
+}
+
+/// The whole statement, for the callers that bind the user themselves.
+macro_rules! artist_columns {
+    () => {
+        concat!(artist_columns_head!(), "?", artist_columns_tail!())
     };
 }
 
@@ -368,7 +381,7 @@ struct AlbumRow {
 /// Albums with their aggregates. The song count and duration come from the
 /// tracks still present, so an album whose files are gone reports zero rather
 /// than lying about what can be played.
-macro_rules! album_columns {
+macro_rules! album_columns_head {
     () => {
         "
     SELECT al.public_id, al.name, al.sort_name, al.year, al.is_compilation,
@@ -380,7 +393,13 @@ macro_rules! album_columns {
            s.play_count, s.starred_at, s.rating
       FROM albums al
       LEFT JOIN artworks aw ON aw.id = al.artwork_id
-      LEFT JOIN user_album_stats s ON s.album_id = al.id AND s.user_id = ?"
+      LEFT JOIN user_album_stats s ON s.album_id = al.id AND s.user_id = "
+    };
+}
+
+macro_rules! album_columns {
+    () => {
+        concat!(album_columns_head!(), "?")
     };
 }
 
@@ -546,7 +565,7 @@ struct TrackRow {
     rating: Option<i64>,
 }
 
-macro_rules! track_columns {
+macro_rules! track_columns_head {
     () => {
         "
     SELECT t.public_id, t.title, t.sort_title, t.track_number, t.disc_number,
@@ -563,8 +582,20 @@ macro_rules! track_columns {
       JOIN folders f ON f.id = t.folder_id
       LEFT JOIN albums al ON al.id = t.album_id
       LEFT JOIN artworks aw ON aw.id = al.artwork_id
-      LEFT JOIN user_track_stats s ON s.track_id = t.id AND s.user_id = ?
+      LEFT JOIN user_track_stats s ON s.track_id = t.id AND s.user_id = "
+    };
+}
+
+macro_rules! track_columns_tail {
+    () => {
+        "
      WHERE t.missing_since IS NULL"
+    };
+}
+
+macro_rules! track_columns {
+    () => {
+        concat!(track_columns_head!(), "?", track_columns_tail!())
     };
 }
 
@@ -1112,4 +1143,85 @@ async fn load_loose_songs(
     .await?;
 
     build_children(pool, rows).await
+}
+
+// ---------------------------------------------------------------------------
+// Loading by internal id, for the search module
+// ---------------------------------------------------------------------------
+//
+// Search resolves what matched into internal ids and then asks for the entities
+// themselves, so the shape of a response is built in one place. The order of
+// `ids` is the order of relevance, and SQLite gives no order to an IN clause, so
+// each of these restores it afterwards.
+
+pub(super) async fn load_artists_by_ids(
+    pool: &SqlitePool,
+    user_id: i64,
+    ids: &[i64],
+) -> Result<Vec<ArtistId3>, sqlx::Error> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder = sqlx::QueryBuilder::new(artist_columns_head!());
+    builder.push_bind(user_id);
+    builder.push(concat!(artist_columns_tail!(), " AND a.id IN ("));
+    push_ids(&mut builder, ids);
+    builder.push(")");
+
+    let rows: Vec<ArtistRow> = builder.build_query_as().fetch_all(pool).await?;
+
+    Ok(rows.into_iter().map(ArtistId3::from).collect())
+}
+
+pub(super) async fn load_albums_by_ids(
+    pool: &SqlitePool,
+    user_id: i64,
+    ids: &[i64],
+) -> Result<Vec<AlbumId3>, sqlx::Error> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder = sqlx::QueryBuilder::new(album_columns_head!());
+    builder.push_bind(user_id);
+    builder.push(" WHERE al.id IN (");
+    push_ids(&mut builder, ids);
+    builder.push(")");
+
+    let rows: Vec<AlbumRow> = builder.build_query_as().fetch_all(pool).await?;
+
+    let mut albums = Vec::with_capacity(rows.len());
+    for row in rows {
+        albums.push(build_album(pool, row).await?);
+    }
+
+    Ok(albums)
+}
+
+pub(super) async fn load_tracks_by_ids(
+    pool: &SqlitePool,
+    user_id: i64,
+    ids: &[i64],
+) -> Result<Vec<Child>, sqlx::Error> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder = sqlx::QueryBuilder::new(track_columns_head!());
+    builder.push_bind(user_id);
+    builder.push(concat!(track_columns_tail!(), " AND t.id IN ("));
+    push_ids(&mut builder, ids);
+    builder.push(")");
+
+    let rows: Vec<TrackRow> = builder.build_query_as().fetch_all(pool).await?;
+
+    build_children(pool, rows).await
+}
+
+fn push_ids(builder: &mut sqlx::QueryBuilder<sqlx::Sqlite>, ids: &[i64]) {
+    let mut separated = builder.separated(", ");
+    for id in ids {
+        separated.push_bind(*id);
+    }
 }

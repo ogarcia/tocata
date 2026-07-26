@@ -9,6 +9,7 @@ mod error;
 mod media;
 mod models;
 mod response;
+mod search;
 mod system;
 mod xml;
 
@@ -45,6 +46,7 @@ pub fn router(state: AppState) -> Router {
         "stream" => media::stream,
         "download" => media::download,
         "getCoverArt" => media::get_cover_art,
+        "search3" => search::search3,
     }
     .with_state(state)
 }

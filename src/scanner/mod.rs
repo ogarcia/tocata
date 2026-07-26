@@ -458,6 +458,7 @@ impl State {
         .with_context(|| format!("inserting track {}", path.display()))?;
 
         self.link_track(tx, track_id, &metadata).await?;
+        self.index_track(tx, track_id, &title, &metadata).await?;
 
         if let Some(album_id) = album_id {
             self.link_album(tx, album_id, &metadata).await?;
@@ -628,6 +629,36 @@ impl State {
         Ok(vanished as u64)
     }
 
+    /// Writes the track into the full text index.
+    ///
+    /// Delete then insert, because an FTS5 table that keeps its own content has
+    /// no upsert: a retagged track would otherwise be found under both its old
+    /// and its new title.
+    async fn index_track(
+        &mut self,
+        tx: &mut Transaction<'_, Sqlite>,
+        track_id: i64,
+        title: &str,
+        metadata: &Metadata,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM tracks_fts WHERE rowid = ?")
+            .bind(track_id)
+            .execute(&mut **tx)
+            .await
+            .context("clearing the old index entry of a track")?;
+
+        sqlx::query("INSERT INTO tracks_fts (rowid, title, album, artists) VALUES (?, ?, ?, ?)")
+            .bind(track_id)
+            .bind(title)
+            .bind(metadata.album.as_deref().unwrap_or_default())
+            .bind(metadata.artists.join(" "))
+            .execute(&mut **tx)
+            .await
+            .context("indexing a track")?;
+
+        Ok(())
+    }
+
     /// Replaces the track's credits and genres wholesale. Cheaper than working
     /// out what changed, and correct when an artist is dropped from a tag.
     async fn link_track(
@@ -752,6 +783,18 @@ impl State {
             .with_context(|| format!("inserting artist {name}"))?,
         };
 
+        sqlx::query("DELETE FROM artists_fts WHERE rowid = ?")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .context("clearing the old index entry of an artist")?;
+        sqlx::query("INSERT INTO artists_fts (rowid, name) VALUES (?, ?)")
+            .bind(id)
+            .bind(name.trim())
+            .execute(&mut **tx)
+            .await
+            .context("indexing an artist")?;
+
         self.artists.insert(key, id);
         Ok(id)
     }
@@ -863,6 +906,19 @@ impl State {
         .with_context(|| format!("inserting album {name}"))?;
 
         self.ensure_artwork(tx, id, metadata, track_path).await?;
+
+        sqlx::query("DELETE FROM albums_fts WHERE rowid = ?")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .context("clearing the old index entry of an album")?;
+        sqlx::query("INSERT INTO albums_fts (rowid, name, artists) VALUES (?, ?, ?)")
+            .bind(id)
+            .bind(&name)
+            .bind(metadata.album_artists.join(" "))
+            .execute(&mut **tx)
+            .await
+            .context("indexing an album")?;
 
         if let Some((artist, name, date)) = key.grouping() {
             self.albums_by_name
