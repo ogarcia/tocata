@@ -9,9 +9,9 @@ mod response;
 mod system;
 mod xml;
 
+use crate::state::AppState;
 use axum::Router;
 use axum::routing::get;
-use sqlx::SqlitePool;
 
 /// Registers each endpoint twice, because clients are free to append `.view`
 /// to any of them and plenty do.
@@ -25,11 +25,13 @@ macro_rules! endpoints {
     };
 }
 
-pub fn router(pool: SqlitePool) -> Router {
+pub fn router(state: AppState) -> Router {
     endpoints! {
         "ping" => system::ping,
         "getLicense" => system::get_license,
         "getOpenSubsonicExtensions" => system::get_open_subsonic_extensions,
+        "getScanStatus" => system::get_scan_status,
+        "startScan" => system::start_scan,
     }
-    .with_state(pool)
+    .with_state(state)
 }

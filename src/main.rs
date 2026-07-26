@@ -5,12 +5,15 @@ mod auth;
 mod config;
 mod db;
 mod scanner;
+mod state;
 mod subsonic;
 mod user;
 
 use anyhow::{Context, Result};
 use axum::Router;
 use config::Config;
+use state::AppState;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -39,7 +42,12 @@ async fn main() -> Result<()> {
     user::ensure_initial_user(&pool).await?;
     scanner::sync_libraries(&pool, config.library_paths()).await?;
 
-    let app = Router::new().nest("/rest", subsonic::router(pool.clone()));
+    let state = AppState {
+        pool: pool.clone(),
+        scan: Arc::new(scanner::Progress::default()),
+    };
+
+    let app = Router::new().nest("/rest", subsonic::router(state.clone()));
 
     let addr = config.listen_addr();
     let listener = TcpListener::bind(addr)
@@ -49,13 +57,14 @@ async fn main() -> Result<()> {
     // Only once the port is ours: starting a scan before knowing whether the
     // server can even listen would leave a half finished run behind every
     // failed start.
-    let scan_pool = pool.clone();
+    let initial = state.clone();
     tokio::spawn(async move {
-        match scanner::scan_all(&scan_pool, scanner::Mode::Incremental).await {
-            Ok(outcome) => info!(
+        match scanner::scan_all(&initial.pool, scanner::Mode::Incremental, &initial.scan).await {
+            Ok(Some(outcome)) => info!(
                 "initial scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
                 outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
             ),
+            Ok(None) => {}
             Err(e) => tracing::error!("initial scan failed: {e:#}"),
         }
     });

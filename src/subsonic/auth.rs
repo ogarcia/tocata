@@ -7,7 +7,7 @@ use super::error::{ApiError, Failure};
 use super::response::Format;
 use crate::auth;
 use crate::user::{self, User};
-use axum::extract::{FromRequestParts, Query};
+use axum::extract::{FromRef, FromRequestParts, Query};
 use axum::http::request::Parts;
 use serde::Deserialize;
 use sqlx::SqlitePool;
@@ -108,13 +108,20 @@ pub struct Authenticated {
     pub format: Format,
 }
 
-impl FromRequestParts<SqlitePool> for Authenticated {
+impl<S> FromRequestParts<S> for Authenticated
+where
+    S: Send + Sync,
+    SqlitePool: FromRef<S>,
+{
     type Rejection = Failure;
 
-    async fn from_request_parts(parts: &mut Parts, pool: &SqlitePool) -> Result<Self, Failure> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Failure> {
+        let pool = SqlitePool::from_ref(state);
+        let pool = &pool;
+
         // Parameters that fail to parse still get an answer in some format,
         // and XML is what the specification defaults to.
-        let params = Query::<AuthParams>::from_request_parts(parts, pool)
+        let params = Query::<AuthParams>::from_request_parts(parts, state)
             .await
             .map(|Query(params)| params)
             .map_err(|_| ApiError::MissingParameter("u").in_format(Format::Xml))?;

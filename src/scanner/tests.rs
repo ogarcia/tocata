@@ -355,3 +355,45 @@ async fn a_folder_that_goes_away_is_marked_too() {
             .unwrap();
     assert_eq!(marked, vec!["Remove".to_string()]);
 }
+
+#[test]
+fn only_one_scan_can_hold_the_flag() {
+    let progress = Progress::default();
+    assert!(!progress.is_scanning());
+
+    let running = progress.begin().expect("the first claim wins");
+    assert!(progress.is_scanning());
+    assert!(
+        progress.begin().is_none(),
+        "a second claim must be refused while the first is held"
+    );
+
+    drop(running);
+    assert!(
+        !progress.is_scanning(),
+        "the flag clears when the scan ends"
+    );
+    assert!(progress.begin().is_some(), "and the next scan can claim it");
+}
+
+#[tokio::test]
+async fn a_second_scan_request_while_one_runs_does_nothing() {
+    let root = temp_root("concurrent");
+    write_wav(&root.join("Album/one.wav"));
+
+    let pool = database().await;
+    library(&pool, &root).await;
+
+    let progress = Progress::default();
+    let _running = progress.begin().unwrap();
+
+    // With the flag held, scan_all declines rather than queueing a second pass.
+    let outcome = scan_all(&pool, Mode::Incremental, &progress).await.unwrap();
+    assert!(outcome.is_none());
+
+    let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM scan_runs")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(runs, 0, "it must not even record a run");
+}

@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tags::Metadata;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -79,7 +80,19 @@ enum Scanned {
 }
 
 /// Scans every enabled library.
-pub async fn scan_all(pool: &SqlitePool, mode: Mode) -> Result<Outcome> {
+///
+/// Returns `None` without doing anything when a scan is already in flight,
+/// which is what a second `startScan` gets instead of a second scan.
+pub async fn scan_all(
+    pool: &SqlitePool,
+    mode: Mode,
+    progress: &Progress,
+) -> Result<Option<Outcome>> {
+    let Some(_running) = progress.begin() else {
+        debug!("a scan is already running; ignoring the request for another");
+        return Ok(None);
+    };
+
     let libraries: Vec<(i64, String)> =
         sqlx::query_as("SELECT id, path FROM libraries WHERE enabled = 1 ORDER BY id")
             .fetch_all(pool)
@@ -98,9 +111,10 @@ pub async fn scan_all(pool: &SqlitePool, mode: Mode) -> Result<Outcome> {
         total.unchanged += outcome.unchanged;
         total.failed += outcome.failed;
         total.gone += outcome.gone;
+        progress.count(total.tracks);
     }
 
-    Ok(total)
+    Ok(Some(total))
 }
 
 /// Walking and tag reading happen on a blocking thread and arrive through a
@@ -868,4 +882,51 @@ pub async fn sync_libraries(pool: &SqlitePool, paths: &[PathBuf]) -> Result<()> 
     }
 
     Ok(())
+}
+
+/// Live progress of a scan, for the API to report and for keeping two scans
+/// from running at once.
+#[derive(Debug, Default)]
+pub struct Progress {
+    scanning: AtomicBool,
+    counted: AtomicU64,
+}
+
+impl Progress {
+    pub fn is_scanning(&self) -> bool {
+        self.scanning.load(Ordering::Relaxed)
+    }
+
+    /// Items processed by the scan in flight, or by the last one to finish.
+    pub fn counted(&self) -> u64 {
+        self.counted.load(Ordering::Relaxed)
+    }
+
+    /// Claims the right to scan. `None` means one is already running.
+    ///
+    /// The exchange is what makes this safe: two requests arriving together
+    /// cannot both come away thinking they won.
+    fn begin(&self) -> Option<Running<'_>> {
+        self.scanning
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| {
+                self.counted.store(0, Ordering::Relaxed);
+                Running(self)
+            })
+    }
+
+    fn count(&self, items: u64) {
+        self.counted.store(items, Ordering::Relaxed);
+    }
+}
+
+/// Clears the scanning flag however the scan ends, panic included. Without
+/// this, one failure would leave the server refusing to scan until restarted.
+struct Running<'a>(&'a Progress);
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.scanning.store(false, Ordering::Release);
+    }
 }
