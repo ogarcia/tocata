@@ -15,9 +15,11 @@
 
 mod error;
 mod events;
+mod keys;
 mod libraries;
 mod scan;
 mod session;
+mod users;
 
 use crate::state::AppState;
 use axum::Router;
@@ -66,6 +68,8 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "scan", description = "Watching and steering a scan of the libraries"),
         (name = "events", description = "The stream the panel keeps open"),
         (name = "libraries", description = "The directories music is read from"),
+        (name = "users", description = "Accounts"),
+        (name = "keys", description = "API keys, for clients that authenticate with one"),
     )
 )]
 struct Reference;
@@ -89,4 +93,8 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(events::stream))
         .routes(routes!(libraries::list, libraries::add))
         .routes(routes!(libraries::change, libraries::remove))
+        .routes(routes!(users::list, users::create))
+        .routes(routes!(users::one, users::change, users::delete))
+        .routes(routes!(keys::list, keys::issue))
+        .routes(routes!(keys::revoke))
 }

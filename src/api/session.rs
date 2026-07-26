@@ -61,9 +61,13 @@ where
 ///
 /// Layered on `Panel` rather than repeating its work, so there is one place that
 /// knows how a session is found and one that knows what it is allowed to do.
-/// Carries nothing, because so far the only question asked of it is whether the
-/// caller may, not which of them it is.
-pub struct Administrator;
+/// Carries who it is, because the rules that keep a server administrable are
+/// about identity: nobody may delete their own account or take away their own
+/// administrator rights, and that pair is what guarantees there is always
+/// somebody left who can.
+pub struct Administrator {
+    pub user: User,
+}
 
 impl<S> FromRequestParts<S> for Administrator
 where
@@ -76,7 +80,7 @@ where
         let Panel { user, .. } = parts.extract_with_state::<Panel, S>(state).await?;
 
         if user.is_admin {
-            Ok(Self)
+            Ok(Self { user })
         } else {
             Err(ApiError::NotAuthorized)
         }
