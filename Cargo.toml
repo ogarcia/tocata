@@ -1,0 +1,13 @@
+[package]
+name = "tocata"
+version = "0.1.0"
+edition = "2024"
+description = "An OpenSubsonic compatible music server"
+authors = ["Óscar García Amor <ogarcia@connectical.com>"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/ogarcia/tocata"
+readme = "README.md"
+keywords = ["opensubsonic", "music", "server", "audio", "streaming"]
+categories = ["multimedia::audio", "web-programming::http-server"]
+
+[dependencies]
