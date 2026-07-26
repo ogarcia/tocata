@@ -15,6 +15,11 @@ const DATABASE_FILE: &str = "tocata.db";
 /// The port Subsonic servers have historically listened on.
 const DEFAULT_PORT: u16 = 4040;
 
+/// Articles dropped when deciding which letter an artist files under. Spanish
+/// and English by default, since those are the two the author has in his own
+/// library; anything else is a matter of setting the variable.
+const DEFAULT_IGNORED_ARTICLES: &str = "The El La Los Las Le Les";
+
 /// Separator for the library list. A colon, as in PATH, because a comma is a
 /// perfectly ordinary character in a directory name and a colon is not.
 const LIBRARY_SEPARATOR: char = ':';
@@ -24,6 +29,7 @@ pub struct Config {
     data_dir: PathBuf,
     port: u16,
     library_paths: Vec<PathBuf>,
+    ignored_articles: Vec<String>,
 }
 
 impl Config {
@@ -51,10 +57,17 @@ impl Config {
             .map(PathBuf::from)
             .collect();
 
+        let ignored_articles = env::var("TOCATA_IGNORED_ARTICLES")
+            .unwrap_or_else(|_| DEFAULT_IGNORED_ARTICLES.to_string())
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+
         Ok(Self {
             data_dir,
             port,
             library_paths,
+            ignored_articles,
         })
     }
 
@@ -68,6 +81,10 @@ impl Config {
 
     pub fn library_paths(&self) -> &[PathBuf] {
         &self.library_paths
+    }
+
+    pub fn ignored_articles(&self) -> &[String] {
+        &self.ignored_articles
     }
 
     pub fn listen_addr(&self) -> SocketAddr {

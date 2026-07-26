@@ -4,7 +4,9 @@
 //! The OpenSubsonic API, served under `/rest`.
 
 mod auth;
+mod browsing;
 mod error;
+mod models;
 mod response;
 mod system;
 mod xml;
@@ -32,6 +34,11 @@ pub fn router(state: AppState) -> Router {
         "getOpenSubsonicExtensions" => system::get_open_subsonic_extensions,
         "getScanStatus" => system::get_scan_status,
         "startScan" => system::start_scan,
+        "getMusicFolders" => browsing::get_music_folders,
+        "getArtists" => browsing::get_artists,
+        "getArtist" => browsing::get_artist,
+        "getAlbum" => browsing::get_album,
+        "getSong" => browsing::get_song,
     }
     .with_state(state)
 }

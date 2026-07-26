@@ -3,6 +3,7 @@
 
 //! What every request handler can reach.
 
+use crate::config::Config;
 use crate::scanner::Progress;
 use axum::extract::FromRef;
 use sqlx::SqlitePool;
@@ -12,6 +13,7 @@ use std::sync::Arc;
 pub struct AppState {
     pub pool: SqlitePool,
     pub scan: Arc<Progress>,
+    pub config: Arc<Config>,
 }
 
 /// Lets an extractor ask for just the pool, without knowing what else the
@@ -25,5 +27,11 @@ impl FromRef<AppState> for SqlitePool {
 impl FromRef<AppState> for Arc<Progress> {
     fn from_ref(state: &AppState) -> Self {
         state.scan.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Config> {
+    fn from_ref(state: &AppState) -> Self {
+        state.config.clone()
     }
 }

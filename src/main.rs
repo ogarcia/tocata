@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
         env!("CARGO_PKG_VERSION")
     );
 
-    let config = Config::from_env()?;
+    let config = Arc::new(Config::from_env()?);
 
     std::fs::create_dir_all(config.data_dir())
         .with_context(|| format!("creating data directory {}", config.data_dir().display()))?;
@@ -45,6 +45,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         pool: pool.clone(),
         scan: Arc::new(scanner::Progress::default()),
+        config: config.clone(),
     };
 
     let app = Router::new().nest("/rest", subsonic::router(state.clone()));

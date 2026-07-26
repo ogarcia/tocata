@@ -26,6 +26,8 @@ pub enum ApiError {
     ConflictingMechanisms,
     /// 44 — the API key is not valid.
     InvalidApiKey,
+    /// 70 — no such thing here.
+    NotFound,
     /// 50 — authenticated, but not allowed to do this.
     ///
     /// Not 40: a client that cannot tell the difference will ask the user to
@@ -43,6 +45,7 @@ impl ApiError {
             Self::MechanismNotSupported => 42,
             Self::ConflictingMechanisms => 43,
             Self::InvalidApiKey => 44,
+            Self::NotFound => 70,
             Self::NotAuthorized => 50,
             Self::Internal => 0,
         }
@@ -57,6 +60,7 @@ impl ApiError {
                 "Multiple conflicting authentication mechanisms provided".into()
             }
             Self::InvalidApiKey => "Invalid API key".into(),
+            Self::NotFound => "The requested data was not found".into(),
             Self::NotAuthorized => "The user is not authorized for the given operation".into(),
             Self::Internal => "An internal error occurred".into(),
         }
@@ -131,6 +135,7 @@ mod tests {
         assert_eq!(ApiError::ConflictingMechanisms.code(), 43);
         assert_eq!(ApiError::InvalidApiKey.code(), 44);
         assert_eq!(ApiError::NotAuthorized.code(), 50);
+        assert_eq!(ApiError::NotFound.code(), 70);
         assert_eq!(ApiError::Internal.code(), 0);
     }
 
