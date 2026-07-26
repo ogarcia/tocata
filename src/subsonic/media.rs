@@ -516,14 +516,26 @@ struct LyricLine {
 /// a seek and a few kilobytes, and it only happens when somebody actually looks
 /// at the words — which also means an edited lyric shows up without a rescan.
 async fn read_lyrics(path: PathBuf) -> Option<String> {
-    let read = tokio::task::spawn_blocking(move || crate::scanner::read_tags(&path)).await;
+    let read = tokio::task::spawn_blocking(move || {
+        // A file beside the music wins over an embedded tag: it is what somebody
+        // put there deliberately and can edit, and it is where anything fetched
+        // from the network will be written.
+        if let Some(content) = crate::lyrics::find_beside(&path) {
+            return Some(content);
+        }
+
+        match crate::scanner::read_tags(&path) {
+            Ok(metadata) => metadata.lyrics,
+            Err(e) => {
+                warn!("reading lyrics from {}: {e:#}", path.display());
+                None
+            }
+        }
+    })
+    .await;
 
     match read {
-        Ok(Ok(metadata)) => metadata.lyrics,
-        Ok(Err(e)) => {
-            warn!("reading lyrics: {e:#}");
-            None
-        }
+        Ok(content) => content,
         Err(e) => {
             error!("the lyric reader panicked: {e}");
             None

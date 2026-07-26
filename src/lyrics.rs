@@ -7,6 +7,47 @@
 //! lines carry timestamps. LRC puts them in square brackets at the start of the
 //! line: `[01:23.45] the words`.
 
+/// Extensions of a lyric file sitting beside the music.
+const LYRIC_EXTENSIONS: &[&str] = &["lrc", "txt"];
+
+/// Finds a lyric file next to a track: `song.lrc` beside `song.flac`.
+///
+/// This is where a good part of the world keeps its lyrics, and where anything
+/// downloaded later should be written, so that one reader covers both. Matching
+/// is case insensitive, since `.LRC` is as common as `.lrc` and a case sensitive
+/// filesystem would otherwise miss it.
+///
+/// Blocking: reads a directory.
+pub fn find_beside(track: &std::path::Path) -> Option<String> {
+    let stem = track.file_stem()?.to_str()?.to_lowercase();
+    let directory = track.parent()?;
+
+    let mut candidates: Vec<(usize, std::path::PathBuf)> = std::fs::read_dir(directory)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let candidate_stem = path.file_stem()?.to_str()?.to_lowercase();
+            let extension = path.extension()?.to_str()?.to_lowercase();
+
+            if candidate_stem != stem {
+                return None;
+            }
+
+            // Ranked, so a .lrc wins over a .txt for the same song.
+            let rank = LYRIC_EXTENSIONS.iter().position(|e| *e == extension)?;
+            Some((rank, path))
+        })
+        .collect();
+
+    candidates.sort_by_key(|(rank, _)| *rank);
+
+    candidates
+        .into_iter()
+        .find_map(|(_, path)| std::fs::read_to_string(path).ok())
+        .filter(|content| !content.trim().is_empty())
+}
+
 /// One line of synchronised lyrics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
@@ -74,6 +115,73 @@ fn parse_line(line: &str) -> Option<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lyric_file_beside_the_track_is_found() {
+        let directory = std::env::temp_dir().join("tocata-lyrics-beside");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let track = directory.join("song.flac");
+        std::fs::write(&track, b"audio").unwrap();
+        assert_eq!(find_beside(&track), None, "nothing there yet");
+
+        std::fs::write(directory.join("song.lrc"), "[00:01.00]words").unwrap();
+        assert_eq!(find_beside(&track).as_deref(), Some("[00:01.00]words"));
+    }
+
+    #[test]
+    fn the_extension_may_be_in_any_case() {
+        let directory = std::env::temp_dir().join("tocata-lyrics-case");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let track = directory.join("Song.flac");
+        std::fs::write(&track, b"audio").unwrap();
+        std::fs::write(directory.join("SONG.LRC"), "words").unwrap();
+
+        assert_eq!(find_beside(&track).as_deref(), Some("words"));
+    }
+
+    #[test]
+    fn an_lrc_wins_over_a_txt() {
+        let directory = std::env::temp_dir().join("tocata-lyrics-rank");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let track = directory.join("song.flac");
+        std::fs::write(&track, b"audio").unwrap();
+        std::fs::write(directory.join("song.txt"), "plain").unwrap();
+        std::fs::write(directory.join("song.lrc"), "timed").unwrap();
+
+        assert_eq!(find_beside(&track).as_deref(), Some("timed"));
+    }
+
+    #[test]
+    fn another_songs_lyrics_are_not_borrowed() {
+        let directory = std::env::temp_dir().join("tocata-lyrics-other");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let track = directory.join("one.flac");
+        std::fs::write(&track, b"audio").unwrap();
+        std::fs::write(directory.join("two.lrc"), "not mine").unwrap();
+
+        assert_eq!(find_beside(&track), None);
+    }
+
+    #[test]
+    fn an_empty_lyric_file_counts_as_none() {
+        let directory = std::env::temp_dir().join("tocata-lyrics-empty");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let track = directory.join("song.flac");
+        std::fs::write(&track, b"audio").unwrap();
+        std::fs::write(directory.join("song.lrc"), "   \n  ").unwrap();
+
+        assert_eq!(find_beside(&track), None);
+    }
 
     #[test]
     fn plain_text_is_not_synchronised() {
