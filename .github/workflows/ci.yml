@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -21,9 +24,9 @@ jobs:
     name: Format, lint and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -49,14 +52,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: x86_64
+          - arch: amd64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-          - arch: aarch64
+          - arch: arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # libsqlite3-sys compiles SQLite itself and the runner's own gcc targets
       # glibc; musl-gcc is what the cc crate looks for instead. Rust code needs
@@ -67,7 +70,7 @@ jobs:
 
       - run: rustup target add ${{ matrix.target }}
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -89,7 +92,9 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      # Named for the architecture the way the container build says it, which is
+      # what the Containerfile reads and one vocabulary fewer to translate.
+      - uses: actions/upload-artifact@v7
         with:
           name: tocata-${{ matrix.arch }}
           path: target/${{ matrix.target }}/release/tocata
@@ -99,28 +104,55 @@ jobs:
     name: Container image
     needs: binary
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # For pushing to GHCR, which needs nothing else configured: the token the
+      # run already has is the credential.
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # versions.env is plain KEY=value so that this is all it takes to make the
       # same file the source of truth here too.
       - run: cat versions.env >> "$GITHUB_ENV"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          name: tocata-x86_64
-          path: dist
+          name: tocata-amd64
+          path: amd64
+      - uses: actions/download-artifact@v8
+        with:
+          name: tocata-arm64
+          path: arm64
 
-      # No compiler runs in this job: it wraps the binary the job before it made,
-      # which is the path a release will take and therefore the one worth
-      # exercising on every push.
-      - name: Build
+      - name: Lay the binaries out where the Containerfile looks
         run: |
-          docker build \
+          mkdir dist
+          mv amd64/tocata dist/tocata-amd64
+          mv arm64/tocata dist/tocata-arm64
+
+      # Emulation is for one thing only: the arm64 image adds its user and its
+      # directories, and that is shell that has to run. No compiler goes near it.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      # A branch name may carry a slash; an image tag may not.
+      - name: Work out the tag
+        run: echo "TAG=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+
+      # No compiler runs in this job: it wraps the binaries the job before it
+      # made, which is the path a release will take and therefore the one worth
+      # exercising on every push. Loaded rather than pushed, because a
+      # multi-platform image cannot be handed to the local daemon and because
+      # there is nothing to publish until this one has answered.
+      - name: Build for this machine
+        run: |
+          docker buildx build \
             --build-arg ALPINE_VERSION="$ALPINE_VERSION" \
             --build-arg RUST_VERSION="$RUST_VERSION" \
             --build-arg BINARY_SOURCE=prebuilt \
-            --tag tocata:ci .
+            --platform linux/amd64 \
+            --load --tag tocata:ci .
 
       # An image that builds and an image that serves music are different
       # claims. This one starts, creates its database, and answers a call that
@@ -139,3 +171,24 @@ jobs:
           curl -sf "http://127.0.0.1:4040/rest/ping?u=admin&p=$password&v=1.16.1&c=ci&f=json" \
             | tee /dev/stderr \
             | grep -q '"status":"ok"'
+
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Both architectures under one manifest, tagged with the branch it came
+      # from, and only once the amd64 build of it has served a request. A pull
+      # request builds and gets tested; it does not publish.
+      - name: Publish
+        if: github.event_name == 'push'
+        run: |
+          docker buildx build \
+            --build-arg ALPINE_VERSION="$ALPINE_VERSION" \
+            --build-arg RUST_VERSION="$RUST_VERSION" \
+            --build-arg BINARY_SOURCE=prebuilt \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --platform linux/amd64,linux/arm64 \
+            --push --tag "ghcr.io/${{ github.repository }}:$TAG" .

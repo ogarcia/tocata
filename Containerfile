@@ -52,16 +52,21 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # CI compiles with a proper cargo cache and publishes the binary as an artifact;
 # repeating that work inside a container image would be slower and would prove
-# nothing. Point the build at what it already made:
+# nothing. Point the build at what it already made, under dist/:
 #
 #   podman build --build-arg-file versions.env \
 #       --build-arg BINARY_SOURCE=prebuilt -t tocata .
 #
 # Only the stage that gets used is assembled, so dist/ need not exist for an
 # ordinary build from source.
+#
+# The name carries the architecture in the build's own vocabulary rather than
+# Rust's, which is what lets one multi-platform build pick each binary out of the
+# same directory. Nothing is compiled along that path, so the only thing an
+# emulator has to run is the last stage's handful of shell.
 FROM scratch AS prebuilt
-ARG BINARY_PATH=dist/tocata
-COPY ${BINARY_PATH} /out/tocata
+ARG TARGETARCH
+COPY dist/tocata-${TARGETARCH} /out/tocata
 
 # --- the image that ships ----------------------------------------------------
 
