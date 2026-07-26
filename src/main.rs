@@ -62,14 +62,7 @@ async fn main() -> Result<()> {
     // failed start.
     let initial = state.clone();
     tokio::spawn(async move {
-        match scanner::scan_all(
-            &initial.pool,
-            initial.config.data_dir(),
-            scanner::Mode::Incremental,
-            &initial.scan,
-        )
-        .await
-        {
+        match scanner::scan_all(&initial.pool, scanner::Mode::Incremental, &initial.scan).await {
             Ok(Some(outcome)) => info!(
                 "initial scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
                 outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone

@@ -195,14 +195,7 @@ pub async fn start_scan(
     // getScanStatus to follow it.
     let spawned = state.clone();
     tokio::spawn(async move {
-        match scanner::scan_all(
-            &spawned.pool,
-            spawned.config.data_dir(),
-            mode,
-            &spawned.scan,
-        )
-        .await
-        {
+        match scanner::scan_all(&spawned.pool, mode, &spawned.scan).await {
             Ok(Some(outcome)) => info!(
                 "scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
                 outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone

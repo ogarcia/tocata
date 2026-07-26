@@ -9,6 +9,7 @@ use super::error::ApiError;
 use super::response::{self, Format};
 use crate::artwork;
 use crate::config::Config;
+use crate::db;
 use axum::extract::{Query, Request, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
@@ -224,12 +225,16 @@ fn percent_encode(value: &str) -> String {
 // Cover art
 // ---------------------------------------------------------------------------
 
-/// Serves a cover image out of the cache.
+/// Serves an album's cover, extracting it the first time somebody asks.
 ///
-/// The `size` parameter is not honoured: the original is returned whatever was
-/// asked for, which the specification allows and every client copes with. Scaling
-/// would mean decoding and re-encoding images, and that is worth doing only once
-/// there is a measurement saying it matters.
+/// Nothing is extracted during a scan. A library of five thousand albums would
+/// otherwise have every cover copied into the cache — gigabytes duplicating what
+/// is already on disk — for albums nobody may open this month. The first request
+/// for one pays for it once; every request after that is served from the cache.
+///
+/// `size` is not honoured: the original comes back, which the specification
+/// allows. Scaling means decoding and re-encoding images, and that waits for a
+/// measurement saying it matters.
 pub async fn get_cover_art(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
@@ -237,21 +242,33 @@ pub async fn get_cover_art(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    let row: Option<(String, String)> =
-        match sqlx::query_as("SELECT content_hash, mime_type FROM artworks WHERE public_id = ?")
-            .bind(&query.id)
-            .fetch_optional(&pool)
-            .await
-        {
-            Ok(row) => row,
+    let album = match resolve_album(&pool, &query.id).await {
+        Ok(Some(album)) => album,
+        Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
+        Err(e) => {
+            error!("resolving cover art: {e}");
+            return ApiError::Internal.in_format(auth.format).into_response();
+        }
+    };
+
+    let cached = match cover_in_cache(&pool, album).await {
+        Ok(cached) => cached,
+        Err(e) => {
+            error!("looking for a cached cover: {e}");
+            return ApiError::Internal.in_format(auth.format).into_response();
+        }
+    };
+
+    let (hash, mime_type) = match cached {
+        Some(found) => found,
+        None => match extract_cover(&pool, config.data_dir(), album).await {
+            Ok(Some(found)) => found,
+            Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
             Err(e) => {
-                error!("locating cover art: {e}");
+                error!("extracting a cover: {e:#}");
                 return ApiError::Internal.in_format(auth.format).into_response();
             }
-        };
-
-    let Some((hash, mime_type)) = row else {
-        return ApiError::NotFound.in_format(auth.format).into_response();
+        },
     };
 
     let path = artwork::cache_path(config.data_dir(), &hash);
@@ -263,12 +280,173 @@ pub async fn get_cover_art(
     match service.oneshot(request).await {
         Ok(response) => response.into_response(),
         Err(e) => {
-            // The row says there is an image but the file is not there, which
-            // means the cache was cleared out from under us.
             error!("serving cover art from {}: {e}", path.display());
             ApiError::NotFound.in_format(auth.format).into_response()
         }
     }
+}
+
+/// The album a cover art id refers to. Clients pass an album id, and some pass a
+/// song id, so both resolve.
+async fn resolve_album(pool: &SqlitePool, public_id: &str) -> Result<Option<i64>, sqlx::Error> {
+    if let Some(id) = sqlx::query_scalar("SELECT id FROM albums WHERE public_id = ?")
+        .bind(public_id)
+        .fetch_optional(pool)
+        .await?
+    {
+        return Ok(Some(id));
+    }
+
+    sqlx::query_scalar("SELECT album_id FROM tracks WHERE public_id = ? AND album_id IS NOT NULL")
+        .bind(public_id)
+        .fetch_optional(pool)
+        .await
+        .map(Option::flatten)
+}
+
+/// The cover already extracted for this album, if there is one.
+async fn cover_in_cache(
+    pool: &SqlitePool,
+    album_id: i64,
+) -> Result<Option<(String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT aw.content_hash, aw.mime_type
+           FROM albums al JOIN artworks aw ON aw.id = al.artwork_id
+          WHERE al.id = ?",
+    )
+    .bind(album_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Finds a cover for an album and puts it in the cache.
+///
+/// Tries the embedded picture of each of its tracks in turn, then a file beside
+/// them. A failure to find one is remembered, because a client scrolling a list
+/// of albums asks again for every one of them on every scroll, and reopening the
+/// files each time to learn the same nothing is the cost this avoids.
+async fn extract_cover(
+    pool: &SqlitePool,
+    data_dir: &std::path::Path,
+    album_id: i64,
+) -> anyhow::Result<Option<(String, String)>> {
+    if searched_before(pool, album_id).await? {
+        return Ok(None);
+    }
+
+    let paths: Vec<String> = sqlx::query_scalar(
+        "SELECT path FROM tracks
+          WHERE album_id = ? AND missing_since IS NULL
+          ORDER BY disc_number, track_number
+          LIMIT 20",
+    )
+    .bind(album_id)
+    .fetch_all(pool)
+    .await?;
+
+    let found = tokio::task::spawn_blocking(move || find_cover(&paths)).await?;
+
+    let Some((source, source_ref, bytes)) = found else {
+        remember_nothing(pool, album_id).await?;
+        return Ok(None);
+    };
+
+    // Trust the bytes, not the extension or what a tag claims the type is.
+    let Some(mime_type) = artwork::mime_of(&bytes) else {
+        remember_nothing(pool, album_id).await?;
+        return Ok(None);
+    };
+
+    let hash = artwork::store(data_dir, &bytes)?;
+    let timestamp = db::now();
+
+    let mut tx = pool.begin().await?;
+
+    // The hash is the identity, so two albums sharing a cover share the row.
+    let existing: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM artworks WHERE content_hash = ? LIMIT 1")
+            .bind(&hash)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let artwork_id = match existing {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar(
+                "INSERT INTO artworks (
+                 public_id, kind, source, source_ref, mime_type, content_hash, fetched_at
+             ) VALUES (?, 'album_front', ?, ?, ?, ?, ?)
+             RETURNING id",
+            )
+            .bind(db::public_id()?)
+            .bind(source)
+            .bind(&source_ref)
+            .bind(mime_type)
+            .bind(&hash)
+            .bind(&timestamp)
+            .fetch_one(&mut *tx)
+            .await?
+        }
+    };
+
+    sqlx::query("UPDATE albums SET artwork_id = ? WHERE id = ? AND artwork_id IS NULL")
+        .bind(artwork_id)
+        .bind(album_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(Some((hash, mime_type.to_string())))
+}
+
+/// Blocking: opens files. Reads the artwork this time, unlike a scan.
+fn find_cover(paths: &[String]) -> Option<(&'static str, Option<String>, Vec<u8>)> {
+    for path in paths {
+        let path = std::path::Path::new(path);
+        if let Ok(metadata) = crate::scanner::read_tags_with_cover_art(path)
+            && let Some(bytes) = metadata.picture
+        {
+            return Some(("embedded", None, bytes));
+        }
+    }
+
+    // No track carried one, so look for a file next to the music.
+    let directory = std::path::Path::new(paths.first()?).parent()?;
+    artwork::find_near(directory).map(|(path, bytes)| {
+        (
+            "local_file",
+            Some(path.to_string_lossy().to_string()),
+            bytes,
+        )
+    })
+}
+
+async fn searched_before(pool: &SqlitePool, album_id: i64) -> Result<bool, sqlx::Error> {
+    let found: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM artwork_lookups
+          WHERE entity_type = 'album' AND entity_id = ? AND source = 'local'",
+    )
+    .bind(album_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(found.is_some())
+}
+
+async fn remember_nothing(pool: &SqlitePool, album_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO artwork_lookups (entity_type, entity_id, source, attempted_at, found)
+         VALUES ('album', ?, 'local', ?, 0)
+         ON CONFLICT (entity_type, entity_id, source) DO UPDATE SET
+             attempted_at = excluded.attempted_at",
+    )
+    .bind(album_id)
+    .bind(db::now())
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

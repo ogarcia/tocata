@@ -54,11 +54,27 @@ pub struct Metadata {
     pub channel_count: Option<i64>,
 }
 
-/// Reads one file. Blocking: callers put this on a blocking task.
+/// Reads one file, without its embedded artwork. Blocking: callers put this on a
+/// blocking task.
+///
+/// Leaving the artwork out is what keeps a scan cheap. lofty loads an embedded
+/// picture into memory as part of parsing, and a library of five thousand albums
+/// carrying five hundred kilobytes each is gigabytes read and thrown away for
+/// the sake of a title and a track number.
 pub fn read(path: &Path) -> Result<Metadata> {
+    read_with(path, ParseOptions::new().read_cover_art(false))
+}
+
+/// Reads one file including its embedded artwork, for when somebody actually
+/// asked to see the cover.
+pub fn read_with_cover_art(path: &Path) -> Result<Metadata> {
+    read_with(path, ParseOptions::new().read_cover_art(true))
+}
+
+fn read_with(path: &Path, options: ParseOptions) -> Result<Metadata> {
     let tagged = Probe::open(path)
         .with_context(|| format!("opening {}", path.display()))?
-        .options(ParseOptions::new())
+        .options(options)
         .read()
         .with_context(|| format!("reading tags from {}", path.display()))?;
 

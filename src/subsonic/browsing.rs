@@ -372,7 +372,6 @@ struct AlbumRow {
     is_compilation: bool,
     mbid_release: Option<String>,
     created_at: String,
-    artwork_public_id: Option<String>,
     song_count: i64,
     duration_ms: Option<i64>,
     play_count: Option<i64>,
@@ -387,14 +386,13 @@ macro_rules! album_columns_head {
     () => {
         "
     SELECT al.id, al.public_id, al.name, al.sort_name, al.year, al.is_compilation,
-           al.mbid_release, al.created_at, aw.public_id AS artwork_public_id,
+           al.mbid_release, al.created_at,
            (SELECT count(*) FROM tracks t
              WHERE t.album_id = al.id AND t.missing_since IS NULL) AS song_count,
            (SELECT sum(t.duration_ms) FROM tracks t
              WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration_ms,
            s.play_count, s.starred_at, s.rating
       FROM albums al
-      LEFT JOIN artworks aw ON aw.id = al.artwork_id
       LEFT JOIN user_album_stats s ON s.album_id = al.id AND s.user_id = "
     };
 }
@@ -503,14 +501,17 @@ async fn build_album(pool: &SqlitePool, row: AlbumRow) -> Result<AlbumId3, sqlx:
     let first_artist = artists.first().cloned();
 
     Ok(AlbumId3 {
-        id: row.public_id,
+        id: row.public_id.clone(),
         name: row.name,
         song_count: row.song_count,
         duration: seconds(row.duration_ms).unwrap_or(0),
         created: row.created_at,
         artist: display_artist.clone(),
         artist_id: first_artist.map(|(id, _)| id),
-        cover_art: row.artwork_public_id,
+        // The album's own id doubles as its cover art id, which is how the API
+        // has always worked and what lets the cover be found without having
+        // extracted anything yet.
+        cover_art: Some(row.public_id.clone()),
         play_count: row.play_count,
         starred: row.starred_at,
         year: row.year,
@@ -560,7 +561,6 @@ struct TrackRow {
     album_name: Option<String>,
     rg_album_gain: Option<f64>,
     rg_album_peak: Option<f64>,
-    artwork_public_id: Option<String>,
     folder_public_id: String,
     play_count: Option<i64>,
     last_played: Option<String>,
@@ -578,13 +578,11 @@ macro_rules! track_columns_head {
            t.suffix, t.created_at,
            al.public_id AS album_public_id, al.name AS album_name,
            al.rg_album_gain, al.rg_album_peak,
-           aw.public_id AS artwork_public_id,
            f.public_id AS folder_public_id,
            s.play_count, s.last_played, s.starred_at, s.rating
       FROM tracks t
       JOIN folders f ON f.id = t.folder_id
       LEFT JOIN albums al ON al.id = t.album_id
-      LEFT JOIN artworks aw ON aw.id = al.artwork_id
       LEFT JOIN user_track_stats s ON s.track_id = t.id AND s.user_id = "
     };
 }
@@ -728,7 +726,8 @@ fn build_child(row: TrackRow, artists: Vec<(String, String)>, genres: Vec<String
         track: row.track_number,
         year: row.year,
         genre: genres.first().cloned(),
-        cover_art: row.artwork_public_id,
+        // A song's cover is its album's, and the album's id is the handle for it.
+        cover_art: row.album_public_id.clone(),
         size: Some(row.file_size),
         content_type: Some(row.content_type),
         suffix: Some(row.suffix),
