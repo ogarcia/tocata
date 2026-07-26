@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tracing::error;
 
 #[derive(Debug, Deserialize)]
-pub struct IdQuery {
+pub(super) struct IdQuery {
     pub id: String,
 }
 

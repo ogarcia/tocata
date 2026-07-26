@@ -6,6 +6,7 @@
 mod auth;
 mod browsing;
 mod error;
+mod media;
 mod models;
 mod response;
 mod system;
@@ -41,6 +42,8 @@ pub fn router(state: AppState) -> Router {
         "getSong" => browsing::get_song,
         "getIndexes" => browsing::get_indexes,
         "getMusicDirectory" => browsing::get_music_directory,
+        "stream" => media::stream,
+        "download" => media::download,
     }
     .with_state(state)
 }
