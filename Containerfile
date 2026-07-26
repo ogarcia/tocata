@@ -1,14 +1,21 @@
+# check=skip=InvalidDefaultArgInFrom
+
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
 # Versions live in versions.env and nowhere else. There are deliberately no
 # defaults here: leaving one out makes the build fail on an unusable image
 # reference instead of quietly baking in whatever was current the day this file
-# was written.
+# was written. That is also the check skipped above — it warns that these two
+# names are incomplete without an argument, which is the intention.
 #
 #   podman build --build-arg-file versions.env -t tocata .
 ARG ALPINE_VERSION
 ARG RUST_VERSION
+
+# Which of the two stages below the binary comes from. Declared out here because
+# global scope is the only one a FROM can read.
+ARG BINARY_SOURCE=builder
 
 # --- the binary, compiled here -----------------------------------------------
 
@@ -68,6 +75,13 @@ FROM scratch AS prebuilt
 ARG TARGETARCH
 COPY dist/tocata-${TARGETARCH} /out/tocata
 
+# --- whichever of those two it was -------------------------------------------
+
+# COPY --from takes no variables, so the choice cannot be made where the copying
+# happens. A stage whose only job is to have a fixed name resolves it, and the
+# one it does not name is never assembled.
+FROM ${BINARY_SOURCE} AS binary
+
 # --- the image that ships ----------------------------------------------------
 
 FROM docker.io/library/alpine:${ALPINE_VERSION}
@@ -80,8 +94,7 @@ LABEL org.opencontainers.image.title="Tocata" \
 # The mode is set rather than inherited because a binary that has travelled
 # through a CI artifact arrives without its executable bit: zip does not carry
 # permissions.
-ARG BINARY_SOURCE=builder
-COPY --from=${BINARY_SOURCE} --chmod=0755 /out/tocata /usr/local/bin/tocata
+COPY --from=binary --chmod=0755 /out/tocata /usr/local/bin/tocata
 
 # Never root. The id is 1000 because that is the first one a Linux desktop hands
 # out, so a bind mounted music directory usually belongs to it already; anything
