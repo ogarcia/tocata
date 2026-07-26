@@ -16,9 +16,21 @@ use axum::Router;
 use config::Config;
 use state::AppState;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
-use tracing::info;
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::oneshot;
+use tokio::time::sleep;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+
+/// How long whatever is being served gets to finish once the server has been
+/// asked to stop.
+///
+/// Comfortably under the ten seconds a container runtime waits before it stops
+/// asking and starts killing, because being killed is precisely what leaves the
+/// database's side files behind.
+const DRAIN_GRACE: Duration = Duration::from_secs(5);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -72,8 +84,53 @@ async fn main() -> Result<()> {
         }
     });
 
+    let mut interrupt =
+        signal(SignalKind::interrupt()).context("installing the interrupt handler")?;
+    let mut terminate =
+        signal(SignalKind::terminate()).context("installing the termination handler")?;
+
+    // One signal, two things that need to know about it: the server, so it stops
+    // accepting, and the deadline below, so it starts counting from then instead
+    // of from now.
+    let (asked, was_asked) = oneshot::channel();
+    let scan = state.scan.clone();
+
+    let shutdown = async move {
+        tokio::select! {
+            _ = interrupt.recv() => info!("interrupted"),
+            _ = terminate.recv() => info!("asked to stop"),
+        }
+        // First of all, before anything drains: a scan is the only thing here
+        // that holds a transaction open for minutes, and nothing can close the
+        // database under it.
+        scan.stop();
+        let _ = asked.send(());
+    };
+
+    let deadline = async {
+        let _ = was_asked.await;
+        sleep(DRAIN_GRACE).await;
+    };
+
     info!("listening on http://{addr}");
-    axum::serve(listener, app).await.context("serving")?;
+
+    // Streaming a file holds no database connection — the row is read and the
+    // connection returned long before the bytes start moving — so a slow listener
+    // delays only their own request. Waiting on them for ever, though, is what
+    // makes a server look hung to somebody who pressed Ctrl-C.
+    tokio::select! {
+        result = axum::serve(listener, app).with_graceful_shutdown(shutdown) => {
+            result.context("serving")?;
+        }
+        () = deadline => warn!("still serving something after {DRAIN_GRACE:?}; stopping anyway"),
+    }
+
+    // This is what takes the -wal and -shm files with it. SQLite writes them
+    // beside the database while anybody has it open and tidies them away when the
+    // last connection goes, so leaving them behind is not untidiness: it is the
+    // sign of a process that was killed rather than asked.
+    pool.close().await;
+    info!("stopped");
 
     Ok(())
 }

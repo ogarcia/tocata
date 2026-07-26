@@ -81,6 +81,14 @@ fn temp_root(name: &str) -> PathBuf {
     root
 }
 
+/// A scan expected to run to the end, which is every one of these but the last.
+/// The interruption flag lives on `Progress`, so a fresh one never trips it.
+async fn scan(pool: &SqlitePool, id: i64, root: &Path, mode: Mode) -> Result<Outcome> {
+    Ok(scan_library(pool, id, root, mode, &Progress::default())
+        .await?
+        .expect("the scan ran to the end"))
+}
+
 async fn count(pool: &SqlitePool, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
@@ -95,15 +103,11 @@ async fn a_second_incremental_scan_reads_nothing_again() {
     let pool = database().await;
     let id = library(&pool, &root).await;
 
-    let first = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let first = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(first.tracks, 5);
     assert_eq!(first.unchanged, 0, "nothing was known yet");
 
-    let second = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let second = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(second.tracks, 5);
     assert_eq!(second.unchanged, 5, "no file changed, so none was reopened");
     assert_eq!(second.gone, 0);
@@ -119,10 +123,8 @@ async fn a_full_scan_reads_everything_again() {
     let pool = database().await;
     let id = library(&pool, &root).await;
 
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
-    let full = scan_library(&pool, id, &root, Mode::Full).await.unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+    let full = scan(&pool, id, &root, Mode::Full).await.unwrap();
 
     assert_eq!(full.unchanged, 0, "a full scan skips nothing");
     assert_eq!(full.tracks, 1);
@@ -136,18 +138,14 @@ async fn a_changed_file_is_read_again() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     // Growing the file changes its size, which is half of what is compared.
     let mut bytes = fs::read(&path).unwrap();
     bytes.extend_from_slice(&[0u8; 64]);
     fs::write(&path, bytes).unwrap();
 
-    let second = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let second = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(second.unchanged, 0, "the size changed, so it was reopened");
 }
 
@@ -160,15 +158,11 @@ async fn a_deleted_file_is_marked_not_removed() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     fs::remove_file(root.join("Album/0.wav")).unwrap();
 
-    let second = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let second = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(second.gone, 1);
 
     // Still there, just marked.
@@ -191,14 +185,10 @@ async fn a_file_that_comes_back_is_unmarked() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     fs::remove_file(&path).unwrap();
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(
         count(
             &pool,
@@ -209,9 +199,7 @@ async fn a_file_that_comes_back_is_unmarked() {
     );
 
     write_wav(&path);
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(
         count(
             &pool,
@@ -233,9 +221,7 @@ async fn a_moved_file_keeps_its_identity_and_user_data() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     let (track_id, public_id): (i64, String) =
         sqlx::query_as("SELECT id, public_id FROM tracks LIMIT 1")
@@ -269,9 +255,7 @@ async fn a_moved_file_keeps_its_identity_and_user_data() {
     fs::create_dir_all(moved.parent().unwrap()).unwrap();
     fs::rename(&original, &moved).unwrap();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let outcome = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(outcome.gone, 0, "nothing actually went away");
 
     let rows: Vec<(i64, String, String, Option<String>)> =
@@ -306,17 +290,13 @@ async fn a_library_that_vanishes_wholesale_is_left_alone() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     // The mount point is there but empty, which is what a failed mount looks
     // like from up here.
     fs::remove_dir_all(root.join("Album")).unwrap();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let outcome = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     assert_eq!(outcome.gone, 0, "the sweep refused to run");
     assert_eq!(
@@ -340,16 +320,12 @@ async fn a_tiny_library_is_still_swept() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     fs::remove_file(root.join("Album/one.wav")).unwrap();
     fs::remove_file(root.join("Album/two.wav")).unwrap();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    let outcome = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(outcome.gone, 2);
 }
 
@@ -361,14 +337,10 @@ async fn a_folder_that_goes_away_is_marked_too() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     fs::remove_dir_all(root.join("Remove")).unwrap();
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     let marked: Vec<String> =
         sqlx::query_scalar("SELECT name FROM folders WHERE missing_since IS NOT NULL")
@@ -446,9 +418,7 @@ async fn a_missing_year_does_not_split_an_album() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     let albums: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT name, year FROM albums")
         .fetch_all(&pool)
@@ -490,9 +460,7 @@ async fn a_year_arriving_late_is_filled_in() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
-        .await
-        .unwrap();
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
     let albums: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT name, year FROM albums")
         .fetch_all(&pool)
@@ -535,9 +503,62 @@ async fn two_tagged_years_remain_two_albums() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 2);
+}
+
+#[tokio::test]
+async fn an_interrupted_scan_writes_nothing() {
+    let root = temp_root("interrupted");
+    for n in 0..5 {
+        write_wav(&root.join(format!("Album/{n}.wav")));
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+
+    let progress = Progress::default();
+    progress.stop();
+
+    let outcome = scan_library(&pool, id, &root, Mode::Incremental, &progress)
         .await
         .unwrap();
 
-    assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 2);
+    assert!(outcome.is_none(), "the scan gave up rather than finishing");
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM tracks").await,
+        0,
+        "the transaction was dropped, not committed"
+    );
+    assert_eq!(count(&pool, "SELECT count(*) FROM folders").await, 0);
+}
+
+#[tokio::test]
+async fn an_interrupted_scan_marks_nothing_missing() {
+    let root = temp_root("interrupted-sweep");
+    for n in 0..5 {
+        write_wav(&root.join(format!("Album/{n}.wav")));
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    // The danger the rollback exists for: a scan that stopped early has not seen
+    // most of the library, and sweeping on the way out would call all of it gone.
+    let progress = Progress::default();
+    progress.stop();
+    scan_library(&pool, id, &root, Mode::Incremental, &progress)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM tracks WHERE missing_since IS NOT NULL"
+        )
+        .await,
+        0
+    );
 }

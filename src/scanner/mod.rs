@@ -111,7 +111,9 @@ pub async fn scan_all(
 
     let mut total = Outcome::default();
     for (id, path) in libraries {
-        let outcome = scan_library(pool, id, Path::new(&path), mode).await?;
+        let Some(outcome) = scan_library(pool, id, Path::new(&path), mode, progress).await? else {
+            return Ok(None);
+        };
         info!(
             "scanned '{}': {} folders, {} tracks ({} unchanged), {} failed, {} gone",
             path, outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
@@ -130,12 +132,15 @@ pub async fn scan_all(
 /// Walking and tag reading happen on a blocking thread and arrive through a
 /// channel; writing happens here. Neither side waits for the other: reading a
 /// file is I/O bound and inserting a row is not.
+///
+/// `None` when the scan was asked to stop before it finished.
 async fn scan_library(
     pool: &SqlitePool,
     library_id: i64,
     root: &Path,
     mode: Mode,
-) -> Result<Outcome> {
+    progress: &Progress,
+) -> Result<Option<Outcome>> {
     // The run's own id is what marks the rows this scan touches.
     let scan: i64 = sqlx::query_scalar(
         "INSERT INTO scan_runs (library_id, started_at, full_scan)
@@ -223,6 +228,15 @@ async fn scan_library(
         .context("starting the scan transaction")?;
 
     while let Some(scanned) = rx.recv().await {
+        // Leaving without committing is the point. A scan stopped half way
+        // through would sweep everything it had not reached yet into missing, so
+        // the transaction is dropped instead: the database goes back to what it
+        // was, and the next start scans again.
+        if progress.should_stop() {
+            info!("scan interrupted; what it had written is discarded");
+            return Ok(None);
+        }
+
         match scanned {
             Scanned::Folder { path, modified } => {
                 state.insert_folder(&mut tx_db, &path, modified).await?;
@@ -274,7 +288,7 @@ async fn scan_library(
     .await
     .context("recording the end of the scan")?;
 
-    Ok(outcome)
+    Ok(Some(outcome))
 }
 
 /// Everything the writer has to remember while a scan runs.
@@ -1012,11 +1026,25 @@ pub async fn sync_libraries(pool: &SqlitePool, paths: &[PathBuf]) -> Result<()> 
 pub struct Progress {
     scanning: AtomicBool,
     counted: AtomicU64,
+    stopping: AtomicBool,
 }
 
 impl Progress {
     pub fn is_scanning(&self) -> bool {
         self.scanning.load(Ordering::Relaxed)
+    }
+
+    /// Tells whatever scan is running to give up. Nothing ever clears this: the
+    /// only reason to ask is that the process is going away.
+    ///
+    /// A scan is the one thing that keeps a database transaction open for minutes
+    /// at a time, and the database cannot be closed from under it.
+    pub fn stop(&self) {
+        self.stopping.store(true, Ordering::Release);
+    }
+
+    fn should_stop(&self) -> bool {
+        self.stopping.load(Ordering::Acquire)
     }
 
     /// Items processed by the scan in flight, or by the last one to finish.
