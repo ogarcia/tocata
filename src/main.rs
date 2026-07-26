@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
+mod api;
 mod artwork;
 mod auth;
 mod config;
 mod db;
 mod lyrics;
 mod scanner;
+mod session;
 mod state;
 mod subsonic;
 mod user;
@@ -62,7 +64,9 @@ async fn main() -> Result<()> {
         config: config.clone(),
     };
 
-    let app = Router::new().nest("/rest", subsonic::router(state.clone()));
+    let app = Router::new()
+        .nest("/rest", subsonic::router(state.clone()))
+        .merge(api::router(state.clone()));
 
     let addr = config.listen_addr();
     let listener = TcpListener::bind(addr)

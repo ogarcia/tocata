@@ -67,7 +67,7 @@ pub async fn authenticate_password(
 
 /// Resolves an API key to its owner and records the use.
 pub async fn authenticate_api_key(pool: &SqlitePool, key: &str) -> Result<Option<User>> {
-    let key_hash = auth::hash_api_key(key);
+    let key_hash = auth::hash_secret(key);
 
     let row: Option<(i64, i64, String, bool)> = sqlx::query_as(
         "SELECT k.id, u.id, u.username, u.is_admin

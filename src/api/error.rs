@@ -1,0 +1,127 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+//! Failures, as HTTP means them.
+//!
+//! Nothing here borrows the `/rest` envelope. That envelope exists because the
+//! OpenSubsonic specification requires HTTP 200 on a failure, which leaves the
+//! status line saying nothing and every client reaching into the body to find
+//! out what happened. Here a 401 is a 401.
+//!
+//! Each failure carries a stable machine readable `code` and an English
+//! `message`. The panel reads the code and chooses its own words, in the reader's
+//! own language; the message is for whoever is looking at the raw response, and
+//! is never what a user is shown.
+
+use axum::Json;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use tracing::error;
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApiError {
+    /// 401 — no session, or one that has run out.
+    NotAuthenticated,
+    /// 401 — a login attempt that did not check out.
+    WrongCredentials,
+    /// 500 — our fault.
+    Internal,
+}
+
+impl ApiError {
+    /// The stable name of the failure. Adding one is a feature; renaming one is a
+    /// breaking change, which is what the `/v1` in the path is for.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NotAuthenticated => "notAuthenticated",
+            Self::WrongCredentials => "wrongCredentials",
+            Self::Internal => "internalError",
+        }
+    }
+
+    pub fn status(&self) -> StatusCode {
+        match self {
+            // Not 403 for either: 403 says "you, but not this", and a request
+            // with no session at all has not said who "you" is yet.
+            Self::NotAuthenticated | Self::WrongCredentials => StatusCode::UNAUTHORIZED,
+            Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::NotAuthenticated => "No valid session",
+            Self::WrongCredentials => "Wrong username or password",
+            Self::Internal => "An internal error occurred",
+        }
+    }
+
+    /// Logs the cause and hides it. What went wrong on our side belongs in the
+    /// server's log, not in an answer to whoever happened to ask.
+    pub fn internal<E: std::fmt::Display>(error: E, doing: &str) -> Self {
+        error!("{doing}: {error}");
+        Self::Internal
+    }
+}
+
+/// What a failed call returns.
+#[derive(Serialize, ToSchema)]
+pub struct ErrorBody {
+    /// Stable identifier for the kind of failure. What a client should branch on.
+    #[schema(example = "wrongCredentials")]
+    pub code: &'static str,
+    /// English, for people reading responses. Never shown to a user as is.
+    #[schema(example = "Wrong username or password")]
+    pub message: &'static str,
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (
+            self.status(),
+            Json(ErrorBody {
+                code: self.code(),
+                message: self.message(),
+            }),
+        )
+            .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statuses_say_what_happened() {
+        assert_eq!(
+            ApiError::NotAuthenticated.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            ApiError::WrongCredentials.status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[test]
+    fn codes_are_camel_case_and_distinct() {
+        let codes = [
+            ApiError::NotAuthenticated.code(),
+            ApiError::WrongCredentials.code(),
+            ApiError::Internal.code(),
+        ];
+
+        for code in codes {
+            assert!(
+                !code.contains('_') && code.starts_with(|c: char| c.is_ascii_lowercase()),
+                "{code} is not camelCase"
+            );
+        }
+
+        let distinct: std::collections::HashSet<_> = codes.iter().collect();
+        assert_eq!(distinct.len(), codes.len(), "two failures share a code");
+    }
+}

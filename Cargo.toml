@@ -13,7 +13,7 @@ categories = ["multimedia::audio", "web-programming::http-server"]
 [dependencies]
 anyhow = "1.0"
 argon2 = "0.5"
-axum = { version = "0.8", default-features = false, features = ["http1", "query", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 getrandom = "0.4"
 lofty = "0.24"
@@ -29,4 +29,7 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 tower-http = { version = "0.7", default-features = false, features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = "5"
+utoipa-axum = "0.2"
+utoipa-scalar = { version = "0.3", features = ["axum"] }
 walkdir = "2.5"

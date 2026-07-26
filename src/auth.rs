@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
-//! Password hashing and API key handling.
+//! Password hashing, and the secrets this server issues itself.
 
 use anyhow::{Result, anyhow};
 use argon2::Argon2;
@@ -49,14 +49,25 @@ pub fn verify_password(password: &str, stored: &str) -> bool {
     }
 }
 
-/// Hashes an API key for storage and lookup.
+/// Length of a generated token, in bytes before hex encoding.
+const TOKEN_BYTES: usize = 32;
+
+/// Hashes a secret this server issued, for storage and lookup: an API key, a
+/// session token.
 ///
-/// SHA-256 rather than Argon2 on purpose: the key is already high entropy, so
-/// stretching buys nothing, and this runs on every authenticated request.
-pub fn hash_api_key(key: &str) -> String {
+/// SHA-256 rather than Argon2 on purpose. Stretching defends a secret somebody
+/// chose, which is guessable; these are 256 bits from the system RNG, so there is
+/// nothing to slow an attacker down against. And this runs on every
+/// authenticated request.
+pub fn hash_secret(secret: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
+    hasher.update(secret.as_bytes());
     to_hex(&hasher.finalize())
+}
+
+/// Builds an opaque secret to hand to a client.
+pub fn generate_token() -> Result<String> {
+    Ok(to_hex(&random_bytes::<TOKEN_BYTES>()?))
 }
 
 /// Builds a password for the account created on first start.
@@ -138,12 +149,12 @@ mod tests {
     }
 
     #[test]
-    fn hashing_an_api_key_is_stable() {
+    fn hashing_an_issued_secret_is_stable() {
         let key = "24a2f3c1b0e9d8a7";
-        assert_eq!(hash_api_key(key), hash_api_key(key));
-        assert_ne!(hash_api_key(key), hash_api_key("other"));
-        assert_eq!(hash_api_key(key).len(), 64);
-        assert!(hash_api_key(key).chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(hash_secret(key), hash_secret(key));
+        assert_ne!(hash_secret(key), hash_secret("other"));
+        assert_eq!(hash_secret(key).len(), 64);
+        assert!(hash_secret(key).chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]

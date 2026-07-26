@@ -304,6 +304,26 @@ CREATE TABLE api_keys (
 
 CREATE INDEX api_keys_user_idx ON api_keys (user_id);
 
+-- A panel login. The token is hashed for the same reason an API key is: telling
+-- one apart never needs the plaintext, so a stolen database hands over no live
+-- session.
+--
+-- Expiry is absolute rather than a sliding window. A window that moves on every
+-- request never closes for anybody who leaves a tab open, and the tab is exactly
+-- the thing worth closing.
+CREATE TABLE sessions (
+    id           INTEGER PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash   TEXT    NOT NULL UNIQUE,
+    created_at   TEXT    NOT NULL,
+    -- Written back only when it is already stale, so following the panel around
+    -- does not mean a write per request.
+    last_seen_at TEXT    NOT NULL,
+    expires_at   TEXT    NOT NULL
+);
+
+CREATE INDEX sessions_user_idx ON sessions (user_id);
+
 -- Restricts a user to a subset of libraries. Absence of rows means full
 -- access, so the common case costs nothing.
 CREATE TABLE user_libraries (
