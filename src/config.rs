@@ -15,10 +15,15 @@ const DATABASE_FILE: &str = "tocata.db";
 /// The port Subsonic servers have historically listened on.
 const DEFAULT_PORT: u16 = 4040;
 
+/// Separator for the library list. A colon, as in PATH, because a comma is a
+/// perfectly ordinary character in a directory name and a colon is not.
+const LIBRARY_SEPARATOR: char = ':';
+
 /// Runtime configuration, read from the environment.
 pub struct Config {
     data_dir: PathBuf,
     port: u16,
+    library_paths: Vec<PathBuf>,
 }
 
 impl Config {
@@ -36,7 +41,21 @@ impl Config {
             Err(_) => DEFAULT_PORT,
         };
 
-        Ok(Self { data_dir, port })
+        // Declarative on purpose: a container gets its libraries from the
+        // environment, the same place it gets its volumes.
+        let library_paths = env::var("TOCATA_LIBRARY_PATHS")
+            .unwrap_or_default()
+            .split(LIBRARY_SEPARATOR)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .collect();
+
+        Ok(Self {
+            data_dir,
+            port,
+            library_paths,
+        })
     }
 
     pub fn data_dir(&self) -> &Path {
@@ -45,6 +64,10 @@ impl Config {
 
     pub fn database_path(&self) -> PathBuf {
         self.data_dir.join(DATABASE_FILE)
+    }
+
+    pub fn library_paths(&self) -> &[PathBuf] {
+        &self.library_paths
     }
 
     pub fn listen_addr(&self) -> SocketAddr {

@@ -16,6 +16,26 @@ pub fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+/// Bytes behind a public identifier. Sixty-four bits of randomness: short
+/// enough to live in a URL, wide enough that a library would need billions of
+/// rows before a collision became thinkable, and the UNIQUE constraint catches
+/// it if one ever does.
+const PUBLIC_ID_BYTES: usize = 8;
+
+/// Mints the opaque identifier clients see. Not derived from anything: a track
+/// keeps it across renames and retags, which is what stops a corrected tag
+/// from orphaning somebody's favourites.
+pub fn public_id() -> Result<String> {
+    let mut bytes = [0u8; PUBLIC_ID_BYTES];
+    getrandom::fill(&mut bytes).context("reading from the system RNG")?;
+
+    Ok(bytes.iter().fold(String::new(), |mut out, b| {
+        use std::fmt::Write;
+        let _ = write!(out, "{b:02x}");
+        out
+    }))
+}
+
 /// Opens the database, creating it if needed, and brings the schema up to
 /// date. Migrations are embedded at compile time, so the binary carries its
 /// own schema and needs nothing alongside it.

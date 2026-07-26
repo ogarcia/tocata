@@ -1,0 +1,394 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+//! Reading what a file says about itself.
+
+use anyhow::{Context, Result};
+use lofty::config::ParseOptions;
+use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::prelude::{Accessor, ItemKey};
+use lofty::probe::Probe;
+use lofty::tag::Tag;
+use std::path::Path;
+
+/// Separators taggers use to cram several artists into one field. Splitting on
+/// them is a guess, but leaving "Simon & Garfunkel; Art Garfunkel" as a single
+/// artist name is a worse one.
+const ARTIST_SEPARATORS: [char; 2] = [';', '\0'];
+
+/// Everything read out of one audio file.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Metadata {
+    pub title: Option<String>,
+    pub sort_title: Option<String>,
+    pub artists: Vec<String>,
+    pub album_artists: Vec<String>,
+    pub album: Option<String>,
+    pub sort_album: Option<String>,
+    pub genres: Vec<String>,
+    pub year: Option<i32>,
+    pub date: Option<String>,
+    pub track_number: Option<i64>,
+    pub disc_number: Option<i64>,
+    pub disc_subtitle: Option<String>,
+    pub bpm: Option<i64>,
+    pub comment: Option<String>,
+    pub is_compilation: bool,
+    pub mbid_recording: Option<String>,
+    pub mbid_track: Option<String>,
+    pub mbid_release: Option<String>,
+    pub mbid_release_group: Option<String>,
+    pub isrc: Option<String>,
+    pub rg_track_gain: Option<f64>,
+    pub rg_track_peak: Option<f64>,
+    pub rg_album_gain: Option<f64>,
+    pub rg_album_peak: Option<f64>,
+    pub lyrics: Option<String>,
+    pub has_picture: bool,
+    pub duration_ms: Option<i64>,
+    pub bit_rate: Option<i64>,
+    pub bit_depth: Option<i64>,
+    pub sampling_rate: Option<i64>,
+    pub channel_count: Option<i64>,
+}
+
+/// Reads one file. Blocking: callers put this on a blocking task.
+pub fn read(path: &Path) -> Result<Metadata> {
+    let tagged = Probe::open(path)
+        .with_context(|| format!("opening {}", path.display()))?
+        .options(ParseOptions::new())
+        .read()
+        .with_context(|| format!("reading tags from {}", path.display()))?;
+
+    let properties = tagged.properties();
+    let mut metadata = Metadata {
+        duration_ms: Some(properties.duration().as_millis() as i64),
+        bit_rate: properties.audio_bitrate().map(i64::from),
+        bit_depth: properties.bit_depth().map(i64::from),
+        sampling_rate: properties.sample_rate().map(i64::from),
+        channel_count: properties.channels().map(i64::from),
+        ..Default::default()
+    };
+
+    // A file with no tag at all is still a track; the caller falls back to the
+    // file name for a title.
+    let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
+        return Ok(metadata);
+    };
+
+    read_tag(tag, &mut metadata);
+    Ok(metadata)
+}
+
+fn read_tag(tag: &Tag, metadata: &mut Metadata) {
+    metadata.title = clean(tag.title().as_deref());
+    metadata.album = clean(tag.album().as_deref());
+    metadata.comment = clean(tag.comment().as_deref());
+    metadata.track_number = tag.track().map(i64::from);
+    metadata.disc_number = tag.disk().map(i64::from);
+
+    metadata.artists = split_artists(tag.artist().as_deref());
+    metadata.album_artists = split_artists(text(tag, ItemKey::AlbumArtist).as_deref());
+    metadata.genres = split_artists(tag.genre().as_deref());
+
+    metadata.sort_title = text(tag, ItemKey::TrackTitleSortOrder);
+    metadata.sort_album = text(tag, ItemKey::AlbumTitleSortOrder);
+    metadata.disc_subtitle = text(tag, ItemKey::SetSubtitle);
+    metadata.comment = metadata
+        .comment
+        .take()
+        .or_else(|| text(tag, ItemKey::Comment));
+
+    // A date of "1996-07-15" still tells us the year, and taggers put the
+    // year in either field depending on their mood.
+    metadata.date = text(tag, ItemKey::RecordingDate);
+    metadata.year = text(tag, ItemKey::Year)
+        .as_deref()
+        .and_then(|y| y.get(..4))
+        .and_then(|y| y.parse().ok())
+        .or_else(|| {
+            metadata
+                .date
+                .as_deref()
+                .and_then(|d| d.get(..4))
+                .and_then(|y| y.parse().ok())
+        });
+
+    metadata.bpm = text(tag, ItemKey::Bpm).and_then(|v| v.parse().ok());
+    metadata.isrc = text(tag, ItemKey::Isrc);
+    metadata.mbid_recording = text(tag, ItemKey::MusicBrainzRecordingId);
+    metadata.mbid_track = text(tag, ItemKey::MusicBrainzTrackId);
+    metadata.mbid_release = text(tag, ItemKey::MusicBrainzReleaseId);
+    metadata.mbid_release_group = text(tag, ItemKey::MusicBrainzReleaseGroupId);
+
+    metadata.rg_track_gain = decibels(text(tag, ItemKey::ReplayGainTrackGain).as_deref());
+    metadata.rg_track_peak = text(tag, ItemKey::ReplayGainTrackPeak).and_then(|v| v.parse().ok());
+    metadata.rg_album_gain = decibels(text(tag, ItemKey::ReplayGainAlbumGain).as_deref());
+    metadata.rg_album_peak = text(tag, ItemKey::ReplayGainAlbumPeak).and_then(|v| v.parse().ok());
+
+    metadata.lyrics = text(tag, ItemKey::Lyrics);
+    metadata.is_compilation = text(tag, ItemKey::FlagCompilation)
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    metadata.has_picture = tag.picture_count() > 0;
+}
+
+fn text(tag: &Tag, key: ItemKey) -> Option<String> {
+    clean(tag.get_string(key))
+}
+
+/// Trims and discards anything that was only whitespace, because an empty tag
+/// and a missing tag mean the same thing to us.
+fn clean(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+fn split_artists(value: Option<&str>) -> Vec<String> {
+    value
+        .map(|v| {
+            v.split(ARTIST_SEPARATORS)
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// ReplayGain values are written as "-7.32 dB", so the unit has to come off
+/// before parsing.
+fn decibels(value: Option<&str>) -> Option<f64> {
+    value?
+        .trim()
+        .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c.is_whitespace())
+        .trim()
+        .parse()
+        .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lofty::prelude::TagExt;
+    use lofty::tag::{TagItem, TagType};
+    use std::path::PathBuf;
+
+    /// Smallest thing lofty will accept as audio: a RIFF/WAVE header with one
+    /// silent sample. Beats shipping a binary fixture, and needs no encoder
+    /// installed.
+    fn silent_wav(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("tocata-tags-{name}.wav"));
+        let mut bytes = Vec::new();
+        let data: [u8; 4] = [0, 0, 0, 0];
+
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36u32 + data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&2u16.to_le_bytes()); // stereo
+        bytes.extend_from_slice(&44_100u32.to_le_bytes());
+        bytes.extend_from_slice(&176_400u32.to_le_bytes()); // byte rate
+        bytes.extend_from_slice(&4u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&data);
+
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn tagged_wav(name: &str, items: &[(ItemKey, &str)]) -> PathBuf {
+        let path = silent_wav(name);
+        let mut tag = Tag::new(TagType::Id3v2);
+        for (key, value) in items {
+            tag.insert(TagItem::new(
+                *key,
+                lofty::tag::ItemValue::Text(value.to_string()),
+            ));
+        }
+        tag.save_to_path(&path, Default::default()).unwrap();
+        path
+    }
+
+    #[test]
+    fn audio_properties_are_read_even_without_tags() {
+        let metadata = read(&silent_wav("bare")).unwrap();
+        assert_eq!(metadata.sampling_rate, Some(44_100));
+        assert_eq!(metadata.channel_count, Some(2));
+        assert_eq!(metadata.bit_depth, Some(16));
+        assert_eq!(metadata.title, None, "an untagged file has no title");
+    }
+
+    #[test]
+    fn the_common_fields_are_read() {
+        let path = tagged_wav(
+            "common",
+            &[
+                (ItemKey::TrackTitle, "Bohemian Rhapsody"),
+                (ItemKey::TrackArtist, "Queen"),
+                (ItemKey::AlbumTitle, "A Night at the Opera"),
+                (ItemKey::AlbumArtist, "Queen"),
+                (ItemKey::Genre, "Rock"),
+                (ItemKey::TrackNumber, "11"),
+                (ItemKey::DiscNumber, "1"),
+            ],
+        );
+
+        let metadata = read(&path).unwrap();
+        assert_eq!(metadata.title.as_deref(), Some("Bohemian Rhapsody"));
+        assert_eq!(metadata.artists, vec!["Queen"]);
+        assert_eq!(metadata.album.as_deref(), Some("A Night at the Opera"));
+        assert_eq!(metadata.album_artists, vec!["Queen"]);
+        assert_eq!(metadata.genres, vec!["Rock"]);
+        assert_eq!(metadata.track_number, Some(11));
+        assert_eq!(metadata.disc_number, Some(1));
+    }
+
+    #[test]
+    fn several_artists_in_one_field_are_split() {
+        let path = tagged_wav("multi", &[(ItemKey::TrackArtist, "David Bowie; Queen")]);
+        assert_eq!(read(&path).unwrap().artists, vec!["David Bowie", "Queen"]);
+    }
+
+    #[test]
+    fn whitespace_only_tags_count_as_absent() {
+        let path = tagged_wav("blank", &[(ItemKey::TrackTitle, "   ")]);
+        assert_eq!(read(&path).unwrap().title, None);
+    }
+
+    #[test]
+    fn a_year_is_recovered_from_a_full_date() {
+        let path = tagged_wav("date", &[(ItemKey::RecordingDate, "1975-11-21")]);
+        let metadata = read(&path).unwrap();
+        assert_eq!(metadata.date.as_deref(), Some("1975-11-21"));
+        assert_eq!(metadata.year, Some(1975));
+    }
+
+    /// Builds a tag in memory, without a file behind it.
+    ///
+    /// The extraction of some keys cannot be tested through the WAV fixture:
+    /// MusicBrainz identifiers live in ID3v2 as TXXX frames with specific
+    /// descriptions, and they do not survive being written into a RIFF
+    /// container. That is a limitation of the fixture, not of the reading, so
+    /// these keys are checked against the tag directly. Do not "fix" this by
+    /// moving the assertions onto a file: they will silently stop covering
+    /// anything.
+    fn tag_with(items: &[(ItemKey, &str)]) -> Tag {
+        let mut tag = Tag::new(TagType::VorbisComments);
+        for (key, value) in items {
+            tag.insert(TagItem::new(
+                *key,
+                lofty::tag::ItemValue::Text(value.to_string()),
+            ));
+        }
+        tag
+    }
+
+    fn metadata_from(items: &[(ItemKey, &str)]) -> Metadata {
+        let mut metadata = Metadata::default();
+        read_tag(&tag_with(items), &mut metadata);
+        metadata
+    }
+
+    #[test]
+    fn musicbrainz_identifiers_are_read() {
+        let metadata = metadata_from(&[
+            (
+                ItemKey::MusicBrainzRecordingId,
+                "b1a9c0e9-d987-4042-ae91-78d6a3267d69",
+            ),
+            (ItemKey::MusicBrainzTrackId, "0a1b2c3d"),
+            (ItemKey::MusicBrainzReleaseId, "release-mbid"),
+            (ItemKey::MusicBrainzReleaseGroupId, "group-mbid"),
+        ]);
+
+        assert_eq!(
+            metadata.mbid_recording.as_deref(),
+            Some("b1a9c0e9-d987-4042-ae91-78d6a3267d69")
+        );
+        assert_eq!(metadata.mbid_track.as_deref(), Some("0a1b2c3d"));
+        assert_eq!(metadata.mbid_release.as_deref(), Some("release-mbid"));
+        assert_eq!(metadata.mbid_release_group.as_deref(), Some("group-mbid"));
+    }
+
+    #[test]
+    fn an_isrc_survives_a_real_file() {
+        let path = tagged_wav("isrc", &[(ItemKey::Isrc, "GBUM71029604")]);
+        assert_eq!(read(&path).unwrap().isrc.as_deref(), Some("GBUM71029604"));
+    }
+
+    /// Both fields, because taggers disagree about where the year goes and
+    /// lofty does not persist ItemKey::Year into a RIFF container at all, so
+    /// the file fixture cannot cover this half.
+    #[test]
+    fn a_year_is_read_from_either_field() {
+        let from_year = metadata_from(&[(ItemKey::Year, "1975")]);
+        assert_eq!(from_year.year, Some(1975));
+
+        let from_date = metadata_from(&[(ItemKey::RecordingDate, "1975-11-21")]);
+        assert_eq!(from_date.year, Some(1975));
+        assert_eq!(from_date.date.as_deref(), Some("1975-11-21"));
+
+        // A year in the tag wins over one derived from the date.
+        let both = metadata_from(&[
+            (ItemKey::Year, "1975"),
+            (ItemKey::RecordingDate, "2004-01-01"),
+        ]);
+        assert_eq!(both.year, Some(1975));
+    }
+
+    #[test]
+    fn replaygain_and_sort_names_are_read() {
+        let metadata = metadata_from(&[
+            (ItemKey::ReplayGainTrackGain, "-7.32 dB"),
+            (ItemKey::ReplayGainTrackPeak, "0.98"),
+            (ItemKey::ReplayGainAlbumGain, "-6.5 dB"),
+            (ItemKey::TrackTitleSortOrder, "Bohemian Rhapsody"),
+            (ItemKey::AlbumTitleSortOrder, "Night at the Opera, A"),
+        ]);
+
+        assert_eq!(metadata.rg_track_gain, Some(-7.32));
+        assert_eq!(metadata.rg_track_peak, Some(0.98));
+        assert_eq!(metadata.rg_album_gain, Some(-6.5));
+        assert_eq!(metadata.sort_title.as_deref(), Some("Bohemian Rhapsody"));
+        assert_eq!(
+            metadata.sort_album.as_deref(),
+            Some("Night at the Opera, A")
+        );
+    }
+
+    #[test]
+    fn a_compilation_flag_is_recognised() {
+        let path = tagged_wav("comp", &[(ItemKey::FlagCompilation, "1")]);
+        assert!(read(&path).unwrap().is_compilation);
+
+        let path = tagged_wav("nocomp", &[(ItemKey::FlagCompilation, "0")]);
+        assert!(!read(&path).unwrap().is_compilation);
+    }
+
+    #[test]
+    fn replaygain_loses_its_unit() {
+        assert_eq!(decibels(Some("-7.32 dB")), Some(-7.32));
+        assert_eq!(
+            decibels(Some("+2.5 dB")),
+            Some(2.5),
+            "a leading plus is fine"
+        );
+        assert_eq!(decibels(Some("-7.32")), Some(-7.32));
+        assert_eq!(decibels(Some("nonsense")), None);
+        assert_eq!(decibels(None), None);
+    }
+
+    #[test]
+    fn an_unreadable_file_is_an_error_not_a_panic() {
+        let path = std::env::temp_dir().join("tocata-tags-not-audio.flac");
+        std::fs::write(&path, b"this is not a flac file at all").unwrap();
+        assert!(read(&path).is_err());
+    }
+}
