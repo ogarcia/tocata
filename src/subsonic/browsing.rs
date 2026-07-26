@@ -296,22 +296,26 @@ impl From<ArtistRow> for ArtistId3 {
 /// not to.
 macro_rules! artist_columns_head {
     () => {
-        "
+        concat!(
+            "
     SELECT a.id, a.public_id, a.name, a.sort_name, a.mbid,
            (SELECT count(*) FROM albums al
-             WHERE EXISTS (
-                       SELECT 1 FROM album_artists aa
-                        WHERE aa.album_id = al.id AND aa.artist_id = a.id
-                   )
-                OR EXISTS (
-                       SELECT 1 FROM tracks t
-                         JOIN track_artists ta ON ta.track_id = t.id
-                        WHERE t.album_id = al.id AND ta.artist_id = a.id
-                          AND t.missing_since IS NULL
-                   )) AS album_count,
+             WHERE (EXISTS (
+                        SELECT 1 FROM album_artists aa
+                         WHERE aa.album_id = al.id AND aa.artist_id = a.id
+                    )
+                 OR EXISTS (
+                        SELECT 1 FROM track_artists ta
+                          JOIN tracks t ON t.id = ta.track_id
+                         WHERE t.album_id = al.id AND ta.artist_id = a.id
+                    ))
+               AND ",
+            album_is_visible!("al.id"),
+            ") AS album_count,
            s.starred_at
       FROM artists a
       LEFT JOIN user_artist_stats s ON s.artist_id = a.id AND s.user_id = "
+        )
     };
 }
 
@@ -322,11 +326,13 @@ macro_rules! artist_columns_tail {
                 SELECT 1 FROM track_artists ta
                   JOIN tracks t ON t.id = ta.track_id
                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                   AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
             )
          OR EXISTS (
                 SELECT 1 FROM album_artists aa
                   JOIN tracks t ON t.album_id = aa.album_id
                  WHERE aa.artist_id = a.id AND t.missing_since IS NULL
+                   AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
             ))"
     };
 }
@@ -390,9 +396,11 @@ macro_rules! album_columns_head {
     SELECT al.id, al.public_id, al.name, al.sort_name, al.year, al.is_compilation,
            al.mbid_release, al.created_at,
            (SELECT count(*) FROM tracks t
-             WHERE t.album_id = al.id AND t.missing_since IS NULL) AS song_count,
+             WHERE t.album_id = al.id AND t.missing_since IS NULL
+               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS song_count,
            (SELECT sum(t.duration_ms) FROM tracks t
-             WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration_ms,
+             WHERE t.album_id = al.id AND t.missing_since IS NULL
+               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS duration_ms,
            s.play_count, s.starred_at, s.rating
       FROM albums al
       LEFT JOIN user_album_stats s ON s.album_id = al.id AND s.user_id = "
@@ -425,6 +433,7 @@ async fn load_albums_of_artist(
                      JOIN track_artists ta ON ta.track_id = t.id
                      JOIN artists ar ON ar.id = ta.artist_id
                     WHERE t.album_id = al.id AND t.missing_since IS NULL
+                      AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
                       AND ar.public_id = ?
                )
          ORDER BY al.year, coalesce(al.sort_name, al.name) COLLATE NOCASE"
@@ -592,7 +601,8 @@ macro_rules! track_columns_head {
 macro_rules! track_columns_tail {
     () => {
         "
-     WHERE t.missing_since IS NULL"
+     WHERE t.missing_since IS NULL
+       AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)"
     };
 }
 
@@ -996,7 +1006,8 @@ pub async fn get_music_directory(
         "SELECT f.public_id, f.name, parent.public_id
            FROM folders f
            LEFT JOIN folders parent ON parent.id = f.parent_id
-          WHERE f.public_id = ? AND f.missing_since IS NULL",
+          WHERE f.public_id = ? AND f.missing_since IS NULL
+            AND f.library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
     )
     .bind(&query.id)
     .fetch_optional(&pool)
@@ -1043,7 +1054,8 @@ async fn load_last_modified(
 ) -> Result<i64, sqlx::Error> {
     let newest: Option<String> = sqlx::query_scalar(
         "SELECT max(modified_at) FROM folders
-          WHERE missing_since IS NULL AND (? IS NULL OR library_id = ?)",
+          WHERE missing_since IS NULL AND (? IS NULL OR library_id = ?)
+            AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
     )
     .bind(library_id)
     .bind(library_id)
@@ -1071,6 +1083,7 @@ async fn load_root_folders(
            FROM folders f
            JOIN folders root ON root.id = f.parent_id
           WHERE root.parent_id IS NULL AND f.missing_since IS NULL
+            AND f.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
             AND (? IS NULL OR f.library_id = ?)
           ORDER BY f.name COLLATE NOCASE",
     )
@@ -1089,6 +1102,7 @@ async fn load_child_folders(
            FROM folders f
            JOIN folders parent ON parent.id = f.parent_id
           WHERE parent.public_id = ? AND f.missing_since IS NULL
+            AND f.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY f.name COLLATE NOCASE",
     )
     .bind(parent_public_id)

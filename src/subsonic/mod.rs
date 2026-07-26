@@ -3,6 +3,55 @@
 
 //! The OpenSubsonic API, served under `/rest`.
 
+// Defined before the modules so they can all see it: a `macro_rules!` is in scope
+// from where it is written to the end of the enclosing module, nested modules
+// included.
+
+/// Whether a thing has at least one track worth showing.
+///
+/// A track is worth showing when its file is still there and its library is
+/// switched on. Everything above a track — an album, an artist — is visible
+/// exactly when one of its tracks is, so this is the one place that decides it.
+///
+/// `$join` reaches the tracks in question and must end in its own `WHERE`, since
+/// the conditions below are appended to it.
+macro_rules! has_a_visible_track {
+    ($join:expr) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM tracks t ",
+            $join,
+            " AND t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1))"
+        )
+    };
+}
+
+/// An album with something in it.
+macro_rules! album_is_visible {
+    ($album:literal) => {
+        has_a_visible_track!(concat!("WHERE t.album_id = ", $album))
+    };
+}
+
+/// An artist credited on a track, or on an album that still has one.
+macro_rules! artist_is_visible {
+    ($artist:literal) => {
+        concat!(
+            "(",
+            has_a_visible_track!(concat!(
+                "JOIN track_artists ta ON ta.track_id = t.id WHERE ta.artist_id = ",
+                $artist
+            )),
+            " OR ",
+            has_a_visible_track!(concat!(
+                "JOIN album_artists aa ON aa.album_id = t.album_id WHERE aa.artist_id = ",
+                $artist
+            )),
+            ")"
+        )
+    };
+}
+
 mod annotation;
 mod auth;
 mod bookmarks;

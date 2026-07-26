@@ -221,16 +221,21 @@ pub async fn get_starred2(auth: Authenticated, State(pool): State<SqlitePool>) -
 pub async fn get_genres(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
     // Counts come from what is still present, so a genre whose files all went
     // away reports zero rather than promising music that cannot be played.
-    let rows: Result<Vec<(String, i64, i64)>, _> = sqlx::query_as(
+    let rows: Result<Vec<(String, i64, i64)>, _> = sqlx::query_as(concat!(
         "SELECT g.name,
-                (SELECT count(*) FROM track_genres tg
-                   JOIN tracks t ON t.id = tg.track_id
-                  WHERE tg.genre_id = g.id AND t.missing_since IS NULL) AS song_count,
-                (SELECT count(DISTINCT ag.album_id) FROM album_genres ag
-                  WHERE ag.genre_id = g.id) AS album_count
-           FROM genres g
-          ORDER BY g.name COLLATE NOCASE",
-    )
+                    (SELECT count(*) FROM track_genres tg
+                       JOIN tracks t ON t.id = tg.track_id
+                      WHERE tg.genre_id = g.id
+                        AND t.missing_since IS NULL
+                        AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1))
+                        AS song_count,
+                    (SELECT count(DISTINCT ag.album_id) FROM album_genres ag
+                      WHERE ag.genre_id = g.id AND ",
+        album_is_visible!("ag.album_id"),
+        ") AS album_count
+               FROM genres g
+              ORDER BY g.name COLLATE NOCASE"
+    ))
     .fetch_all(&pool)
     .await;
 
@@ -264,6 +269,7 @@ pub async fn get_random_songs(
     let ids: Result<Vec<i64>, _> = sqlx::query_scalar(
         "SELECT t.id FROM tracks t
           WHERE t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
             AND (? IS NULL OR EXISTS (
                     SELECT 1 FROM track_genres tg
                       JOIN genres g ON g.id = tg.genre_id
@@ -312,7 +318,8 @@ pub async fn get_songs_by_genre(
         "SELECT t.id FROM tracks t
            JOIN track_genres tg ON tg.track_id = t.id
            JOIN genres g ON g.id = tg.genre_id
-          WHERE t.missing_since IS NULL AND g.name = ?
+          WHERE t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1) AND g.name = ?
           ORDER BY t.title COLLATE NOCASE
           LIMIT ? OFFSET ?",
     )
@@ -346,6 +353,7 @@ pub async fn get_now_playing(auth: Authenticated, State(pool): State<SqlitePool>
            JOIN users u ON u.id = np.user_id
            JOIN tracks t ON t.id = np.track_id
           WHERE t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY np.started_at DESC",
     )
     .fetch_all(&pool)
@@ -426,6 +434,7 @@ async fn starred_ids(
                JOIN tracks t ON t.id = s.track_id
               WHERE s.user_id = ? AND s.starred_at IS NOT NULL
                 AND t.missing_since IS NULL
+                AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
               ORDER BY s.starred_at DESC"
         }
         Starred_::Albums => {
@@ -460,24 +469,33 @@ async fn album_ids(
 ) -> Result<Vec<i64>, Rejected> {
     let ids = match query.r#type.as_str() {
         "random" => {
-            sqlx::query_scalar("SELECT id FROM albums ORDER BY random() LIMIT ?")
-                .bind(size)
-                .fetch_all(pool)
-                .await?
+            sqlx::query_scalar(concat!(
+                "SELECT id FROM albums WHERE ",
+                album_is_visible!("albums.id"),
+                " ORDER BY random() LIMIT ?"
+            ))
+            .bind(size)
+            .fetch_all(pool)
+            .await?
         }
         "newest" => {
-            sqlx::query_scalar("SELECT id FROM albums ORDER BY created_at DESC LIMIT ? OFFSET ?")
-                .bind(size)
-                .bind(offset)
-                .fetch_all(pool)
-                .await?
+            sqlx::query_scalar(concat!(
+                "SELECT id FROM albums WHERE ",
+                album_is_visible!("albums.id"),
+                " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            ))
+            .bind(size)
+            .bind(offset)
+            .fetch_all(pool)
+            .await?
         }
         "highest" => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
                 "SELECT s.album_id FROM user_album_stats s
-                  WHERE s.user_id = ? AND s.rating IS NOT NULL
-                  ORDER BY s.rating DESC LIMIT ? OFFSET ?",
-            )
+                      WHERE s.user_id = ? AND s.rating IS NOT NULL AND ",
+                album_is_visible!("s.album_id"),
+                " ORDER BY s.rating DESC LIMIT ? OFFSET ?"
+            ))
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -485,11 +503,12 @@ async fn album_ids(
             .await?
         }
         "frequent" => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
                 "SELECT s.album_id FROM user_album_stats s
-                  WHERE s.user_id = ? AND s.play_count > 0
-                  ORDER BY s.play_count DESC LIMIT ? OFFSET ?",
-            )
+                      WHERE s.user_id = ? AND s.play_count > 0 AND ",
+                album_is_visible!("s.album_id"),
+                " ORDER BY s.play_count DESC LIMIT ? OFFSET ?"
+            ))
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -497,11 +516,12 @@ async fn album_ids(
             .await?
         }
         "recent" => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
                 "SELECT s.album_id FROM user_album_stats s
-                  WHERE s.user_id = ? AND s.last_played IS NOT NULL
-                  ORDER BY s.last_played DESC LIMIT ? OFFSET ?",
-            )
+                      WHERE s.user_id = ? AND s.last_played IS NOT NULL AND ",
+                album_is_visible!("s.album_id"),
+                " ORDER BY s.last_played DESC LIMIT ? OFFSET ?"
+            ))
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -509,11 +529,12 @@ async fn album_ids(
             .await?
         }
         "starred" => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
                 "SELECT s.album_id FROM user_album_stats s
-                  WHERE s.user_id = ? AND s.starred_at IS NOT NULL
-                  ORDER BY s.starred_at DESC LIMIT ? OFFSET ?",
-            )
+                      WHERE s.user_id = ? AND s.starred_at IS NOT NULL AND ",
+                album_is_visible!("s.album_id"),
+                " ORDER BY s.starred_at DESC LIMIT ? OFFSET ?"
+            ))
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -521,24 +542,27 @@ async fn album_ids(
             .await?
         }
         "alphabeticalByName" => {
-            sqlx::query_scalar(
-                "SELECT id FROM albums
-                  ORDER BY coalesce(sort_name, name) COLLATE NOCASE LIMIT ? OFFSET ?",
-            )
+            sqlx::query_scalar(concat!(
+                "SELECT id FROM albums WHERE ",
+                album_is_visible!("albums.id"),
+                " ORDER BY coalesce(sort_name, name) COLLATE NOCASE LIMIT ? OFFSET ?"
+            ))
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
             .await?
         }
         "alphabeticalByArtist" => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
                 "SELECT al.id FROM albums al
-                   LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0
-                   LEFT JOIN artists ar ON ar.id = aa.artist_id
-                  ORDER BY coalesce(ar.sort_name, ar.name) COLLATE NOCASE,
-                           coalesce(al.sort_name, al.name) COLLATE NOCASE
-                  LIMIT ? OFFSET ?",
-            )
+                       LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0
+                       LEFT JOIN artists ar ON ar.id = aa.artist_id
+                      WHERE ",
+                album_is_visible!("al.id"),
+                " ORDER BY coalesce(ar.sort_name, ar.name) COLLATE NOCASE,
+                               coalesce(al.sort_name, al.name) COLLATE NOCASE
+                      LIMIT ? OFFSET ?"
+            ))
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -554,10 +578,11 @@ async fn album_ids(
             let (low, high) = if descending { (to, from) } else { (from, to) };
 
             if descending {
-                sqlx::query_scalar(
-                    "SELECT id FROM albums WHERE year BETWEEN ? AND ?
-                      ORDER BY year DESC LIMIT ? OFFSET ?",
-                )
+                sqlx::query_scalar(concat!(
+                    "SELECT id FROM albums WHERE year BETWEEN ? AND ? AND ",
+                    album_is_visible!("albums.id"),
+                    " ORDER BY year DESC LIMIT ? OFFSET ?"
+                ))
                 .bind(low)
                 .bind(high)
                 .bind(size)
@@ -565,10 +590,11 @@ async fn album_ids(
                 .fetch_all(pool)
                 .await?
             } else {
-                sqlx::query_scalar(
-                    "SELECT id FROM albums WHERE year BETWEEN ? AND ?
-                      ORDER BY year LIMIT ? OFFSET ?",
-                )
+                sqlx::query_scalar(concat!(
+                    "SELECT id FROM albums WHERE year BETWEEN ? AND ? AND ",
+                    album_is_visible!("albums.id"),
+                    " ORDER BY year LIMIT ? OFFSET ?"
+                ))
                 .bind(low)
                 .bind(high)
                 .bind(size)
@@ -580,14 +606,15 @@ async fn album_ids(
         "byGenre" => {
             let genre = query.genre.as_deref().ok_or(Rejected::Missing("genre"))?;
 
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
                 "SELECT DISTINCT al.id FROM albums al
-                   JOIN album_genres ag ON ag.album_id = al.id
-                   JOIN genres g ON g.id = ag.genre_id
-                  WHERE g.name = ?
-                  ORDER BY coalesce(al.sort_name, al.name) COLLATE NOCASE
-                  LIMIT ? OFFSET ?",
-            )
+                       JOIN album_genres ag ON ag.album_id = al.id
+                       JOIN genres g ON g.id = ag.genre_id
+                      WHERE g.name = ? AND ",
+                album_is_visible!("al.id"),
+                " ORDER BY coalesce(al.sort_name, al.name) COLLATE NOCASE
+                      LIMIT ? OFFSET ?"
+            ))
             .bind(genre)
             .bind(size)
             .bind(offset)

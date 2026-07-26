@@ -129,10 +129,12 @@ macro_rules! playlist_columns {
            p.updated_at, u.username AS owner,
            (SELECT count(*) FROM playlist_tracks pt
               JOIN tracks t ON t.id = pt.track_id
-             WHERE pt.playlist_id = p.id AND t.missing_since IS NULL) AS song_count,
+             WHERE pt.playlist_id = p.id AND t.missing_since IS NULL
+               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS song_count,
            (SELECT sum(t.duration_ms) FROM playlist_tracks pt
               JOIN tracks t ON t.id = pt.track_id
-             WHERE pt.playlist_id = p.id AND t.missing_since IS NULL) AS duration_ms
+             WHERE pt.playlist_id = p.id AND t.missing_since IS NULL
+               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS duration_ms
       FROM playlists p
       JOIN users u ON u.id = p.owner_id"
     };
@@ -183,6 +185,7 @@ pub async fn get_playlist(
         "SELECT pt.track_id FROM playlist_tracks pt
            JOIN tracks t ON t.id = pt.track_id
           WHERE pt.playlist_id = ? AND t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY pt.position",
     )
     .bind(row.id)
@@ -470,6 +473,7 @@ async fn finish(
                 "SELECT pt.track_id FROM playlist_tracks pt
                    JOIN tracks t ON t.id = pt.track_id
                   WHERE pt.playlist_id = ? AND t.missing_since IS NULL
+                    AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
                   ORDER BY pt.position",
             )
             .bind(row.id)

@@ -90,7 +90,8 @@ async fn locate(pool: &SqlitePool, public_id: &str) -> Result<Option<Located>, R
         "SELECT t.path, t.content_type, l.path
            FROM tracks t
            JOIN libraries l ON l.id = t.library_id
-          WHERE t.public_id = ? AND t.missing_since IS NULL",
+          WHERE t.public_id = ? AND t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
     )
     .bind(public_id)
     .fetch_optional(pool)
@@ -337,6 +338,7 @@ async fn extract_cover(
     let paths: Vec<String> = sqlx::query_scalar(
         "SELECT path FROM tracks
           WHERE album_id = ? AND missing_since IS NULL
+            AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY disc_number, track_number
           LIMIT 20",
     )
@@ -560,6 +562,7 @@ pub async fn get_lyrics(
                   WHERE ta.track_id = t.id ORDER BY ta.position LIMIT 1)
            FROM tracks t
           WHERE t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
             AND (? IS NULL OR t.title = ?)
             AND (? IS NULL OR EXISTS (
                     SELECT 1 FROM track_artists ta
@@ -612,11 +615,13 @@ pub async fn get_lyrics_by_song_id(
     State(pool): State<SqlitePool>,
     Query(query): Query<IdQuery>,
 ) -> Response {
-    let found: Result<Option<String>, _> =
-        sqlx::query_scalar("SELECT path FROM tracks WHERE public_id = ? AND missing_since IS NULL")
-            .bind(&query.id)
-            .fetch_optional(&pool)
-            .await;
+    let found: Result<Option<String>, _> = sqlx::query_scalar(
+        "SELECT path FROM tracks WHERE public_id = ? AND missing_since IS NULL
+        AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
+    )
+    .bind(&query.id)
+    .fetch_optional(&pool)
+    .await;
 
     let path = match found {
         Ok(Some(path)) => path,

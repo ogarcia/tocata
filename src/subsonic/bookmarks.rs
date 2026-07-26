@@ -102,6 +102,7 @@ pub async fn get_bookmarks(auth: Authenticated, State(pool): State<SqlitePool>) 
            FROM bookmarks b
            JOIN tracks t ON t.id = b.track_id
           WHERE b.user_id = ? AND t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY b.updated_at DESC",
     )
     .bind(auth.user.id)
@@ -148,11 +149,13 @@ pub async fn create_bookmark(
     State(pool): State<SqlitePool>,
     Query(query): Query<CreateBookmarkQuery>,
 ) -> Response {
-    let track_id: Result<Option<i64>, _> =
-        sqlx::query_scalar("SELECT id FROM tracks WHERE public_id = ? AND missing_since IS NULL")
-            .bind(&query.id)
-            .fetch_optional(&pool)
-            .await;
+    let track_id: Result<Option<i64>, _> = sqlx::query_scalar(
+        "SELECT id FROM tracks WHERE public_id = ? AND missing_since IS NULL
+        AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
+    )
+    .bind(&query.id)
+    .fetch_optional(&pool)
+    .await;
 
     let track_id = match track_id {
         Ok(Some(id)) => id,
@@ -241,6 +244,7 @@ pub async fn get_play_queue(auth: Authenticated, State(pool): State<SqlitePool>)
         "SELECT q.track_id FROM play_queue_tracks q
            JOIN tracks t ON t.id = q.track_id
           WHERE q.user_id = ? AND t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY q.position",
     )
     .bind(auth.user.id)
