@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use lofty::config::ParseOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::PictureType;
 use lofty::prelude::{Accessor, ItemKey};
 use lofty::probe::Probe;
 use lofty::tag::Tag;
@@ -44,7 +45,8 @@ pub struct Metadata {
     pub rg_album_gain: Option<f64>,
     pub rg_album_peak: Option<f64>,
     pub lyrics: Option<String>,
-    pub has_picture: bool,
+    /// Bytes of the embedded front cover, when the file carries one.
+    pub picture: Option<Vec<u8>>,
     pub duration_ms: Option<i64>,
     pub bit_rate: Option<i64>,
     pub bit_depth: Option<i64>,
@@ -130,7 +132,14 @@ fn read_tag(tag: &Tag, metadata: &mut Metadata) {
     metadata.is_compilation = text(tag, ItemKey::FlagCompilation)
         .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
         .unwrap_or(false);
-    metadata.has_picture = tag.picture_count() > 0;
+    // The front cover if the file says which one it is, otherwise whatever
+    // picture it carries: a file with one unlabelled image means that image.
+    metadata.picture = tag
+        .pictures()
+        .iter()
+        .find(|p| p.pic_type() == PictureType::CoverFront)
+        .or_else(|| tag.pictures().first())
+        .map(|p| p.data().to_vec());
 }
 
 fn text(tag: &Tag, key: ItemKey) -> Option<String> {

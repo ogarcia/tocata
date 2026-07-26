@@ -9,17 +9,26 @@ mod tags;
 mod tests;
 mod walker;
 
+use crate::artwork;
 use crate::db;
 use album_key::AlbumKey;
 use anyhow::{Context, Result};
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tags::Metadata;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use walker::Entry;
+
+/// An album already recorded in this scan: the year it was filed under, and its
+/// row.
+type RecordedAlbum = (Option<String>, i64);
+
+/// Albums reachable by artist and name, which is how a track with no year finds
+/// the album its siblings already created.
+type AlbumsByName = HashMap<(String, String), Vec<RecordedAlbum>>;
 
 /// How many scanned entries wait in the channel. Reading tags is slower than
 /// inserting rows, so this only has to be deep enough that the writer never
@@ -85,6 +94,7 @@ enum Scanned {
 /// which is what a second `startScan` gets instead of a second scan.
 pub async fn scan_all(
     pool: &SqlitePool,
+    data_dir: &Path,
     mode: Mode,
     progress: &Progress,
 ) -> Result<Option<Outcome>> {
@@ -101,7 +111,7 @@ pub async fn scan_all(
 
     let mut total = Outcome::default();
     for (id, path) in libraries {
-        let outcome = scan_library(pool, id, Path::new(&path), mode).await?;
+        let outcome = scan_library(pool, data_dir, id, Path::new(&path), mode).await?;
         info!(
             "scanned '{}': {} folders, {} tracks ({} unchanged), {} failed, {} gone",
             path, outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
@@ -122,6 +132,7 @@ pub async fn scan_all(
 /// file is I/O bound and inserting a row is not.
 async fn scan_library(
     pool: &SqlitePool,
+    data_dir: &Path,
     library_id: i64,
     root: &Path,
     mode: Mode,
@@ -205,7 +216,7 @@ async fn scan_library(
         }
     });
 
-    let mut state = State::new(library_id, scan);
+    let mut state = State::new(library_id, scan, data_dir.to_path_buf());
     let mut outcome = Outcome::default();
     let mut tx_db = pool
         .begin()
@@ -275,22 +286,34 @@ async fn scan_library(
 struct State {
     library_id: i64,
     scan: i64,
+    data_dir: PathBuf,
     folders: HashMap<PathBuf, i64>,
     artists: HashMap<String, i64>,
     albums: HashMap<AlbumKey, i64>,
+    /// Albums indexed by artist and name, each with the year it was recorded
+    /// under. What lets a track with no year join an album that has one.
+    albums_by_name: AlbumsByName,
     genres: HashMap<String, i64>,
+    artworks: HashMap<String, i64>,
+    albums_with_artwork: HashSet<i64>,
+    directories_searched: HashSet<PathBuf>,
     timestamp: String,
 }
 
 impl State {
-    fn new(library_id: i64, scan: i64) -> Self {
+    fn new(library_id: i64, scan: i64, data_dir: PathBuf) -> Self {
         Self {
             library_id,
             scan,
+            data_dir,
             folders: HashMap::new(),
             artists: HashMap::new(),
             albums: HashMap::new(),
+            albums_by_name: AlbumsByName::new(),
             genres: HashMap::new(),
+            artworks: HashMap::new(),
+            albums_with_artwork: HashSet::new(),
+            directories_searched: HashSet::new(),
             timestamp: db::now(),
         }
     }
@@ -356,7 +379,7 @@ impl State {
         let metadata = metadata.map(|m| *m).unwrap_or_default();
 
         let album_id = match AlbumKey::of(&metadata) {
-            Some(key) => Some(self.album_id(tx, key, &metadata).await?),
+            Some(key) => Some(self.album_id(tx, key, &metadata, path).await?),
             None => None,
         };
 
@@ -758,9 +781,57 @@ impl State {
         tx: &mut Transaction<'_, Sqlite>,
         key: AlbumKey,
         metadata: &Metadata,
+        track_path: &Path,
     ) -> Result<i64> {
         if let Some(id) = self.albums.get(&key) {
-            return Ok(*id);
+            let id = *id;
+            self.ensure_artwork(tx, id, metadata, track_path).await?;
+            return Ok(id);
+        }
+
+        // A year nobody tagged must not split an album.
+        //
+        // The year is in the key so that an original and its remaster stay
+        // apart, but that only holds when both are actually tagged. An album
+        // with the year missing from some of its tracks is far more common than
+        // two editions of one album in the same library, and without this it
+        // would come out as two albums of one track each.
+        if let Some((artist, name, date)) = key.grouping() {
+            let slot = (artist.to_string(), name.to_string());
+            if let Some(candidates) = self.albums_by_name.get(&slot) {
+                let compatible = candidates.iter().find(|(year, _)| match (year, date) {
+                    (Some(recorded), Some(incoming)) => recorded == incoming,
+                    // Either side unknown: same album as far as anyone can tell.
+                    _ => true,
+                });
+
+                if let Some((recorded, id)) = compatible {
+                    let id = *id;
+                    // Fill in a year the album did not have, so the next track
+                    // to arrive matches on it directly.
+                    if recorded.is_none() && date.is_some() {
+                        sqlx::query("UPDATE albums SET year = ?, release_date = ? WHERE id = ?")
+                            .bind(metadata.year)
+                            .bind(&metadata.date)
+                            .bind(id)
+                            .execute(&mut **tx)
+                            .await
+                            .context("filling in the year of an album")?;
+
+                        if let Some(entry) = self
+                            .albums_by_name
+                            .get_mut(&slot)
+                            .and_then(|c| c.iter_mut().find(|(_, existing)| *existing == id))
+                        {
+                            entry.0 = date.map(str::to_string);
+                        }
+                    }
+
+                    self.albums.insert(key.clone(), id);
+                    self.ensure_artwork(tx, id, metadata, track_path).await?;
+                    return Ok(id);
+                }
+            }
         }
 
         let name = metadata.album.clone().unwrap_or_default();
@@ -770,8 +841,9 @@ impl State {
             "INSERT INTO albums (
                  public_id, name, sort_name, year, release_date, is_compilation,
                  mbid_release, mbid_release_group, rg_album_gain, rg_album_peak,
-                 created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, updated_at,
+                 artwork_id
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
              RETURNING id",
         )
         .bind(db::public_id()?)
@@ -790,7 +862,137 @@ impl State {
         .await
         .with_context(|| format!("inserting album {name}"))?;
 
+        self.ensure_artwork(tx, id, metadata, track_path).await?;
+
+        if let Some((artist, name, date)) = key.grouping() {
+            self.albums_by_name
+                .entry((artist.to_string(), name.to_string()))
+                .or_default()
+                .push((date.map(str::to_string), id));
+        }
+
         self.albums.insert(key, id);
+        Ok(id)
+    }
+}
+
+impl State {
+    /// Gives an album a cover if it has none yet.
+    ///
+    /// Called for every track, not only when the album is created. The picture
+    /// does not have to be on the first file the walk happens to reach: an album
+    /// whose art is embedded in track eleven and not in track one would
+    /// otherwise come out with no cover at all, decided by alphabetical order.
+    ///
+    /// Once an album has one, this returns immediately. The embedded picture is
+    /// already in memory so checking it costs nothing; a look on disk happens at
+    /// most once per directory, since a directory with no cover.jpg will not
+    /// grow one mid-scan.
+    async fn ensure_artwork(
+        &mut self,
+        tx: &mut Transaction<'_, Sqlite>,
+        album_id: i64,
+        metadata: &Metadata,
+        track_path: &Path,
+    ) -> Result<()> {
+        if self.albums_with_artwork.contains(&album_id) {
+            return Ok(());
+        }
+
+        let found = match &metadata.picture {
+            Some(bytes) => Some(("embedded", None, bytes.clone())),
+            None => {
+                let directory = track_path.parent().map(Path::to_path_buf);
+                let Some(directory) = directory else {
+                    return Ok(());
+                };
+                if !self.directories_searched.insert(directory.clone()) {
+                    return Ok(());
+                }
+                artwork::find_in_directory(&directory).map(|(path, bytes)| {
+                    (
+                        "local_file",
+                        Some(path.to_string_lossy().to_string()),
+                        bytes,
+                    )
+                })
+            }
+        };
+
+        let Some((source, source_ref, bytes)) = found else {
+            return Ok(());
+        };
+
+        // Trust the bytes, not the extension or what the tag claims the type is.
+        let Some(mime_type) = artwork::mime_of(&bytes) else {
+            debug!(
+                "ignoring artwork for {}: not a recognised image",
+                track_path.display()
+            );
+            return Ok(());
+        };
+
+        let hash = artwork::store(&self.data_dir, &bytes)?;
+        let artwork_id = self
+            .artwork_id(tx, &hash, source, source_ref, mime_type)
+            .await?;
+
+        // Only if it is still empty: whoever got there first wins, and an
+        // embedded picture reaching the album before a file on disk is the order
+        // we want anyway.
+        sqlx::query("UPDATE albums SET artwork_id = ? WHERE id = ? AND artwork_id IS NULL")
+            .bind(artwork_id)
+            .bind(album_id)
+            .execute(&mut **tx)
+            .await
+            .context("attaching artwork to an album")?;
+
+        self.albums_with_artwork.insert(album_id);
+        Ok(())
+    }
+
+    /// The artwork row for these bytes, reusing it when the same image already
+    /// has one. The hash is the identity, so one file on disk means one row.
+    async fn artwork_id(
+        &mut self,
+        tx: &mut Transaction<'_, Sqlite>,
+        hash: &str,
+        source: &str,
+        source_ref: Option<String>,
+        mime_type: &str,
+    ) -> Result<i64> {
+        if let Some(id) = self.artworks.get(hash) {
+            return Ok(*id);
+        }
+
+        let existing: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM artworks WHERE content_hash = ? LIMIT 1")
+                .bind(hash)
+                .fetch_optional(&mut **tx)
+                .await
+                .context("looking for artwork already recorded")?;
+
+        let id = match existing {
+            Some(id) => id,
+            None => sqlx::query_scalar(
+                "INSERT INTO artworks (
+                     public_id, kind, source, source_ref, mime_type, content_hash,
+                     fetched_at
+                 ) VALUES (?, 'album_front', ?, ?, ?, ?, ?)
+                 RETURNING id",
+            )
+            .bind(db::public_id()?)
+            .bind(source)
+            .bind(&source_ref)
+            .bind(mime_type)
+            .bind(hash)
+            .bind(&self.timestamp)
+            .fetch_one(&mut **tx)
+            .await
+            .context("recording artwork")?,
+        };
+
+        self.artworks.insert(hash.to_string(), id);
         Ok(id)
     }
 }

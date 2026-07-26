@@ -27,6 +27,21 @@ pub enum AlbumKey {
 }
 
 impl AlbumKey {
+    /// The parts an album is grouped by when there is no release id: who signs
+    /// it, what it is called, and which year it claims.
+    ///
+    /// `None` for a release id, which needs no grouping because it already
+    /// identifies one release exactly.
+    pub fn grouping(&self) -> Option<(&str, &str, Option<&str>)> {
+        match self {
+            Self::Release(_) => None,
+            // A compilation groups without regard to artist, so it takes an
+            // empty one and cannot collide with a real name.
+            Self::Compilation { name, date } => Some(("", name, date.as_deref())),
+            Self::Tagged { artist, name, date } => Some((artist, name, date.as_deref())),
+        }
+    }
+
     /// Returns `None` when there is no album to speak of. A track with no album
     /// tag is a loose track, not a member of an album called "".
     pub fn of(metadata: &Metadata) -> Option<Self> {

@@ -7,11 +7,14 @@ use super::auth::Authenticated;
 use super::browsing::IdQuery;
 use super::error::ApiError;
 use super::response::Format;
+use crate::artwork;
+use crate::config::Config;
 use axum::extract::{Query, Request, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use sqlx::SqlitePool;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use tracing::{error, warn};
@@ -214,6 +217,57 @@ fn percent_encode(value: &str) -> String {
         }
         out
     })
+}
+
+// ---------------------------------------------------------------------------
+// Cover art
+// ---------------------------------------------------------------------------
+
+/// Serves a cover image out of the cache.
+///
+/// The `size` parameter is not honoured: the original is returned whatever was
+/// asked for, which the specification allows and every client copes with. Scaling
+/// would mean decoding and re-encoding images, and that is worth doing only once
+/// there is a measurement saying it matters.
+pub async fn get_cover_art(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    State(config): State<Arc<Config>>,
+    Query(query): Query<IdQuery>,
+    request: Request,
+) -> Response {
+    let row: Option<(String, String)> =
+        match sqlx::query_as("SELECT content_hash, mime_type FROM artworks WHERE public_id = ?")
+            .bind(&query.id)
+            .fetch_optional(&pool)
+            .await
+        {
+            Ok(row) => row,
+            Err(e) => {
+                error!("locating cover art: {e}");
+                return ApiError::Internal.in_format(auth.format).into_response();
+            }
+        };
+
+    let Some((hash, mime_type)) = row else {
+        return ApiError::NotFound.in_format(auth.format).into_response();
+    };
+
+    let path = artwork::cache_path(config.data_dir(), &hash);
+    let service = ServeFile::new_with_mime(
+        &path,
+        &mime_type.parse().unwrap_or(mime::APPLICATION_OCTET_STREAM),
+    );
+
+    match service.oneshot(request).await {
+        Ok(response) => response.into_response(),
+        Err(e) => {
+            // The row says there is an image but the file is not there, which
+            // means the cache was cleared out from under us.
+            error!("serving cover art from {}: {e}", path.display());
+            ApiError::NotFound.in_format(auth.format).into_response()
+        }
+    }
 }
 
 #[cfg(test)]

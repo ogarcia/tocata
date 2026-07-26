@@ -44,6 +44,7 @@ pub fn router(state: AppState) -> Router {
         "getMusicDirectory" => browsing::get_music_directory,
         "stream" => media::stream,
         "download" => media::download,
+        "getCoverArt" => media::get_cover_art,
     }
     .with_state(state)
 }

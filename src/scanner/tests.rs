@@ -52,10 +52,39 @@ fn write_wav(path: &Path) {
     fs::write(path, bytes).unwrap();
 }
 
+/// Writes tags onto a file already on disk.
+fn tag(path: &Path, items: &[(&str, &str)]) {
+    use lofty::prelude::{ItemKey, TagExt};
+    use lofty::tag::{ItemValue, Tag, TagItem, TagType};
+
+    let mut tag = Tag::new(TagType::Id3v2);
+    for (key, value) in items {
+        let key = match *key {
+            "album" => ItemKey::AlbumTitle,
+            "albumartist" => ItemKey::AlbumArtist,
+            "artist" => ItemKey::TrackArtist,
+            "title" => ItemKey::TrackTitle,
+            // Written as a recording date, which is the field that survives a
+            // RIFF container.
+            "year" => ItemKey::RecordingDate,
+            other => panic!("unknown tag {other}"),
+        };
+        tag.insert(TagItem::new(key, ItemValue::Text(value.to_string())));
+    }
+    tag.save_to_path(path, Default::default()).unwrap();
+}
+
 fn temp_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("tocata-scan-{name}"));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
+    root
+}
+
+/// A data directory for the artwork cache, kept across the scans of one test.
+fn data_root() -> PathBuf {
+    let root = std::env::temp_dir().join("tocata-scan-data");
+    std::fs::create_dir_all(&root).unwrap();
     root
 }
 
@@ -73,13 +102,13 @@ async fn a_second_incremental_scan_reads_nothing_again() {
     let pool = database().await;
     let id = library(&pool, &root).await;
 
-    let first = scan_library(&pool, id, &root, Mode::Incremental)
+    let first = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(first.tracks, 5);
     assert_eq!(first.unchanged, 0, "nothing was known yet");
 
-    let second = scan_library(&pool, id, &root, Mode::Incremental)
+    let second = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(second.tracks, 5);
@@ -97,10 +126,12 @@ async fn a_full_scan_reads_everything_again() {
     let pool = database().await;
     let id = library(&pool, &root).await;
 
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
-    let full = scan_library(&pool, id, &root, Mode::Full).await.unwrap();
+    let full = scan_library(&pool, &data_root(), id, &root, Mode::Full)
+        .await
+        .unwrap();
 
     assert_eq!(full.unchanged, 0, "a full scan skips nothing");
     assert_eq!(full.tracks, 1);
@@ -114,7 +145,7 @@ async fn a_changed_file_is_read_again() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
@@ -123,7 +154,7 @@ async fn a_changed_file_is_read_again() {
     bytes.extend_from_slice(&[0u8; 64]);
     fs::write(&path, bytes).unwrap();
 
-    let second = scan_library(&pool, id, &root, Mode::Incremental)
+    let second = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(second.unchanged, 0, "the size changed, so it was reopened");
@@ -138,13 +169,13 @@ async fn a_deleted_file_is_marked_not_removed() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
     fs::remove_file(root.join("Album/0.wav")).unwrap();
 
-    let second = scan_library(&pool, id, &root, Mode::Incremental)
+    let second = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(second.gone, 1);
@@ -169,12 +200,12 @@ async fn a_file_that_comes_back_is_unmarked() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
     fs::remove_file(&path).unwrap();
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(
@@ -187,7 +218,7 @@ async fn a_file_that_comes_back_is_unmarked() {
     );
 
     write_wav(&path);
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(
@@ -211,7 +242,7 @@ async fn a_moved_file_keeps_its_identity_and_user_data() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
@@ -247,7 +278,7 @@ async fn a_moved_file_keeps_its_identity_and_user_data() {
     fs::create_dir_all(moved.parent().unwrap()).unwrap();
     fs::rename(&original, &moved).unwrap();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental)
+    let outcome = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(outcome.gone, 0, "nothing actually went away");
@@ -284,7 +315,7 @@ async fn a_library_that_vanishes_wholesale_is_left_alone() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
@@ -292,7 +323,7 @@ async fn a_library_that_vanishes_wholesale_is_left_alone() {
     // like from up here.
     fs::remove_dir_all(root.join("Album")).unwrap();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental)
+    let outcome = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
@@ -318,14 +349,14 @@ async fn a_tiny_library_is_still_swept() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
     fs::remove_file(root.join("Album/one.wav")).unwrap();
     fs::remove_file(root.join("Album/two.wav")).unwrap();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental)
+    let outcome = scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
     assert_eq!(outcome.gone, 2);
@@ -339,12 +370,12 @@ async fn a_folder_that_goes_away_is_marked_too() {
 
     let pool = database().await;
     let id = library(&pool, &root).await;
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
     fs::remove_dir_all(root.join("Remove")).unwrap();
-    scan_library(&pool, id, &root, Mode::Incremental)
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
         .await
         .unwrap();
 
@@ -388,7 +419,9 @@ async fn a_second_scan_request_while_one_runs_does_nothing() {
     let _running = progress.begin().unwrap();
 
     // With the flag held, scan_all declines rather than queueing a second pass.
-    let outcome = scan_all(&pool, Mode::Incremental, &progress).await.unwrap();
+    let outcome = scan_all(&pool, &data_root(), Mode::Incremental, &progress)
+        .await
+        .unwrap();
     assert!(outcome.is_none());
 
     let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM scan_runs")
@@ -396,4 +429,126 @@ async fn a_second_scan_request_while_one_runs_does_nothing() {
         .await
         .unwrap();
     assert_eq!(runs, 0, "it must not even record a run");
+}
+
+/// The case a stray retag uncovered: the year is part of the album key so an
+/// original and its remaster stay apart, but a track missing the year must not
+/// start an album of its own.
+#[tokio::test]
+async fn a_missing_year_does_not_split_an_album() {
+    let root = temp_root("year");
+    let with_year = root.join("Album/01.wav");
+    let without = root.join("Album/02.wav");
+    write_wav(&with_year);
+    write_wav(&without);
+
+    tag(
+        &with_year,
+        &[
+            ("album", "The Wall"),
+            ("albumartist", "Pink Floyd"),
+            ("year", "1979"),
+        ],
+    );
+    tag(
+        &without,
+        &[("album", "The Wall"), ("albumartist", "Pink Floyd")],
+    );
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
+        .await
+        .unwrap();
+
+    let albums: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT name, year FROM albums")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(albums.len(), 1, "one album, not one per year: {albums:?}");
+    assert_eq!(albums[0].1, Some(1979), "the known year survives");
+
+    let counted: i64 = count(
+        &pool,
+        "SELECT count(*) FROM tracks WHERE album_id IS NOT NULL",
+    )
+    .await;
+    assert_eq!(counted, 2, "both tracks belong to it");
+}
+
+/// And the other direction: the yearless track arriving first must not leave the
+/// album without a year once one shows up.
+#[tokio::test]
+async fn a_year_arriving_late_is_filled_in() {
+    let root = temp_root("year-late");
+    let without = root.join("Album/01.wav");
+    let with_year = root.join("Album/02.wav");
+    write_wav(&without);
+    write_wav(&with_year);
+
+    tag(
+        &without,
+        &[("album", "Rumours"), ("albumartist", "Fleetwood Mac")],
+    );
+    tag(
+        &with_year,
+        &[
+            ("album", "Rumours"),
+            ("albumartist", "Fleetwood Mac"),
+            ("year", "1977"),
+        ],
+    );
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
+        .await
+        .unwrap();
+
+    let albums: Vec<(String, Option<i64>)> = sqlx::query_as("SELECT name, year FROM albums")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(albums.len(), 1, "still one album: {albums:?}");
+    assert_eq!(
+        albums[0].1,
+        Some(1977),
+        "the year turned up and was recorded"
+    );
+}
+
+/// Two editions that both say which year they are do stay apart, which is the
+/// reason the year is in the key at all.
+#[tokio::test]
+async fn two_tagged_years_remain_two_albums() {
+    let root = temp_root("year-two");
+    let original = root.join("Original/01.wav");
+    let remaster = root.join("Remaster/01.wav");
+    write_wav(&original);
+    write_wav(&remaster);
+
+    tag(
+        &original,
+        &[
+            ("album", "Rumours"),
+            ("albumartist", "Fleetwood Mac"),
+            ("year", "1977"),
+        ],
+    );
+    tag(
+        &remaster,
+        &[
+            ("album", "Rumours"),
+            ("albumartist", "Fleetwood Mac"),
+            ("year", "2004"),
+        ],
+    );
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan_library(&pool, &data_root(), id, &root, Mode::Incremental)
+        .await
+        .unwrap();
+
+    assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 2);
 }
