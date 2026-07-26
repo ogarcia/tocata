@@ -134,9 +134,11 @@ CREATE TABLE album_discs (
 -- administrative action.
 --
 -- This doubles as the reconciliation mechanism the opaque public ids need: a
--- file that shows up at a new path can be matched against missing rows by
--- MusicBrainz id, or by size and content hash, and then it is the same track
--- with its public_id and all its user data intact.
+-- file that shows up at a new path is matched against missing rows by
+-- MusicBrainz id, or by size, duration and title, and is then the same track
+-- with its public_id and all its user data intact. No hashing: reading every
+-- byte of a library to catch a case that size and mtime already catch is not
+-- a trade worth making.
 CREATE TABLE tracks (
     id               INTEGER PRIMARY KEY,
     public_id        TEXT    NOT NULL UNIQUE,
@@ -166,7 +168,6 @@ CREATE TABLE tracks (
     isrc             TEXT,
     rg_track_gain    REAL,
     rg_track_peak    REAL,
-    content_hash     TEXT,
     missing_since    TEXT,
     created_at       TEXT    NOT NULL,
     updated_at       TEXT    NOT NULL,
