@@ -6,7 +6,7 @@
 use super::auth::Authenticated;
 use super::browsing;
 use super::error::ApiError;
-use super::models::{AlbumId3, ArtistId3, Child};
+use super::models::{AlbumId3, ArtistId3, Child, NamedEntry};
 use super::response;
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
@@ -291,6 +291,94 @@ async fn load_songs(
     };
 
     browsing::load_tracks_by_ids(pool, user_id, &ids).await
+}
+
+/// The pre-ID3 search. Same selection, albums dressed as directories.
+pub async fn search2(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<Search3Query>,
+) -> Response {
+    let user_id = auth.user.id;
+    let terms = query.query.as_deref().unwrap_or_default();
+
+    let matched = match to_fts_query(terms) {
+        Some(expression) => Matched::Search(expression),
+        None if terms.trim().is_empty() => Matched::Everything,
+        None => Matched::Nothing,
+    };
+
+    let artists = match load_artists(
+        &pool,
+        user_id,
+        &matched,
+        query.artist_count.unwrap_or(DEFAULT_COUNT),
+        query.artist_offset.unwrap_or(0),
+    )
+    .await
+    {
+        Ok(artists) => artists
+            .into_iter()
+            .map(|artist| NamedEntry {
+                id: artist.id,
+                name: artist.name,
+            })
+            .collect(),
+        Err(e) => return failed(e, auth.format, "searching artists"),
+    };
+
+    let albums = match load_albums(
+        &pool,
+        user_id,
+        &matched,
+        query.album_count.unwrap_or(DEFAULT_COUNT),
+        query.album_offset.unwrap_or(0),
+    )
+    .await
+    {
+        Ok(albums) => albums.iter().map(super::lists::as_directory).collect(),
+        Err(e) => return failed(e, auth.format, "searching albums"),
+    };
+
+    let songs = match load_songs(
+        &pool,
+        user_id,
+        &matched,
+        query.song_count.unwrap_or(DEFAULT_COUNT),
+        query.song_offset.unwrap_or(0),
+    )
+    .await
+    {
+        Ok(songs) => songs,
+        Err(e) => return failed(e, auth.format, "searching songs"),
+    };
+
+    response::ok(
+        auth.format,
+        Search2Body {
+            search_result2: SearchResult2 {
+                artist: artists,
+                album: albums,
+                song: songs,
+            },
+        },
+    )
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Search2Body {
+    search_result2: SearchResult2,
+}
+
+#[derive(Serialize)]
+struct SearchResult2 {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    artist: Vec<NamedEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    album: Vec<Child>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    song: Vec<Child>,
 }
 
 #[cfg(test)]

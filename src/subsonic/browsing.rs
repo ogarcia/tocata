@@ -9,7 +9,9 @@
 
 use super::auth::Authenticated;
 use super::error::ApiError;
-use super::models::{AlbumId3, ArtistId3, Child, DiscTitle, ItemGenre, ReplayGain, seconds};
+use super::models::{
+    AlbumId3, ArtistId3, Child, DiscTitle, ItemGenre, NamedEntry, ReplayGain, seconds,
+};
 use super::response;
 use crate::config::Config;
 use axum::extract::{Query, State};
@@ -897,16 +899,7 @@ struct Indexes {
 #[derive(Serialize)]
 struct FolderIndexGroup {
     name: String,
-    artist: Vec<FolderEntry>,
-}
-
-/// The older, plainer artist object this endpoint uses. Its id is a folder,
-/// not a row in `artists`: browsing by directory takes the convention that the
-/// top level of a library is one folder per artist.
-#[derive(Serialize)]
-struct FolderEntry {
-    id: String,
-    name: String,
+    artist: Vec<NamedEntry>,
 }
 
 #[derive(Serialize)]
@@ -971,7 +964,7 @@ pub async fn get_indexes(
     let mut groups: Vec<FolderIndexGroup> = Vec::new();
     for (id, name) in roots {
         let letter = index_letter(&name, articles);
-        let entry = FolderEntry { id, name };
+        let entry = NamedEntry { id, name };
         match groups.last_mut() {
             Some(group) if group.name == letter => group.artist.push(entry),
             _ => groups.push(FolderIndexGroup {

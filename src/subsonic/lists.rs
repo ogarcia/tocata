@@ -6,7 +6,7 @@
 use super::auth::Authenticated;
 use super::browsing;
 use super::error::ApiError;
-use super::models::{AlbumId3, ArtistId3, Child};
+use super::models::{AlbumId3, ArtistId3, Child, NamedEntry};
 use super::response;
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
@@ -182,7 +182,7 @@ pub async fn get_album_list2(
 pub async fn get_starred2(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
     let user_id = auth.user.id;
 
-    let artists = match starred_ids(&pool, user_id, Starred::Artists).await {
+    let artists = match starred_ids(&pool, user_id, Starred_::Artists).await {
         Ok(ids) => match browsing::load_artists_by_ids(&pool, user_id, &ids).await {
             Ok(artists) => artists,
             Err(e) => return internal(e, auth.format, "loading starred artists"),
@@ -190,7 +190,7 @@ pub async fn get_starred2(auth: Authenticated, State(pool): State<SqlitePool>) -
         Err(e) => return internal(e, auth.format, "listing starred artists"),
     };
 
-    let albums = match starred_ids(&pool, user_id, Starred::Albums).await {
+    let albums = match starred_ids(&pool, user_id, Starred_::Albums).await {
         Ok(ids) => match browsing::load_albums_by_ids(&pool, user_id, &ids).await {
             Ok(albums) => albums,
             Err(e) => return internal(e, auth.format, "loading starred albums"),
@@ -198,7 +198,7 @@ pub async fn get_starred2(auth: Authenticated, State(pool): State<SqlitePool>) -
         Err(e) => return internal(e, auth.format, "listing starred albums"),
     };
 
-    let songs = match starred_ids(&pool, user_id, Starred::Tracks).await {
+    let songs = match starred_ids(&pool, user_id, Starred_::Tracks).await {
         Ok(ids) => match browsing::load_tracks_by_ids(&pool, user_id, &ids).await {
             Ok(songs) => songs,
             Err(e) => return internal(e, auth.format, "loading starred songs"),
@@ -408,7 +408,7 @@ impl From<sqlx::Error> for Rejected {
 }
 
 #[derive(Clone, Copy)]
-enum Starred {
+enum Starred_ {
     Tracks,
     Albums,
     Artists,
@@ -417,23 +417,23 @@ enum Starred {
 async fn starred_ids(
     pool: &SqlitePool,
     user_id: i64,
-    what: Starred,
+    what: Starred_,
 ) -> Result<Vec<i64>, sqlx::Error> {
     // Newest favourite first, which is the order a client shows them in.
     let query = match what {
-        Starred::Tracks => {
+        Starred_::Tracks => {
             "SELECT s.track_id FROM user_track_stats s
                JOIN tracks t ON t.id = s.track_id
               WHERE s.user_id = ? AND s.starred_at IS NOT NULL
                 AND t.missing_since IS NULL
               ORDER BY s.starred_at DESC"
         }
-        Starred::Albums => {
+        Starred_::Albums => {
             "SELECT s.album_id FROM user_album_stats s
               WHERE s.user_id = ? AND s.starred_at IS NOT NULL
               ORDER BY s.starred_at DESC"
         }
-        Starred::Artists => {
+        Starred_::Artists => {
             "SELECT s.artist_id FROM user_artist_stats s
               WHERE s.user_id = ? AND s.starred_at IS NOT NULL
               ORDER BY s.starred_at DESC"
@@ -626,4 +626,141 @@ mod tests {
         assert_eq!(value["songCount"], 3);
         assert_eq!(value["albumCount"], 1);
     }
+}
+
+// ---------------------------------------------------------------------------
+// The older shapes
+// ---------------------------------------------------------------------------
+//
+// Same data, serialised the way the pre-ID3 calls want it: albums as Child with
+// isDir set, artists as the plainer object. Clients that only speak these are
+// still out there, and supporting them is a matter of another wrapper rather
+// than another query.
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AlbumListBody {
+    album_list: AlbumList,
+}
+
+#[derive(Serialize)]
+struct AlbumList {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    album: Vec<Child>,
+}
+
+#[derive(Serialize)]
+struct StarredBody {
+    starred: Starred,
+}
+
+#[derive(Serialize)]
+struct Starred {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    artist: Vec<NamedEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    album: Vec<Child>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    song: Vec<Child>,
+}
+
+/// The pre-ID3 album list. Same selection as getAlbumList2, each album dressed
+/// as a directory.
+pub async fn get_album_list(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<AlbumListQuery>,
+) -> Response {
+    let size = clamp(query.size, DEFAULT_SIZE, MAX_SIZE);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let ids = match album_ids(&pool, auth.user.id, &query, size, offset).await {
+        Ok(ids) => ids,
+        Err(Rejected::Missing(name)) => {
+            return ApiError::MissingParameter(name)
+                .in_format(auth.format)
+                .into_response();
+        }
+        Err(Rejected::UnknownType) => {
+            return ApiError::MissingParameter("type")
+                .in_format(auth.format)
+                .into_response();
+        }
+        Err(Rejected::Database(e)) => return internal(e, auth.format, "listing albums"),
+    };
+
+    match browsing::load_albums_by_ids(&pool, auth.user.id, &ids).await {
+        Ok(albums) => response::ok(
+            auth.format,
+            AlbumListBody {
+                album_list: AlbumList {
+                    album: albums.iter().map(as_directory).collect(),
+                },
+            },
+        ),
+        Err(e) => internal(e, auth.format, "loading listed albums"),
+    }
+}
+
+pub async fn get_starred(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
+    let user_id = auth.user.id;
+
+    let artists = match starred_ids(&pool, user_id, Starred_::Artists).await {
+        Ok(ids) => match browsing::load_artists_by_ids(&pool, user_id, &ids).await {
+            Ok(artists) => artists
+                .into_iter()
+                .map(|artist| NamedEntry {
+                    id: artist.id,
+                    name: artist.name,
+                })
+                .collect(),
+            Err(e) => return internal(e, auth.format, "loading starred artists"),
+        },
+        Err(e) => return internal(e, auth.format, "listing starred artists"),
+    };
+
+    let albums = match starred_ids(&pool, user_id, Starred_::Albums).await {
+        Ok(ids) => match browsing::load_albums_by_ids(&pool, user_id, &ids).await {
+            Ok(albums) => albums.iter().map(as_directory).collect(),
+            Err(e) => return internal(e, auth.format, "loading starred albums"),
+        },
+        Err(e) => return internal(e, auth.format, "listing starred albums"),
+    };
+
+    let songs = match starred_ids(&pool, user_id, Starred_::Tracks).await {
+        Ok(ids) => match browsing::load_tracks_by_ids(&pool, user_id, &ids).await {
+            Ok(songs) => songs,
+            Err(e) => return internal(e, auth.format, "loading starred songs"),
+        },
+        Err(e) => return internal(e, auth.format, "listing starred songs"),
+    };
+
+    response::ok(
+        auth.format,
+        StarredBody {
+            starred: Starred {
+                artist: artists,
+                album: albums,
+                song: songs,
+            },
+        },
+    )
+}
+
+/// An album as the older calls describe one: a directory carrying the album's
+/// own fields.
+pub(super) fn as_directory(album: &AlbumId3) -> Child {
+    let mut child = Child::directory(album.id.clone(), album.name.clone(), None);
+    child.album = Some(album.name.clone());
+    child.artist = album.display_artist.clone();
+    child.artist_id = album.artist_id.clone();
+    child.year = album.year;
+    child.genre = album.genre.clone();
+    child.cover_art = album.cover_art.clone();
+    child.duration = Some(album.duration);
+    child.created = Some(album.created.clone());
+    child.starred = album.starred.clone();
+    child.user_rating = album.user_rating;
+    child.play_count = album.play_count;
+    child
 }

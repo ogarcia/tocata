@@ -229,6 +229,18 @@ impl Child {
     }
 }
 
+/// The older, plainer artist object, which is all the pre-ID3 calls carry.
+///
+/// In getIndexes its id is a folder rather than a row in `artists`, since
+/// browsing by directory takes the convention that the top level of a library is
+/// one folder per artist. In getStarred it is a real artist. The shape is the
+/// same either way, which is why it lives here.
+#[derive(Debug, Clone, Serialize)]
+pub struct NamedEntry {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ItemGenre {
     pub name: String,

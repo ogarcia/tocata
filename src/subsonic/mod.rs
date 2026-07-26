@@ -15,6 +15,7 @@ mod playlists;
 mod response;
 mod search;
 mod system;
+mod unsupported;
 mod users;
 mod xml;
 
@@ -80,6 +81,28 @@ pub fn router(state: AppState) -> Router {
         "updateUser" => users::update_user,
         "deleteUser" => users::delete_user,
         "changePassword" => users::change_password,
+        "getAlbumList" => lists::get_album_list,
+        "getStarred" => lists::get_starred,
+        "search2" => search::search2,
+        // Out of scope. A listing comes back empty; anything naming one thing
+        // comes back as not found. See the unsupported module for why they are
+        // registered at all.
+        "getVideos" => unsupported::get_videos,
+        "getChatMessages" => unsupported::get_chat_messages,
+        "getShares" => unsupported::get_shares,
+        "getPodcasts" => unsupported::get_podcasts,
+        "getInternetRadioStations" => unsupported::get_internet_radio_stations,
+        "getVideoInfo" => unsupported::not_found,
+        "getCaptions" => unsupported::not_found,
+        "hls.m3u8" => unsupported::not_found,
+        "getAvatar" => unsupported::not_found,
+        "getArtistInfo" => unsupported::not_found,
+        "getArtistInfo2" => unsupported::not_found,
+        "getAlbumInfo" => unsupported::not_found,
+        "getAlbumInfo2" => unsupported::not_found,
+        "getSimilarSongs" => unsupported::not_found,
+        "getSimilarSongs2" => unsupported::not_found,
+        "getTopSongs" => unsupported::not_found,
     }
     .with_state(state)
 }
