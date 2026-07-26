@@ -93,21 +93,90 @@ pub fn mime_of(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// Looks for a cover image sitting beside the music.
+/// Names that mean "this directory is one disc of a set", so the album's cover
+/// lives a level up.
+const DISC_PREFIXES: &[&str] = &["cd", "disc", "disk"];
+
+/// Looks for a cover image beside the music, and one level up when the tracks
+/// sit in a disc subdirectory.
 ///
-/// Tries the conventional names in order and returns the first that is really an
-/// image, so a `cover.jpg` that is actually a text file does not become an album
+/// The second part matters more than it looks: an album split into `CD1` and
+/// `CD2` normally keeps one `cover.jpg` in the album directory, and without
+/// this it would have no cover at all. It climbs only from a directory that
+/// names itself a disc, because climbing unconditionally would reach the
+/// artist directory, where an image is a photo of the artist and not the cover
+/// of every album they made.
+pub fn find_near(directory: &Path) -> Option<(PathBuf, Vec<u8>)> {
+    if let Some(found) = find_in_directory(directory) {
+        return Some(found);
+    }
+
+    if looks_like_a_disc(directory) {
+        return find_in_directory(directory.parent()?);
+    }
+
+    None
+}
+
+fn looks_like_a_disc(directory: &Path) -> bool {
+    let Some(name) = directory.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let name = name.trim().to_lowercase();
+
+    DISC_PREFIXES.iter().any(|prefix| {
+        name.strip_prefix(prefix).is_some_and(|rest| {
+            // "cd1", "cd 1", "disc-2": whatever follows has to be a number, so
+            // a band called "Discipline" does not qualify.
+            let rest = rest.trim_start_matches([' ', '-', '_', '.']);
+            !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+        })
+    })
+}
+
+/// Looks for a cover image in one directory.
+///
+/// Reads the directory once and matches names case insensitively, rather than
+/// trying a list of candidate names: `Cover.jpg` and `FOLDER.JPG` are as common
+/// as the lowercase spellings, and on a case sensitive filesystem building the
+/// names by hand misses them.
+///
+/// Returns the first name that is really an image, in the order of preference
+/// above, so a `cover.jpg` that is actually a text file does not become an album
 /// cover.
 pub fn find_in_directory(directory: &Path) -> Option<(PathBuf, Vec<u8>)> {
-    for stem in COVER_FILE_STEMS {
-        for extension in COVER_EXTENSIONS {
-            let candidate = directory.join(format!("{stem}.{extension}"));
-            let Ok(bytes) = std::fs::read(&candidate) else {
-                continue;
-            };
-            if mime_of(&bytes).is_some() {
-                return Some((candidate, bytes));
-            }
+    let entries = std::fs::read_dir(directory).ok()?;
+
+    // Collected by stem so preference wins over directory order.
+    let mut candidates: Vec<(usize, PathBuf)> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+
+        let stem = stem.to_lowercase();
+        let extension = extension.to_lowercase();
+        if !COVER_EXTENSIONS.contains(&extension.as_str()) {
+            continue;
+        }
+
+        if let Some(rank) = COVER_FILE_STEMS.iter().position(|s| *s == stem) {
+            candidates.push((rank, path));
+        }
+    }
+
+    candidates.sort_by_key(|(rank, _)| *rank);
+
+    for (_, path) in candidates {
+        if let Ok(bytes) = std::fs::read(&path)
+            && mime_of(&bytes).is_some()
+        {
+            return Some((path, bytes));
         }
     }
 
@@ -117,6 +186,13 @@ pub fn find_in_directory(directory: &Path) -> Option<(PathBuf, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A PNG signature with a body, enough for the sniffing to accept it.
+    fn png() -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.extend_from_slice(b"body");
+        bytes
+    }
 
     fn jpeg() -> Vec<u8> {
         let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0];
@@ -188,6 +264,73 @@ mod tests {
         let path = cache_path(&data_dir, &first);
         assert!(path.exists());
         assert_eq!(std::fs::read(&path).unwrap(), jpeg());
+    }
+
+    #[test]
+    fn a_name_in_any_case_is_recognised() {
+        let directory = std::env::temp_dir().join("tocata-artwork-case");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("Cover.JPG"), png()).unwrap();
+
+        let (path, _) = find_in_directory(&directory).expect("Cover.JPG should count");
+        assert!(path.ends_with("Cover.JPG"));
+    }
+
+    #[test]
+    fn preference_beats_directory_order() {
+        let directory = std::env::temp_dir().join("tocata-artwork-order");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        // Both valid; cover wins because it comes first in the preference list.
+        std::fs::write(directory.join("albumart.png"), png()).unwrap();
+        std::fs::write(directory.join("cover.png"), png()).unwrap();
+
+        let (path, _) = find_in_directory(&directory).unwrap();
+        assert!(path.ends_with("cover.png"), "got {}", path.display());
+    }
+
+    #[test]
+    fn a_disc_subdirectory_looks_a_level_up() {
+        let album = std::env::temp_dir().join("tocata-artwork-multidisc");
+        let _ = std::fs::remove_dir_all(&album);
+        std::fs::create_dir_all(album.join("CD1")).unwrap();
+        std::fs::create_dir_all(album.join("Disc 2")).unwrap();
+        std::fs::write(album.join("cover.jpg"), png()).unwrap();
+
+        assert!(
+            find_near(&album.join("CD1")).is_some(),
+            "CD1 should find the album cover"
+        );
+        assert!(
+            find_near(&album.join("Disc 2")).is_some(),
+            "Disc 2 should too"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_directory_does_not_climb() {
+        let artist = std::env::temp_dir().join("tocata-artwork-noclimb");
+        let _ = std::fs::remove_dir_all(&artist);
+        std::fs::create_dir_all(artist.join("Some Album")).unwrap();
+        // A photo of the artist is not the cover of their albums.
+        std::fs::write(artist.join("cover.jpg"), png()).unwrap();
+
+        assert!(find_near(&artist.join("Some Album")).is_none());
+    }
+
+    #[test]
+    fn only_a_disc_name_followed_by_a_number_counts() {
+        assert!(looks_like_a_disc(Path::new("/x/CD1")));
+        assert!(looks_like_a_disc(Path::new("/x/cd 2")));
+        assert!(looks_like_a_disc(Path::new("/x/Disc-3")));
+        assert!(looks_like_a_disc(Path::new("/x/DISK_4")));
+
+        assert!(!looks_like_a_disc(Path::new("/x/Discipline")));
+        assert!(!looks_like_a_disc(Path::new("/x/CD Singles")));
+        assert!(!looks_like_a_disc(Path::new("/x/Disco")));
+        assert!(!looks_like_a_disc(Path::new("/x/Album")));
     }
 
     #[test]

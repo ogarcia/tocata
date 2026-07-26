@@ -909,7 +909,7 @@ impl State {
                 if !self.directories_searched.insert(directory.clone()) {
                     return Ok(());
                 }
-                artwork::find_in_directory(&directory).map(|(path, bytes)| {
+                artwork::find_near(&directory).map(|(path, bytes)| {
                     (
                         "local_file",
                         Some(path.to_string_lossy().to_string()),
