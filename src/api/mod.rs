@@ -17,8 +17,10 @@ mod error;
 mod events;
 mod keys;
 mod libraries;
+mod purge;
 mod scan;
 mod session;
+mod stats;
 mod users;
 
 use crate::state::AppState;
@@ -70,6 +72,8 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "libraries", description = "The directories music is read from"),
         (name = "users", description = "Accounts"),
         (name = "keys", description = "API keys, for clients that authenticate with one"),
+        (name = "stats", description = "What there is, in figures"),
+        (name = "purge", description = "Removing for good what a scan only marked"),
     )
 )]
 struct Reference;
@@ -97,4 +101,6 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(users::one, users::change, users::delete))
         .routes(routes!(keys::list, keys::issue))
         .routes(routes!(keys::revoke))
+        .routes(routes!(stats::stats))
+        .routes(routes!(purge::preview, purge::purge))
 }
