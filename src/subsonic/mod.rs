@@ -10,6 +10,7 @@ mod error;
 mod lists;
 mod media;
 mod models;
+mod playlists;
 mod response;
 mod search;
 mod system;
@@ -59,6 +60,11 @@ pub fn router(state: AppState) -> Router {
         "getRandomSongs" => lists::get_random_songs,
         "getSongsByGenre" => lists::get_songs_by_genre,
         "getNowPlaying" => lists::get_now_playing,
+        "getPlaylists" => playlists::get_playlists,
+        "getPlaylist" => playlists::get_playlist,
+        "createPlaylist" => playlists::create_playlist,
+        "updatePlaylist" => playlists::update_playlist,
+        "deletePlaylist" => playlists::delete_playlist,
     }
     .with_state(state)
 }

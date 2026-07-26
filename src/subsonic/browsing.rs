@@ -1155,10 +1155,12 @@ async fn load_loose_songs(
 // Callers resolve what they want into internal ids and then ask for the entities
 // themselves, so the shape of a response is built in one place.
 //
-// The order of `ids` carries meaning — relevance for a search, recency for a
-// list, and the rows a caller is about to zip against — and SQLite gives no
-// order at all to an IN clause. Each of these restores it, which is why the row
-// types carry the internal id.
+// These return exactly one entry per id asked for, in the order asked for, and
+// that is a contract rather than a detail. An IN clause gives no order at all,
+// and gives each matching row only once — so a playlist holding the same song
+// twice came back a song short while its own count said otherwise. Both the
+// order and the repeats are restored here, which is why the row types carry the
+// internal id.
 
 pub(super) async fn load_artists_by_ids(
     pool: &SqlitePool,
@@ -1175,10 +1177,13 @@ pub(super) async fn load_artists_by_ids(
     push_ids(&mut builder, ids);
     builder.push(")");
 
-    let mut rows: Vec<ArtistRow> = builder.build_query_as().fetch_all(pool).await?;
-    sort_to_match(&mut rows, ids, |row| row.id);
+    let rows: Vec<ArtistRow> = builder.build_query_as().fetch_all(pool).await?;
+    let found: HashMap<i64, ArtistId3> = rows
+        .into_iter()
+        .map(|row| (row.id, ArtistId3::from(row)))
+        .collect();
 
-    Ok(rows.into_iter().map(ArtistId3::from).collect())
+    Ok(in_requested_order(ids, &found))
 }
 
 pub(super) async fn load_albums_by_ids(
@@ -1196,15 +1201,15 @@ pub(super) async fn load_albums_by_ids(
     push_ids(&mut builder, ids);
     builder.push(")");
 
-    let mut rows: Vec<AlbumRow> = builder.build_query_as().fetch_all(pool).await?;
-    sort_to_match(&mut rows, ids, |row| row.id);
+    let rows: Vec<AlbumRow> = builder.build_query_as().fetch_all(pool).await?;
 
-    let mut albums = Vec::with_capacity(rows.len());
+    let mut found = HashMap::with_capacity(rows.len());
     for row in rows {
-        albums.push(build_album(pool, row).await?);
+        let id = row.id;
+        found.insert(id, build_album(pool, row).await?);
     }
 
-    Ok(albums)
+    Ok(in_requested_order(ids, &found))
 }
 
 pub(super) async fn load_tracks_by_ids(
@@ -1222,25 +1227,22 @@ pub(super) async fn load_tracks_by_ids(
     push_ids(&mut builder, ids);
     builder.push(")");
 
-    let mut rows: Vec<TrackRow> = builder.build_query_as().fetch_all(pool).await?;
-    sort_to_match(&mut rows, ids, |row| row.id);
+    let rows: Vec<TrackRow> = builder.build_query_as().fetch_all(pool).await?;
+    let row_ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
 
-    build_children(pool, rows).await
+    let children = build_children(pool, rows).await?;
+    let found: HashMap<i64, Child> = row_ids.into_iter().zip(children).collect();
+
+    Ok(in_requested_order(ids, &found))
 }
 
-/// Puts rows back into the order their ids were asked for.
+/// One entry per id asked for, in that order, repeats included.
 ///
-/// Anything the query did not return simply drops out, which is what should
-/// happen to an id that no longer resolves.
-fn sort_to_match<T>(rows: &mut Vec<T>, ids: &[i64], id_of: impl Fn(&T) -> i64) {
-    let position: HashMap<i64, usize> = ids
-        .iter()
-        .enumerate()
-        .map(|(index, id)| (*id, index))
-        .collect();
-
-    rows.retain(|row| position.contains_key(&id_of(row)));
-    rows.sort_by_key(|row| position[&id_of(row)]);
+/// An id the query did not return simply drops out, which is what should happen
+/// to something that no longer resolves. An id given twice appears twice, which
+/// is what a playlist holding the same song twice needs.
+fn in_requested_order<T: Clone>(ids: &[i64], found: &HashMap<i64, T>) -> Vec<T> {
+    ids.iter().filter_map(|id| found.get(id).cloned()).collect()
 }
 
 fn push_ids(builder: &mut sqlx::QueryBuilder<sqlx::Sqlite>, ids: &[i64]) {

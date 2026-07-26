@@ -13,7 +13,7 @@ use serde::Serialize;
 ///
 /// `duration` is in seconds here, not the milliseconds the database keeps:
 /// that is what the specification says and clients count on it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Child {
     pub id: String,
@@ -100,7 +100,7 @@ pub struct Child {
     pub replay_gain: Option<ReplayGain>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistId3 {
     pub id: String,
@@ -133,7 +133,7 @@ impl ArtistId3 {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumId3 {
     pub id: String,
@@ -229,19 +229,19 @@ impl Child {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ItemGenre {
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscTitle {
     pub disc: i64,
     pub title: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReplayGain {
     #[serde(skip_serializing_if = "Option::is_none")]
