@@ -7,12 +7,12 @@
 use super::error::{ApiError, ErrorBody};
 use crate::user::User;
 use crate::{session, user};
-use axum::Json;
 use axum::extract::{FromRef, FromRequestParts, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::{Json, RequestPartsExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use utoipa::ToSchema;
@@ -53,6 +53,32 @@ where
             }),
             Ok(None) => Err(ApiError::NotAuthenticated),
             Err(e) => Err(ApiError::internal(e, "resolving a session")),
+        }
+    }
+}
+
+/// A request from somebody who administers the server.
+///
+/// Layered on `Panel` rather than repeating its work, so there is one place that
+/// knows how a session is found and one that knows what it is allowed to do.
+/// Carries nothing, because so far the only question asked of it is whether the
+/// caller may, not which of them it is.
+pub struct Administrator;
+
+impl<S> FromRequestParts<S> for Administrator
+where
+    SqlitePool: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let Panel { user, .. } = parts.extract_with_state::<Panel, S>(state).await?;
+
+        if user.is_admin {
+            Ok(Self)
+        } else {
+            Err(ApiError::NotAuthorized)
         }
     }
 }

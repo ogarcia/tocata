@@ -15,11 +15,13 @@ use anyhow::{Context, Result};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tags::Metadata;
 pub use tags::read as read_tags;
 pub use tags::read_with_cover_art as read_tags_with_cover_art;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
 use walker::Entry;
 
@@ -103,14 +105,16 @@ pub async fn scan_all(
         return Ok(None);
     };
 
-    let libraries: Vec<(i64, String)> =
-        sqlx::query_as("SELECT id, path FROM libraries WHERE enabled = 1 ORDER BY id")
+    let libraries: Vec<(i64, String, String)> =
+        sqlx::query_as("SELECT id, path, name FROM libraries WHERE enabled = 1 ORDER BY id")
             .fetch_all(pool)
             .await
             .context("listing libraries")?;
 
     let mut total = Outcome::default();
-    for (id, path) in libraries {
+    for (id, path, name) in libraries {
+        progress.entering(&name);
+
         let Some(outcome) = scan_library(pool, id, Path::new(&path), mode, progress).await? else {
             return Ok(None);
         };
@@ -123,7 +127,6 @@ pub async fn scan_all(
         total.unchanged += outcome.unchanged;
         total.failed += outcome.failed;
         total.gone += outcome.gone;
-        progress.count(total.tracks);
     }
 
     Ok(Some(total))
@@ -241,11 +244,13 @@ async fn scan_library(
             Scanned::Folder { path, modified } => {
                 state.insert_folder(&mut tx_db, &path, modified).await?;
                 outcome.folders += 1;
+                progress.observed(Item::Folder, &path);
             }
             Scanned::Unchanged { path } => {
                 state.touch_track(&mut tx_db, &path).await?;
                 outcome.tracks += 1;
                 outcome.unchanged += 1;
+                progress.observed(Item::Unchanged, &path);
             }
             Scanned::Track {
                 known,
@@ -255,7 +260,8 @@ async fn scan_library(
                 modified,
                 metadata,
             } => {
-                if metadata.is_none() {
+                let readable = metadata.is_some();
+                if !readable {
                     outcome.failed += 1;
                 }
                 if !known {
@@ -267,11 +273,13 @@ async fn scan_library(
                     .insert_track(&mut tx_db, &path, &extension, size, modified, metadata)
                     .await?;
                 outcome.tracks += 1;
+                progress.observed(Item::Track { readable }, &path);
             }
         }
     }
 
     outcome.gone = state.sweep(&mut tx_db).await?;
+    progress.swept(outcome.gone);
 
     tx_db.commit().await.context("committing the scan")?;
     reader.await.context("the file reader panicked")?;
@@ -1020,13 +1028,100 @@ pub async fn sync_libraries(pool: &SqlitePool, paths: &[PathBuf]) -> Result<()> 
     Ok(())
 }
 
-/// Live progress of a scan, for the API to report and for keeping two scans
-/// from running at once.
+/// How many snapshots the channel holds for a watcher that has stopped reading.
+///
+/// Small on purpose. Every snapshot carries the whole state, so a watcher that
+/// falls behind loses nothing by skipping to the newest one — there is no history
+/// worth keeping.
+const UPDATE_DEPTH: usize = 8;
+
+/// How often a running scan tells anybody watching, at most.
+///
+/// Four times a second is as fast as a display is worth updating and slow enough
+/// that a scan reading five thousand files a second is not mostly publishing.
+const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
+
+/// One kind of thing a scan has just dealt with.
+#[derive(Debug, Clone, Copy)]
+pub enum Item {
+    Folder,
+    /// A file that was read. `readable` is false when its tags could not be
+    /// understood, which still counts as a track: the file is there.
+    Track {
+        readable: bool,
+    },
+    /// A file that has not changed since the last scan, so it was not reopened.
+    Unchanged,
+}
+
+/// Everything known about the scan in flight, or the last one to run.
+///
+/// One value rather than a stream of deltas, which is what makes it safe to drop
+/// updates under load: whichever one a watcher receives is complete on its own.
+#[derive(Debug, Clone, Default)]
+pub struct Snapshot {
+    pub scanning: bool,
+    /// Name of the library being walked, while one is.
+    pub library: Option<String>,
+    /// What the scan was looking at when this was taken. Sampled, not every
+    /// file: it exists to show that something is happening.
+    pub path: Option<String>,
+    pub folders: u64,
+    pub tracks: u64,
+    pub unchanged: u64,
+    pub failed: u64,
+    pub gone: u64,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    /// Set when the last scan gave up rather than finishing, so a panel can say
+    /// so instead of showing figures that were rolled back.
+    pub cancelled: bool,
+}
+
+/// The parts that need a lock. They change far less often than the counters, and
+/// on the hot path they are not touched at all.
 #[derive(Debug, Default)]
+struct Current {
+    library: Option<String>,
+    path: Option<String>,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    cancelled: bool,
+    published: Option<Instant>,
+}
+
+/// Live progress of a scan: what to report, and what keeps two from running at
+/// once.
+#[derive(Debug)]
 pub struct Progress {
     scanning: AtomicBool,
-    counted: AtomicU64,
-    stopping: AtomicBool,
+    /// Asked to give up. Cleared when the scan ends, so cancelling one scan does
+    /// not stop the next.
+    cancel: AtomicBool,
+    folders: AtomicU64,
+    tracks: AtomicU64,
+    unchanged: AtomicU64,
+    failed: AtomicU64,
+    gone: AtomicU64,
+    current: RwLock<Current>,
+    updates: broadcast::Sender<Snapshot>,
+}
+
+impl Default for Progress {
+    fn default() -> Self {
+        let (updates, _) = broadcast::channel(UPDATE_DEPTH);
+        Self {
+            scanning: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
+            folders: AtomicU64::new(0),
+            tracks: AtomicU64::new(0),
+            unchanged: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            gone: AtomicU64::new(0),
+            current: RwLock::new(Current::default()),
+            updates,
+        }
+    }
 }
 
 impl Progress {
@@ -1034,22 +1129,47 @@ impl Progress {
         self.scanning.load(Ordering::Relaxed)
     }
 
-    /// Tells whatever scan is running to give up. Nothing ever clears this: the
-    /// only reason to ask is that the process is going away.
+    /// Items processed by the scan in flight, or by the last one to finish.
+    pub fn counted(&self) -> u64 {
+        self.tracks.load(Ordering::Relaxed)
+    }
+
+    /// Follows the scan from now on. The caller gets whatever is published next;
+    /// for the state as it stands, ask for a [`Progress::snapshot`] first.
+    pub fn subscribe(&self) -> broadcast::Receiver<Snapshot> {
+        self.updates.subscribe()
+    }
+
+    /// Everything known right now.
+    pub fn snapshot(&self) -> Snapshot {
+        let current = self.current.read().unwrap_or_else(|e| e.into_inner());
+
+        Snapshot {
+            scanning: self.is_scanning(),
+            library: current.library.clone(),
+            path: current.path.clone(),
+            folders: self.folders.load(Ordering::Relaxed),
+            tracks: self.tracks.load(Ordering::Relaxed),
+            unchanged: self.unchanged.load(Ordering::Relaxed),
+            failed: self.failed.load(Ordering::Relaxed),
+            gone: self.gone.load(Ordering::Relaxed),
+            started_at: current.started_at.clone(),
+            finished_at: current.finished_at.clone(),
+            cancelled: current.cancelled,
+        }
+    }
+
+    /// Asks the scan in flight to give up, whether because somebody pressed a
+    /// button or because the process is going away.
     ///
-    /// A scan is the one thing that keeps a database transaction open for minutes
-    /// at a time, and the database cannot be closed from under it.
-    pub fn stop(&self) {
-        self.stopping.store(true, Ordering::Release);
+    /// A scan is the one thing here that keeps a database transaction open for
+    /// minutes at a time, and nothing can close the database from under it.
+    pub fn cancel(&self) {
+        self.cancel.store(true, Ordering::Release);
     }
 
     fn should_stop(&self) -> bool {
-        self.stopping.load(Ordering::Acquire)
-    }
-
-    /// Items processed by the scan in flight, or by the last one to finish.
-    pub fn counted(&self) -> u64 {
-        self.counted.load(Ordering::Relaxed)
+        self.cancel.load(Ordering::Acquire)
     }
 
     /// Claims the right to scan. `None` means one is already running.
@@ -1061,22 +1181,104 @@ impl Progress {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
             .map(|_| {
-                self.counted.store(0, Ordering::Relaxed);
+                for counter in [
+                    &self.folders,
+                    &self.tracks,
+                    &self.unchanged,
+                    &self.failed,
+                    &self.gone,
+                ] {
+                    counter.store(0, Ordering::Relaxed);
+                }
+
+                *self.current.write().unwrap_or_else(|e| e.into_inner()) = Current {
+                    started_at: Some(db::now()),
+                    ..Current::default()
+                };
+
+                self.announce();
                 Running(self)
             })
     }
 
-    fn count(&self, items: u64) {
-        self.counted.store(items, Ordering::Relaxed);
+    /// Says which library the scan has moved on to.
+    fn entering(&self, library: &str) {
+        self.current
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .library = Some(library.to_string());
+        self.announce();
+    }
+
+    /// Records one item, and every so often says where the scan has got to.
+    ///
+    /// The path is only stored when an update is due. It changes on every file,
+    /// and a string that will be replaced before anybody reads it is an
+    /// allocation for nothing; the counters are lock free either way.
+    fn observed(&self, item: Item, path: &Path) {
+        match item {
+            Item::Folder => {
+                self.folders.fetch_add(1, Ordering::Relaxed);
+            }
+            Item::Track { readable } => {
+                self.tracks.fetch_add(1, Ordering::Relaxed);
+                if !readable {
+                    self.failed.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            Item::Unchanged => {
+                self.tracks.fetch_add(1, Ordering::Relaxed);
+                self.unchanged.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let mut current = self.current.write().unwrap_or_else(|e| e.into_inner());
+        if current
+            .published
+            .is_some_and(|last| last.elapsed() < UPDATE_INTERVAL)
+        {
+            return;
+        }
+
+        current.path = Some(path.to_string_lossy().to_string());
+        current.published = Some(Instant::now());
+        drop(current);
+
+        self.announce();
+    }
+
+    fn swept(&self, gone: u64) {
+        self.gone.fetch_add(gone, Ordering::Relaxed);
+        self.announce();
+    }
+
+    /// Publishes the state as it stands. A send with nobody listening fails, and
+    /// that is the ordinary case: no panel is open.
+    fn announce(&self) {
+        let _ = self.updates.send(self.snapshot());
     }
 }
 
-/// Clears the scanning flag however the scan ends, panic included. Without
-/// this, one failure would leave the server refusing to scan until restarted.
+/// Ends the scan however it ended, panic included. Without this, one failure
+/// would leave the server refusing to scan until restarted.
 struct Running<'a>(&'a Progress);
 
 impl Drop for Running<'_> {
     fn drop(&mut self) {
+        let cancelled = self.0.should_stop();
+
+        {
+            let mut current = self.0.current.write().unwrap_or_else(|e| e.into_inner());
+            current.finished_at = Some(db::now());
+            current.library = None;
+            current.path = None;
+            current.cancelled = cancelled;
+        }
+
+        // Cleared here rather than by whoever asked, so cancelling one scan
+        // never stops the one after it.
+        self.0.cancel.store(false, Ordering::Release);
         self.0.scanning.store(false, Ordering::Release);
+        self.0.announce();
     }
 }

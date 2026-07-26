@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tokio::time::sleep;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -58,10 +58,15 @@ async fn main() -> Result<()> {
     user::ensure_initial_user(&pool).await?;
     scanner::sync_libraries(&pool, config.library_paths()).await?;
 
+    // Held here and handed out through the state, so a handler that keeps a
+    // connection open can tell when to let go of it.
+    let (stopping, is_stopping) = watch::channel(false);
+
     let state = AppState {
         pool: pool.clone(),
         scan: Arc::new(scanner::Progress::default()),
         config: config.clone(),
+        shutdown: is_stopping,
     };
 
     let app = Router::new()
@@ -107,7 +112,9 @@ async fn main() -> Result<()> {
         // First of all, before anything drains: a scan is the only thing here
         // that holds a transaction open for minutes, and nothing can close the
         // database under it.
-        scan.stop();
+        scan.cancel();
+        // Streams that would otherwise stay open until their client goes away.
+        let _ = stopping.send(true);
         let _ = asked.send(());
     };
 

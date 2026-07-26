@@ -15,6 +15,7 @@ anyhow = "1.0"
 argon2 = "0.5"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+futures-util = { version = "0.3", default-features = false }
 getrandom = "0.4"
 lofty = "0.24"
 mime = "0.3"

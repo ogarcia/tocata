@@ -519,7 +519,7 @@ async fn an_interrupted_scan_writes_nothing() {
     let id = library(&pool, &root).await;
 
     let progress = Progress::default();
-    progress.stop();
+    progress.cancel();
 
     let outcome = scan_library(&pool, id, &root, Mode::Incremental, &progress)
         .await
@@ -548,7 +548,7 @@ async fn an_interrupted_scan_marks_nothing_missing() {
     // The danger the rollback exists for: a scan that stopped early has not seen
     // most of the library, and sweeping on the way out would call all of it gone.
     let progress = Progress::default();
-    progress.stop();
+    progress.cancel();
     scan_library(&pool, id, &root, Mode::Incremental, &progress)
         .await
         .unwrap();
@@ -561,4 +561,76 @@ async fn an_interrupted_scan_marks_nothing_missing() {
         .await,
         0
     );
+}
+
+#[tokio::test]
+async fn cancelling_one_scan_does_not_stop_the_next() {
+    let root = temp_root("cancel-then-scan");
+    for n in 0..5 {
+        write_wav(&root.join(format!("Album/{n}.wav")));
+    }
+
+    let pool = database().await;
+    library(&pool, &root).await;
+
+    // Through scan_all, because the flag is cleared by the guard that ends a
+    // scan and that guard is what scan_all holds. A cancelled run must not leave
+    // the server refusing to scan again.
+    let progress = Progress::default();
+    progress.cancel();
+    assert!(
+        scan_all(&pool, Mode::Incremental, &progress)
+            .await
+            .unwrap()
+            .is_none(),
+        "the first scan gave up"
+    );
+
+    let outcome = scan_all(&pool, Mode::Incremental, &progress)
+        .await
+        .unwrap()
+        .expect("the second scan ran to the end");
+
+    assert_eq!(outcome.tracks, 5);
+    assert_eq!(count(&pool, "SELECT count(*) FROM tracks").await, 5);
+}
+
+#[tokio::test]
+async fn a_finished_scan_reports_what_it_did() {
+    let root = temp_root("snapshot");
+    for n in 0..3 {
+        write_wav(&root.join(format!("Album/{n}.wav")));
+    }
+
+    let pool = database().await;
+    library(&pool, &root).await;
+
+    let progress = Progress::default();
+    scan_all(&pool, Mode::Incremental, &progress).await.unwrap();
+
+    let snapshot = progress.snapshot();
+    assert!(!snapshot.scanning);
+    assert!(!snapshot.cancelled);
+    assert_eq!(snapshot.tracks, 3);
+    // The root counts as a folder as well as the album inside it.
+    assert_eq!(snapshot.folders, 2);
+    assert!(snapshot.started_at.is_some());
+    assert!(snapshot.finished_at.is_some());
+    // Cleared on the way out: there is no library being walked any more.
+    assert!(snapshot.library.is_none());
+}
+
+#[tokio::test]
+async fn a_cancelled_scan_says_so() {
+    let root = temp_root("snapshot-cancelled");
+    write_wav(&root.join("Album/one.wav"));
+
+    let pool = database().await;
+    library(&pool, &root).await;
+
+    let progress = Progress::default();
+    progress.cancel();
+    scan_all(&pool, Mode::Incremental, &progress).await.unwrap();
+
+    assert!(progress.snapshot().cancelled, "the panel can tell");
 }

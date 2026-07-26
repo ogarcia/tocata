@@ -14,6 +14,8 @@
 //! only stable if there is somewhere to put the next one.
 
 mod error;
+mod events;
+mod scan;
 mod session;
 
 use crate::state::AppState;
@@ -60,6 +62,8 @@ const SCALAR_HTML: &str = r#"<!doctype html>
     ),
     tags(
         (name = "session", description = "Logging in and out of the panel"),
+        (name = "scan", description = "Watching and steering a scan of the libraries"),
+        (name = "events", description = "The stream the panel keeps open"),
     )
 )]
 struct Reference;
@@ -77,5 +81,8 @@ pub fn router(state: AppState) -> Router {
 /// The one version there is. Paths are declared relative to it, so moving the
 /// whole set under `/v2` one day is one line here and nothing in the handlers.
 fn v1() -> OpenApiRouter<AppState> {
-    OpenApiRouter::new().routes(routes!(session::log_in, session::log_out, session::current))
+    OpenApiRouter::new()
+        .routes(routes!(session::log_in, session::log_out, session::current))
+        .routes(routes!(scan::status, scan::start, scan::cancel))
+        .routes(routes!(events::stream))
 }

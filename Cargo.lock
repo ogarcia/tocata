@@ -1700,6 +1700,7 @@ dependencies = [
  "argon2",
  "axum",
  "chrono",
+ "futures-util",
  "getrandom",
  "lofty",
  "mime",

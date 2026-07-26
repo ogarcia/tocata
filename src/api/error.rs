@@ -26,6 +26,10 @@ pub enum ApiError {
     NotAuthenticated,
     /// 401 — a login attempt that did not check out.
     WrongCredentials,
+    /// 403 — a real session, but not one allowed to do this.
+    NotAuthorized,
+    /// 409 — the request makes sense but conflicts with what is already going on.
+    Conflict(&'static str),
     /// 500 — our fault.
     Internal,
 }
@@ -37,6 +41,8 @@ impl ApiError {
         match self {
             Self::NotAuthenticated => "notAuthenticated",
             Self::WrongCredentials => "wrongCredentials",
+            Self::NotAuthorized => "notAuthorized",
+            Self::Conflict(_) => "conflict",
             Self::Internal => "internalError",
         }
     }
@@ -46,6 +52,8 @@ impl ApiError {
             // Not 403 for either: 403 says "you, but not this", and a request
             // with no session at all has not said who "you" is yet.
             Self::NotAuthenticated | Self::WrongCredentials => StatusCode::UNAUTHORIZED,
+            Self::NotAuthorized => StatusCode::FORBIDDEN,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -54,6 +62,8 @@ impl ApiError {
         match self {
             Self::NotAuthenticated => "No valid session",
             Self::WrongCredentials => "Wrong username or password",
+            Self::NotAuthorized => "Not allowed to perform this operation",
+            Self::Conflict(detail) => detail,
             Self::Internal => "An internal error occurred",
         }
     }
@@ -111,6 +121,8 @@ mod tests {
         let codes = [
             ApiError::NotAuthenticated.code(),
             ApiError::WrongCredentials.code(),
+            ApiError::NotAuthorized.code(),
+            ApiError::Conflict("x").code(),
             ApiError::Internal.code(),
         ];
 
