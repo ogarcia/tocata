@@ -11,3 +11,8 @@ keywords = ["opensubsonic", "music", "server", "audio", "streaming"]
 categories = ["multimedia::audio", "web-programming::http-server"]
 
 [dependencies]
+anyhow = "1.0"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-none", "sqlite", "macros", "migrate", "chrono"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

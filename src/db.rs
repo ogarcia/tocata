@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+use anyhow::{Context, Result};
+use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use std::path::Path;
+use std::time::Duration;
+
+/// How long a writer waits for the lock before giving up.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Opens the database, creating it if needed, and brings the schema up to
+/// date. Migrations are embedded at compile time, so the binary carries its
+/// own schema and needs nothing alongside it.
+pub async fn connect(path: &Path) -> Result<SqlitePool> {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        // SQLite ships with foreign key enforcement disabled, which would
+        // turn every reference in the schema into a comment.
+        .foreign_keys(true)
+        // Readers do not block the writer, which matters while a scan is
+        // running and clients keep browsing.
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(BUSY_TIMEOUT);
+
+    let pool = SqlitePool::connect_with(options)
+        .await
+        .with_context(|| format!("opening database at {}", path.display()))?;
+
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .context("applying database migrations")?;
+
+    Ok(pool)
+}
