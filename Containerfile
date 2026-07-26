@@ -1,17 +1,16 @@
-# check=skip=InvalidDefaultArgInFrom
-
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
-# Versions live in versions.env and nowhere else. There are deliberately no
-# defaults here: leaving one out makes the build fail on an unusable image
-# reference instead of quietly baking in whatever was current the day this file
-# was written. That is also the check skipped above — it warns that these two
-# names are incomplete without an argument, which is the intention.
+# The versions this build rests on, written down once. Here rather than in a file
+# beside it because this is the only place the build itself can read, which is
+# what lets the obvious thing work:
 #
-#   podman build --build-arg-file versions.env -t tocata .
-ARG ALPINE_VERSION
-ARG RUST_VERSION
+#   podman build -t tocata .
+#
+# Both name a minor line rather than a patch, so fixes arrive without a commit,
+# the same bargain the dependencies are on.
+ARG ALPINE_VERSION=3.24
+ARG RUST_VERSION=1
 
 # Which of the two stages below the binary comes from. Declared out here because
 # global scope is the only one a FROM can read.
@@ -61,8 +60,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # repeating that work inside a container image would be slower and would prove
 # nothing. Point the build at what it already made, under dist/:
 #
-#   podman build --build-arg-file versions.env \
-#       --build-arg BINARY_SOURCE=prebuilt -t tocata .
+#   podman build --build-arg BINARY_SOURCE=prebuilt -t tocata .
 #
 # Only the stage that gets used is assembled, so dist/ need not exist for an
 # ordinary build from source.

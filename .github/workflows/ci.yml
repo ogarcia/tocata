@@ -112,10 +112,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # versions.env is plain KEY=value so that this is all it takes to make the
-      # same file the source of truth here too.
-      - run: cat versions.env >> "$GITHUB_ENV"
-
       - uses: actions/download-artifact@v8
         with:
           name: tocata-amd64
@@ -148,8 +144,6 @@ jobs:
       - name: Build for this machine
         run: |
           docker buildx build \
-            --build-arg ALPINE_VERSION="$ALPINE_VERSION" \
-            --build-arg RUST_VERSION="$RUST_VERSION" \
             --build-arg BINARY_SOURCE=prebuilt \
             --platform linux/amd64 \
             --load --tag tocata:ci .
@@ -186,8 +180,6 @@ jobs:
         if: github.event_name == 'push'
         run: |
           docker buildx build \
-            --build-arg ALPINE_VERSION="$ALPINE_VERSION" \
-            --build-arg RUST_VERSION="$RUST_VERSION" \
             --build-arg BINARY_SOURCE=prebuilt \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
             --platform linux/amd64,linux/arm64 \
