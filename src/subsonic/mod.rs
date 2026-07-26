@@ -5,6 +5,7 @@
 
 mod annotation;
 mod auth;
+mod bookmarks;
 mod browsing;
 mod error;
 mod lists;
@@ -67,6 +68,11 @@ pub fn router(state: AppState) -> Router {
         "createPlaylist" => playlists::create_playlist,
         "updatePlaylist" => playlists::update_playlist,
         "deletePlaylist" => playlists::delete_playlist,
+        "getBookmarks" => bookmarks::get_bookmarks,
+        "createBookmark" => bookmarks::create_bookmark,
+        "deleteBookmark" => bookmarks::delete_bookmark,
+        "getPlayQueue" => bookmarks::get_play_queue,
+        "savePlayQueue" => bookmarks::save_play_queue,
     }
     .with_state(state)
 }
