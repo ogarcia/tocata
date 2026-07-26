@@ -1,0 +1,6 @@
+# The build context only needs what the Containerfile copies, and these are the
+# directories that would otherwise make it large for nothing.
+target
+data
+.git
+.githooks
