@@ -35,6 +35,9 @@ pub enum ApiError {
     NotAuthorized,
     /// 0 — anything unexpected on our side.
     Internal,
+    /// 0 with something specific to say. For the refusals the protocol has no
+    /// code for, where a bare "an internal error occurred" would be a lie.
+    Generic(String),
 }
 
 impl ApiError {
@@ -47,7 +50,7 @@ impl ApiError {
             Self::InvalidApiKey => 44,
             Self::NotFound => 70,
             Self::NotAuthorized => 50,
-            Self::Internal => 0,
+            Self::Internal | Self::Generic(_) => 0,
         }
     }
 
@@ -63,6 +66,7 @@ impl ApiError {
             Self::NotFound => "The requested data was not found".into(),
             Self::NotAuthorized => "The user is not authorized for the given operation".into(),
             Self::Internal => "An internal error occurred".into(),
+            Self::Generic(message) => message.clone(),
         }
     }
 

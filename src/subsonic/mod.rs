@@ -15,6 +15,7 @@ mod playlists;
 mod response;
 mod search;
 mod system;
+mod users;
 mod xml;
 
 use crate::state::AppState;
@@ -73,6 +74,12 @@ pub fn router(state: AppState) -> Router {
         "deleteBookmark" => bookmarks::delete_bookmark,
         "getPlayQueue" => bookmarks::get_play_queue,
         "savePlayQueue" => bookmarks::save_play_queue,
+        "getUser" => users::get_user,
+        "getUsers" => users::get_users,
+        "createUser" => users::create_user,
+        "updateUser" => users::update_user,
+        "deleteUser" => users::delete_user,
+        "changePassword" => users::change_password,
     }
     .with_state(state)
 }
