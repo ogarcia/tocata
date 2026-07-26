@@ -39,25 +39,26 @@ async fn main() -> Result<()> {
     user::ensure_initial_user(&pool).await?;
     scanner::sync_libraries(&pool, config.library_paths()).await?;
 
-    // Scanning runs behind the server rather than in front of it: a library of
-    // any size would otherwise delay the moment somebody can press play.
-    let scan_pool = pool.clone();
-    tokio::spawn(async move {
-        match scanner::scan_all(&scan_pool).await {
-            Ok(outcome) => info!(
-                "initial scan finished: {} folders, {} tracks, {} failed",
-                outcome.folders, outcome.tracks, outcome.failed
-            ),
-            Err(e) => tracing::error!("initial scan failed: {e:#}"),
-        }
-    });
-
-    let app = Router::new().nest("/rest", subsonic::router(pool));
+    let app = Router::new().nest("/rest", subsonic::router(pool.clone()));
 
     let addr = config.listen_addr();
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding {addr}"))?;
+
+    // Only once the port is ours: starting a scan before knowing whether the
+    // server can even listen would leave a half finished run behind every
+    // failed start.
+    let scan_pool = pool.clone();
+    tokio::spawn(async move {
+        match scanner::scan_all(&scan_pool, scanner::Mode::Incremental).await {
+            Ok(outcome) => info!(
+                "initial scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
+                outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
+            ),
+            Err(e) => tracing::error!("initial scan failed: {e:#}"),
+        }
+    });
 
     info!("listening on http://{addr}");
     axum::serve(listener, app).await.context("serving")?;

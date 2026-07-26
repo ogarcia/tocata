@@ -57,14 +57,18 @@ CREATE INDEX artworks_hash_idx ON artworks (content_hash);
 -- The self-referencing parent_id means rows must be inserted parent first.
 -- The scanner walks breadth first, which satisfies that naturally; there is
 -- no need to sort by path length as a proxy for depth.
+-- Marked, never deleted, for the same reason as tracks: deleting a folder
+-- cascades into its tracks and takes the user's data with them.
 CREATE TABLE folders (
-    id          INTEGER PRIMARY KEY,
-    public_id   TEXT    NOT NULL UNIQUE,
-    library_id  INTEGER NOT NULL REFERENCES libraries (id) ON DELETE CASCADE,
-    parent_id   INTEGER          REFERENCES folders (id)   ON DELETE CASCADE,
-    name        TEXT    NOT NULL,
-    path        TEXT    NOT NULL,
-    modified_at TEXT,
+    id            INTEGER PRIMARY KEY,
+    public_id     TEXT    NOT NULL UNIQUE,
+    library_id    INTEGER NOT NULL REFERENCES libraries (id) ON DELETE CASCADE,
+    parent_id     INTEGER          REFERENCES folders (id)   ON DELETE CASCADE,
+    name          TEXT    NOT NULL,
+    path          TEXT    NOT NULL,
+    modified_at   TEXT,
+    missing_since TEXT,
+    last_seen_scan INTEGER NOT NULL,
     UNIQUE (library_id, path)
 );
 
@@ -169,6 +173,15 @@ CREATE TABLE tracks (
     rg_track_gain    REAL,
     rg_track_peak    REAL,
     missing_since    TEXT,
+    -- Which scan last saw this file, stamped on every pass whether or not the
+    -- file changed. What a scan did not touch is what has gone away, which is
+    -- one statement at the end instead of a set of paths held in memory.
+    --
+    -- A scan number rather than a timestamp on purpose: timestamps have finite
+    -- granularity, so two scans within the same tick would compare equal and
+    -- the sweep would find nothing. A counter is exact, and it does not care
+    -- what NTP does to the clock mid-scan.
+    last_seen_scan   INTEGER NOT NULL,
     created_at       TEXT    NOT NULL,
     updated_at       TEXT    NOT NULL,
     UNIQUE (library_id, path)
@@ -183,6 +196,9 @@ CREATE INDEX tracks_mbid_idx   ON tracks (mbid_recording);
 -- moved files. Partial, because the expected number of missing tracks is zero.
 CREATE INDEX tracks_missing_idx ON tracks (missing_since)
     WHERE missing_since IS NOT NULL;
+
+-- Drives the sweep that marks what a scan did not see.
+CREATE INDEX tracks_last_seen_idx ON tracks (library_id, last_seen_scan);
 
 -- Credits carry a role and a position. The role covers artist, albumartist,
 -- composer, performer and whatever else a tag throws at us without adding a

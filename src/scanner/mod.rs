@@ -5,6 +5,8 @@
 
 mod album_key;
 mod tags;
+#[cfg(test)]
+mod tests;
 mod walker;
 
 use crate::db;
@@ -23,11 +25,35 @@ use walker::Entry;
 /// idles between files.
 const CHANNEL_DEPTH: usize = 256;
 
+/// Fraction of a library that has to vanish before the sweep refuses to run.
+///
+/// A whole library disappearing is not a deletion, it is a disk that did not
+/// mount. Nothing would be lost — tracks are marked, not removed — but the user
+/// would open a client and find an empty server, which is a fright nobody
+/// needs. Ninety per cent catches the failed mount without standing in the way
+/// of somebody genuinely clearing out a library.
+const VANISHED_FRACTION_LIMIT: f64 = 0.9;
+
+/// Below this many tracks the fraction above means nothing, so the sweep runs
+/// regardless.
+const VANISHED_MINIMUM: i64 = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Skips files whose size and modification time are unchanged.
+    Incremental,
+    /// Reads every file again. For when tags were edited with their timestamps
+    /// preserved, or when our own extraction improved.
+    Full,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Outcome {
     pub folders: u64,
     pub tracks: u64,
+    pub unchanged: u64,
     pub failed: u64,
+    pub gone: u64,
 }
 
 /// One entry, already read from disk. Metadata is absent when the file could
@@ -37,7 +63,13 @@ enum Scanned {
         path: PathBuf,
         modified: Option<i64>,
     },
+    /// Same size and modification time as last time, so its tags were not even
+    /// opened. All it needs is to be counted as seen.
+    Unchanged { path: PathBuf },
     Track {
+        /// False when no row existed at this path, which is when a moved file
+        /// is worth looking for.
+        known: bool,
         path: PathBuf,
         extension: String,
         size: u64,
@@ -47,7 +79,7 @@ enum Scanned {
 }
 
 /// Scans every enabled library.
-pub async fn scan_all(pool: &SqlitePool) -> Result<Outcome> {
+pub async fn scan_all(pool: &SqlitePool, mode: Mode) -> Result<Outcome> {
     let libraries: Vec<(i64, String)> =
         sqlx::query_as("SELECT id, path FROM libraries WHERE enabled = 1 ORDER BY id")
             .fetch_all(pool)
@@ -56,14 +88,16 @@ pub async fn scan_all(pool: &SqlitePool) -> Result<Outcome> {
 
     let mut total = Outcome::default();
     for (id, path) in libraries {
-        let outcome = scan_library(pool, id, Path::new(&path)).await?;
+        let outcome = scan_library(pool, id, Path::new(&path), mode).await?;
         info!(
-            "scanned '{}': {} folders, {} tracks, {} failed",
-            path, outcome.folders, outcome.tracks, outcome.failed
+            "scanned '{}': {} folders, {} tracks ({} unchanged), {} failed, {} gone",
+            path, outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
         );
         total.folders += outcome.folders;
         total.tracks += outcome.tracks;
+        total.unchanged += outcome.unchanged;
         total.failed += outcome.failed;
+        total.gone += outcome.gone;
     }
 
     Ok(total)
@@ -72,7 +106,37 @@ pub async fn scan_all(pool: &SqlitePool) -> Result<Outcome> {
 /// Walking and tag reading happen on a blocking thread and arrive through a
 /// channel; writing happens here. Neither side waits for the other: reading a
 /// file is I/O bound and inserting a row is not.
-async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result<Outcome> {
+async fn scan_library(
+    pool: &SqlitePool,
+    library_id: i64,
+    root: &Path,
+    mode: Mode,
+) -> Result<Outcome> {
+    // The run's own id is what marks the rows this scan touches.
+    let scan: i64 = sqlx::query_scalar(
+        "INSERT INTO scan_runs (library_id, started_at, full_scan)
+         VALUES (?, ?, ?) RETURNING id",
+    )
+    .bind(library_id)
+    .bind(db::now())
+    .bind(i64::from(mode == Mode::Full))
+    .fetch_one(pool)
+    .await
+    .context("recording the start of the scan")?;
+
+    // What is already recorded, so the reader can skip files that have not
+    // changed without asking the database once per file.
+    let known: HashMap<PathBuf, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT path, file_modified_at, file_size FROM tracks WHERE library_id = ?",
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await
+    .context("loading the tracks already recorded")?
+    .into_iter()
+    .map(|(path, modified, size)| (PathBuf::from(path), (modified, size)))
+    .collect();
+
     let (tx, mut rx) = mpsc::channel(CHANNEL_DEPTH);
     let root_owned = root.to_path_buf();
 
@@ -86,19 +150,36 @@ async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result
                     size,
                     modified,
                 } => {
-                    let metadata = match tags::read(&path) {
-                        Ok(metadata) => Some(Box::new(metadata)),
-                        Err(e) => {
-                            warn!("could not read tags from {}: {e:#}", path.display());
-                            None
+                    let recorded = known.get(&path);
+
+                    // Size and modification time together, not either alone: a
+                    // tagger writing within the padding of an existing tag can
+                    // leave the size untouched, and one asked to preserve
+                    // timestamps leaves the other untouched.
+                    let unchanged = mode == Mode::Incremental
+                        && recorded.is_some_and(|(recorded_modified, recorded_size)| {
+                            *recorded_size == size as i64
+                                && recorded_modified == &epoch_to_iso8601(modified)
+                        });
+
+                    if unchanged {
+                        Scanned::Unchanged { path }
+                    } else {
+                        let metadata = match tags::read(&path) {
+                            Ok(metadata) => Some(Box::new(metadata)),
+                            Err(e) => {
+                                warn!("could not read tags from {}: {e:#}", path.display());
+                                None
+                            }
+                        };
+                        Scanned::Track {
+                            known: recorded.is_some(),
+                            path,
+                            extension,
+                            size,
+                            modified,
+                            metadata,
                         }
-                    };
-                    Scanned::Track {
-                        path,
-                        extension,
-                        size,
-                        modified,
-                        metadata,
                     }
                 }
             };
@@ -110,7 +191,7 @@ async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result
         }
     });
 
-    let mut state = State::new(library_id);
+    let mut state = State::new(library_id, scan);
     let mut outcome = Outcome::default();
     let mut tx_db = pool
         .begin()
@@ -123,7 +204,13 @@ async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result
                 state.insert_folder(&mut tx_db, &path, modified).await?;
                 outcome.folders += 1;
             }
+            Scanned::Unchanged { path } => {
+                state.touch_track(&mut tx_db, &path).await?;
+                outcome.tracks += 1;
+                outcome.unchanged += 1;
+            }
             Scanned::Track {
+                known,
                 path,
                 extension,
                 size,
@@ -133,6 +220,11 @@ async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result
                 if metadata.is_none() {
                     outcome.failed += 1;
                 }
+                if !known {
+                    state
+                        .reclaim_moved(&mut tx_db, &path, size, &metadata)
+                        .await?;
+                }
                 state
                     .insert_track(&mut tx_db, &path, &extension, size, modified, metadata)
                     .await?;
@@ -141,8 +233,22 @@ async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result
         }
     }
 
+    outcome.gone = state.sweep(&mut tx_db).await?;
+
     tx_db.commit().await.context("committing the scan")?;
     reader.await.context("the file reader panicked")?;
+
+    sqlx::query(
+        "UPDATE scan_runs SET finished_at = ?, tracks_seen = ?, tracks_added = ?
+          WHERE id = ?",
+    )
+    .bind(db::now())
+    .bind(outcome.tracks as i64)
+    .bind((outcome.tracks - outcome.unchanged) as i64)
+    .bind(scan)
+    .execute(pool)
+    .await
+    .context("recording the end of the scan")?;
 
     Ok(outcome)
 }
@@ -154,6 +260,7 @@ async fn scan_library(pool: &SqlitePool, library_id: i64, root: &Path) -> Result
 /// exists yet.
 struct State {
     library_id: i64,
+    scan: i64,
     folders: HashMap<PathBuf, i64>,
     artists: HashMap<String, i64>,
     albums: HashMap<AlbumKey, i64>,
@@ -162,9 +269,10 @@ struct State {
 }
 
 impl State {
-    fn new(library_id: i64) -> Self {
+    fn new(library_id: i64, scan: i64) -> Self {
         Self {
             library_id,
+            scan,
             folders: HashMap::new(),
             artists: HashMap::new(),
             albums: HashMap::new(),
@@ -188,12 +296,16 @@ impl State {
             .unwrap_or_default();
 
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO folders (public_id, library_id, parent_id, name, path, modified_at)
-             VALUES (?, ?, ?, ?, ?, ?)
+            "INSERT INTO folders (
+                 public_id, library_id, parent_id, name, path, modified_at,
+                 last_seen_scan
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (library_id, path) DO UPDATE SET
                  parent_id = excluded.parent_id,
                  name = excluded.name,
-                 modified_at = excluded.modified_at
+                 modified_at = excluded.modified_at,
+                 missing_since = NULL,
+                 last_seen_scan = excluded.last_seen_scan
              RETURNING id",
         )
         .bind(db::public_id()?)
@@ -202,6 +314,7 @@ impl State {
         .bind(&name)
         .bind(path.to_string_lossy().as_ref())
         .bind(modified.map(epoch_to_iso8601))
+        .bind(self.scan)
         .fetch_one(&mut **tx)
         .await
         .with_context(|| format!("inserting folder {}", path.display()))?;
@@ -233,13 +346,7 @@ impl State {
             None => None,
         };
 
-        // A file with no readable title is still a track: the file name is a
-        // better answer than nothing, and it is what the user sees.
-        let title = metadata.title.clone().unwrap_or_else(|| {
-            path.file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.to_string_lossy().to_string())
-        });
+        let title = resolve_title(path, &metadata);
 
         let track_id: i64 = sqlx::query_scalar(
             "INSERT INTO tracks (
@@ -248,9 +355,9 @@ impl State {
                  track_number, disc_number, year, duration_ms, bit_rate,
                  bit_depth, sampling_rate, channel_count, bpm, comment,
                  mbid_recording, mbid_track, isrc, rg_track_gain, rg_track_peak,
-                 created_at, updated_at
+                 last_seen_scan, created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (library_id, path) DO UPDATE SET
                  folder_id = excluded.folder_id,
                  album_id = excluded.album_id,
@@ -276,6 +383,7 @@ impl State {
                  rg_track_gain = excluded.rg_track_gain,
                  rg_track_peak = excluded.rg_track_peak,
                  missing_since = NULL,
+                 last_seen_scan = excluded.last_seen_scan,
                  updated_at = excluded.updated_at
              RETURNING id",
         )
@@ -305,6 +413,7 @@ impl State {
         .bind(&metadata.isrc)
         .bind(metadata.rg_track_gain)
         .bind(metadata.rg_track_peak)
+        .bind(self.scan)
         .bind(&self.timestamp)
         .bind(&self.timestamp)
         .fetch_one(&mut **tx)
@@ -318,6 +427,168 @@ impl State {
         }
 
         Ok(())
+    }
+
+    /// Records that an unchanged file is still there. The whole point of the
+    /// incremental scan is that this is all it costs.
+    async fn touch_track(&mut self, tx: &mut Transaction<'_, Sqlite>, path: &Path) -> Result<()> {
+        sqlx::query(
+            "UPDATE tracks SET last_seen_scan = ?, missing_since = NULL
+              WHERE library_id = ? AND path = ?",
+        )
+        .bind(self.scan)
+        .bind(self.library_id)
+        .bind(path.to_string_lossy().as_ref())
+        .execute(&mut **tx)
+        .await
+        .with_context(|| format!("marking {} as seen", path.display()))?;
+
+        Ok(())
+    }
+
+    /// Looks for a file that went missing and has turned up here under another
+    /// path, and moves that row to the new one.
+    ///
+    /// This is what makes the opaque public identifiers hold up: the row keeps
+    /// its id, so the favourites, ratings, play counts and playlist entries
+    /// hanging off it survive a reorganisation of the library. The subsequent
+    /// upsert then finds the row by path and refreshes the rest.
+    ///
+    /// Matching is on a MusicBrainz recording id when the tag has one, and
+    /// otherwise on size, duration and title together. No hashing: reading every
+    /// byte to be slightly more certain is not worth an hour of disk.
+    ///
+    /// The candidate is anything this scan has not seen yet, not just what is
+    /// already marked as missing: the sweep runs at the end, so when a moved
+    /// file turns up the old row is still unmarked. Rows already marked are
+    /// preferred, since a row this scan simply has not reached yet might still
+    /// be there.
+    async fn reclaim_moved(
+        &mut self,
+        tx: &mut Transaction<'_, Sqlite>,
+        path: &Path,
+        size: u64,
+        metadata: &Option<Box<Metadata>>,
+    ) -> Result<()> {
+        let Some(metadata) = metadata else {
+            return Ok(());
+        };
+
+        // The title from the tag, and only from the tag. For a file with no
+        // title tag the stored title is its file name, and a rename changes
+        // that, so matching on it would defeat the whole point. When there is
+        // no tag, size and duration carry the match on their own: two different
+        // files agreeing on both, to the byte and the millisecond, are the same
+        // audio in all but name.
+        let tagged_title = metadata.title.as_deref();
+
+        let candidate: Option<i64> = match metadata.mbid_recording.as_deref() {
+            Some(mbid) => {
+                sqlx::query_scalar(
+                    "SELECT id FROM tracks
+                      WHERE library_id = ? AND last_seen_scan < ?
+                        AND mbid_recording = ?
+                      ORDER BY missing_since IS NULL, id
+                      LIMIT 1",
+                )
+                .bind(self.library_id)
+                .bind(self.scan)
+                .bind(mbid)
+                .fetch_optional(&mut **tx)
+                .await
+            }
+            None => {
+                sqlx::query_scalar(
+                    "SELECT id FROM tracks
+                      WHERE library_id = ? AND last_seen_scan < ?
+                        AND file_size = ? AND duration_ms IS ?
+                        AND (? IS NULL OR title = ?)
+                      ORDER BY missing_since IS NULL, id
+                      LIMIT 1",
+                )
+                .bind(self.library_id)
+                .bind(self.scan)
+                .bind(size as i64)
+                .bind(metadata.duration_ms)
+                .bind(tagged_title)
+                .bind(tagged_title)
+                .fetch_optional(&mut **tx)
+                .await
+            }
+        }
+        .context("looking for a moved file")?;
+
+        if let Some(id) = candidate {
+            debug!("{} is a file that moved; keeping its row", path.display());
+            sqlx::query("UPDATE tracks SET path = ? WHERE id = ?")
+                .bind(path.to_string_lossy().as_ref())
+                .bind(id)
+                .execute(&mut **tx)
+                .await
+                .context("moving a reclaimed track to its new path")?;
+        }
+
+        Ok(())
+    }
+
+    /// Marks everything this scan did not touch, unless so much of the library
+    /// vanished at once that a failed mount is the likelier explanation.
+    async fn sweep(&mut self, tx: &mut Transaction<'_, Sqlite>) -> Result<u64> {
+        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks WHERE library_id = ?")
+            .bind(self.library_id)
+            .fetch_one(&mut **tx)
+            .await
+            .context("counting the library")?;
+
+        let vanished: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM tracks
+              WHERE library_id = ? AND last_seen_scan < ? AND missing_since IS NULL",
+        )
+        .bind(self.library_id)
+        .bind(self.scan)
+        .fetch_one(&mut **tx)
+        .await
+        .context("counting what the scan did not see")?;
+
+        if vanished == 0 {
+            return Ok(0);
+        }
+
+        if total >= VANISHED_MINIMUM
+            && (vanished as f64) / (total as f64) >= VANISHED_FRACTION_LIMIT
+        {
+            warn!(
+                "not marking anything: {vanished} of {total} tracks vanished at once, \
+                 which looks like a filesystem that did not mount rather than a deletion"
+            );
+            return Ok(0);
+        }
+
+        // Written out rather than looped over a table name: sqlx refuses
+        // dynamically built SQL, and it is right to.
+        sqlx::query(
+            "UPDATE tracks SET missing_since = ?
+              WHERE library_id = ? AND last_seen_scan < ? AND missing_since IS NULL",
+        )
+        .bind(db::now())
+        .bind(self.library_id)
+        .bind(self.scan)
+        .execute(&mut **tx)
+        .await
+        .context("marking absent tracks")?;
+
+        sqlx::query(
+            "UPDATE folders SET missing_since = ?
+              WHERE library_id = ? AND last_seen_scan < ? AND missing_since IS NULL",
+        )
+        .bind(db::now())
+        .bind(self.library_id)
+        .bind(self.scan)
+        .execute(&mut **tx)
+        .await
+        .context("marking absent folders")?;
+
+        Ok(vanished as u64)
     }
 
     /// Replaces the track's credits and genres wholesale. Cheaper than working
@@ -508,6 +779,16 @@ impl State {
         self.albums.insert(key, id);
         Ok(id)
     }
+}
+
+/// A file with no readable title is still a track: the file name is a better
+/// answer than nothing, and it is what the user ends up seeing in a client.
+fn resolve_title(path: &Path, metadata: &Metadata) -> String {
+    metadata.title.clone().unwrap_or_else(|| {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string())
+    })
 }
 
 /// The suffix is what the API reports; the content type is what a client gets
