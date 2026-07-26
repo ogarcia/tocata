@@ -999,32 +999,13 @@ pub async fn sync_libraries(pool: &SqlitePool, paths: &[PathBuf]) -> Result<()> 
         .with_context(|| format!("registering library {path}"))?;
     }
 
-    let configured: Vec<String> = paths
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
-
-    let mut disable = sqlx::QueryBuilder::new("UPDATE libraries SET enabled = 0 WHERE enabled = 1");
-    if !configured.is_empty() {
-        disable.push(" AND path NOT IN (");
-        let mut separated = disable.separated(", ");
-        for path in &configured {
-            separated.push_bind(path);
-        }
-        disable.push(")");
-    }
-
-    let disabled = disable
-        .build()
-        .execute(pool)
-        .await
-        .context("disabling libraries that are no longer configured")?
-        .rows_affected();
-
-    if disabled > 0 {
-        warn!("{disabled} library(ies) are no longer configured and have been disabled");
-    }
-
+    // Nothing is disabled for being absent from the list. The environment adds
+    // and enables; it does not decide what else may exist. Two reasons: a
+    // library added from the panel would otherwise be undone by the next
+    // restart, and a library carries references from playlists and favourites,
+    // so making it disappear because a variable moved is the same mistake as
+    // sweeping a disk that failed to mount. Removing one is something somebody
+    // asks for.
     Ok(())
 }
 

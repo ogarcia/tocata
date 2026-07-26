@@ -28,6 +28,10 @@ pub enum ApiError {
     WrongCredentials,
     /// 403 — a real session, but not one allowed to do this.
     NotAuthorized,
+    /// 404 — no such thing.
+    NotFound,
+    /// 400 — the request itself does not make sense.
+    Invalid(&'static str),
     /// 409 — the request makes sense but conflicts with what is already going on.
     Conflict(&'static str),
     /// 500 — our fault.
@@ -42,6 +46,8 @@ impl ApiError {
             Self::NotAuthenticated => "notAuthenticated",
             Self::WrongCredentials => "wrongCredentials",
             Self::NotAuthorized => "notAuthorized",
+            Self::NotFound => "notFound",
+            Self::Invalid(_) => "invalidRequest",
             Self::Conflict(_) => "conflict",
             Self::Internal => "internalError",
         }
@@ -53,6 +59,8 @@ impl ApiError {
             // with no session at all has not said who "you" is yet.
             Self::NotAuthenticated | Self::WrongCredentials => StatusCode::UNAUTHORIZED,
             Self::NotAuthorized => StatusCode::FORBIDDEN,
+            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::Invalid(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -63,7 +71,8 @@ impl ApiError {
             Self::NotAuthenticated => "No valid session",
             Self::WrongCredentials => "Wrong username or password",
             Self::NotAuthorized => "Not allowed to perform this operation",
-            Self::Conflict(detail) => detail,
+            Self::NotFound => "No such thing",
+            Self::Invalid(detail) | Self::Conflict(detail) => detail,
             Self::Internal => "An internal error occurred",
         }
     }
@@ -123,6 +132,8 @@ mod tests {
             ApiError::WrongCredentials.code(),
             ApiError::NotAuthorized.code(),
             ApiError::Conflict("x").code(),
+            ApiError::NotFound.code(),
+            ApiError::Invalid("x").code(),
             ApiError::Internal.code(),
         ];
 

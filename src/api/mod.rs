@@ -15,6 +15,7 @@
 
 mod error;
 mod events;
+mod libraries;
 mod scan;
 mod session;
 
@@ -64,6 +65,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "session", description = "Logging in and out of the panel"),
         (name = "scan", description = "Watching and steering a scan of the libraries"),
         (name = "events", description = "The stream the panel keeps open"),
+        (name = "libraries", description = "The directories music is read from"),
     )
 )]
 struct Reference;
@@ -85,4 +87,6 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(session::log_in, session::log_out, session::current))
         .routes(routes!(scan::status, scan::start, scan::cancel))
         .routes(routes!(events::stream))
+        .routes(routes!(libraries::list, libraries::add))
+        .routes(routes!(libraries::change, libraries::remove))
 }

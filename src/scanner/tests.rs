@@ -634,3 +634,65 @@ async fn a_cancelled_scan_says_so() {
 
     assert!(progress.snapshot().cancelled, "the panel can tell");
 }
+
+#[tokio::test]
+async fn the_environment_adds_libraries_without_removing_others() {
+    let pool = database().await;
+
+    // One that somebody added through the API, which the environment knows
+    // nothing about.
+    let timestamp = db::now();
+    sqlx::query(
+        "INSERT INTO libraries (name, path, enabled, created_at, updated_at)
+         VALUES ('from the panel', '/srv/added', 1, ?, ?)",
+    )
+    .bind(&timestamp)
+    .bind(&timestamp)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sync_libraries(&pool, &[PathBuf::from("/srv/configured")])
+        .await
+        .unwrap();
+
+    let enabled: Vec<String> =
+        sqlx::query_scalar("SELECT path FROM libraries WHERE enabled = 1 ORDER BY path")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(
+        enabled,
+        vec!["/srv/added".to_string(), "/srv/configured".to_string()],
+        "the variable adds and enables; it does not decide what else may exist"
+    );
+}
+
+#[tokio::test]
+async fn the_environment_re_enables_what_it_names() {
+    let pool = database().await;
+
+    let timestamp = db::now();
+    sqlx::query(
+        "INSERT INTO libraries (name, path, enabled, created_at, updated_at)
+         VALUES ('turned off', '/srv/music', 0, ?, ?)",
+    )
+    .bind(&timestamp)
+    .bind(&timestamp)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sync_libraries(&pool, &[PathBuf::from("/srv/music")])
+        .await
+        .unwrap();
+
+    let enabled: bool =
+        sqlx::query_scalar("SELECT enabled FROM libraries WHERE path = '/srv/music'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert!(enabled, "naming it in the variable turns it back on");
+}
