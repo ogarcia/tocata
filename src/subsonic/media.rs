@@ -34,7 +34,7 @@ pub async fn stream(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    match locate(&pool, &query.id).await {
+    match locate(&pool, auth.user.id, &query.id).await {
         Ok(Some(track)) => serve(track, request).await,
         Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
         Err(Refused::Traversal) => ApiError::NotFound.in_format(auth.format).into_response(),
@@ -51,7 +51,7 @@ pub async fn download(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    let track = match locate(&pool, &query.id).await {
+    let track = match locate(&pool, auth.user.id, &query.id).await {
         Ok(Some(track)) => track,
         Ok(None) | Err(Refused::Traversal) => {
             return ApiError::NotFound.in_format(auth.format).into_response();
@@ -85,14 +85,20 @@ enum Refused {
     Database(sqlx::Error),
 }
 
-async fn locate(pool: &SqlitePool, public_id: &str) -> Result<Option<Located>, Refused> {
-    let row: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT t.path, t.content_type, l.path
-           FROM tracks t
-           JOIN libraries l ON l.id = t.library_id
-          WHERE t.public_id = ? AND t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
-    )
+async fn locate(
+    pool: &SqlitePool,
+    user_id: i64,
+    public_id: &str,
+) -> Result<Option<Located>, Refused> {
+    let row: Option<(String, String, String)> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        " SELECT t.path, t.content_type, l.path
+            FROM tracks t
+            JOIN libraries l ON l.id = t.library_id
+           WHERE t.public_id = ? AND t.missing_since IS NULL
+             AND t.library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(user_id)
     .bind(public_id)
     .fetch_optional(pool)
     .await
@@ -243,7 +249,7 @@ pub async fn get_cover_art(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    let album = match resolve_album(&pool, &query.id).await {
+    let album = match resolve_album(&pool, auth.user.id, &query.id).await {
         Ok(Some(album)) => album,
         Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => {
@@ -289,20 +295,42 @@ pub async fn get_cover_art(
 
 /// The album a cover art id refers to. Clients pass an album id, and some pass a
 /// song id, so both resolve.
-async fn resolve_album(pool: &SqlitePool, public_id: &str) -> Result<Option<i64>, sqlx::Error> {
-    if let Some(id) = sqlx::query_scalar("SELECT id FROM albums WHERE public_id = ?")
-        .bind(public_id)
-        .fetch_optional(pool)
-        .await?
-    {
+/// The album a cover art identifier refers to, if the person asking may see it.
+///
+/// This is the one gate for cover art: everything after it works on an album
+/// identifier and no longer asks who wanted it.
+async fn resolve_album(
+    pool: &SqlitePool,
+    user_id: i64,
+    public_id: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    let by_album: Option<i64> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
+        " SELECT id FROM albums WHERE public_id = ? AND ",
+        album_is_visible!("albums.id")
+    ))
+    .bind(user_id)
+    .bind(public_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(id) = by_album {
         return Ok(Some(id));
     }
 
-    sqlx::query_scalar("SELECT album_id FROM tracks WHERE public_id = ? AND album_id IS NOT NULL")
-        .bind(public_id)
-        .fetch_optional(pool)
-        .await
-        .map(Option::flatten)
+    // Clients also ask for a track's cover, meaning its album's.
+    sqlx::query_scalar(concat!(
+        visible_libraries!(),
+        " SELECT album_id FROM tracks
+           WHERE public_id = ? AND album_id IS NOT NULL
+             AND missing_since IS NULL
+             AND library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(user_id)
+    .bind(public_id)
+    .fetch_optional(pool)
+    .await
+    .map(Option::flatten)
 }
 
 /// The cover already extracted for this album, if there is one.
@@ -335,10 +363,13 @@ async fn extract_cover(
         return Ok(None);
     }
 
+    // No library filter here, and that is deliberate. This fills a cache keyed by
+    // album, shared by everybody, so its contents must not depend on who asked
+    // first. Whether this album may be seen at all was settled before we got
+    // here, when its identifier was resolved.
     let paths: Vec<String> = sqlx::query_scalar(
         "SELECT path FROM tracks
           WHERE album_id = ? AND missing_since IS NULL
-            AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)
           ORDER BY disc_number, track_number
           LIMIT 20",
     )
@@ -555,22 +586,24 @@ pub async fn get_lyrics(
     State(pool): State<SqlitePool>,
     Query(query): Query<LyricsQuery>,
 ) -> Response {
-    let found: Result<Option<(String, String, Option<String>)>, _> = sqlx::query_as(
+    let found: Result<Option<(String, String, Option<String>)>, _> = sqlx::query_as(concat!(
+        visible_libraries!(),
         "SELECT t.path, t.title,
                 (SELECT ar.name FROM track_artists ta
                    JOIN artists ar ON ar.id = ta.artist_id
                   WHERE ta.track_id = t.id ORDER BY ta.position LIMIT 1)
            FROM tracks t
           WHERE t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+            AND t.library_id IN (SELECT id FROM visible_libraries)
             AND (? IS NULL OR t.title = ?)
             AND (? IS NULL OR EXISTS (
                     SELECT 1 FROM track_artists ta
                       JOIN artists ar ON ar.id = ta.artist_id
                      WHERE ta.track_id = t.id AND ar.name = ?
                 ))
-          LIMIT 1",
-    )
+          LIMIT 1"
+    ))
+    .bind(auth.user.id)
     .bind(&query.title)
     .bind(&query.title)
     .bind(&query.artist)
@@ -615,10 +648,12 @@ pub async fn get_lyrics_by_song_id(
     State(pool): State<SqlitePool>,
     Query(query): Query<IdQuery>,
 ) -> Response {
-    let found: Result<Option<String>, _> = sqlx::query_scalar(
+    let found: Result<Option<String>, _> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
         "SELECT path FROM tracks WHERE public_id = ? AND missing_since IS NULL
-        AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
-    )
+        AND library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(auth.user.id)
     .bind(&query.id)
     .fetch_optional(&pool)
     .await;

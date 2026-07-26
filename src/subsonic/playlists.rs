@@ -124,19 +124,22 @@ impl From<PlaylistRow> for Playlist {
 /// that says nine.
 macro_rules! playlist_columns {
     () => {
-        "
+        concat!(
+            visible_libraries!(),
+            "
     SELECT p.id, p.public_id, p.name, p.comment, p.is_public, p.created_at,
            p.updated_at, u.username AS owner,
            (SELECT count(*) FROM playlist_tracks pt
               JOIN tracks t ON t.id = pt.track_id
              WHERE pt.playlist_id = p.id AND t.missing_since IS NULL
-               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS song_count,
+               AND t.library_id IN (SELECT id FROM visible_libraries)) AS song_count,
            (SELECT sum(t.duration_ms) FROM playlist_tracks pt
               JOIN tracks t ON t.id = pt.track_id
              WHERE pt.playlist_id = p.id AND t.missing_since IS NULL
-               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS duration_ms
+               AND t.library_id IN (SELECT id FROM visible_libraries)) AS duration_ms
       FROM playlists p
       JOIN users u ON u.id = p.owner_id"
+        )
     };
 }
 
@@ -147,6 +150,7 @@ pub async fn get_playlists(auth: Authenticated, State(pool): State<SqlitePool>) 
         " WHERE p.owner_id = ? OR p.is_public = 1
           ORDER BY p.name COLLATE NOCASE"
     ))
+    .bind(auth.user.id)
     .bind(auth.user.id)
     .fetch_all(&pool)
     .await;
@@ -169,7 +173,7 @@ pub async fn get_playlist(
     State(pool): State<SqlitePool>,
     Repeated(query): Repeated<IdQuery>,
 ) -> Response {
-    let row = match load_playlist(&pool, &query.id).await {
+    let row = match load_playlist(&pool, auth.user.id, &query.id).await {
         Ok(Some(row)) => row,
         Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => return internal(e, auth.format, "loading a playlist"),
@@ -181,13 +185,15 @@ pub async fn get_playlist(
             .into_response();
     }
 
-    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(
+    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
         "SELECT pt.track_id FROM playlist_tracks pt
            JOIN tracks t ON t.id = pt.track_id
           WHERE pt.playlist_id = ? AND t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-          ORDER BY pt.position",
-    )
+            AND t.library_id IN (SELECT id FROM visible_libraries)
+          ORDER BY pt.position"
+    ))
+    .bind(auth.user.id)
     .bind(row.id)
     .fetch_all(&pool)
     .await;
@@ -257,7 +263,7 @@ pub async fn delete_playlist(
     State(pool): State<SqlitePool>,
     Repeated(query): Repeated<IdQuery>,
 ) -> Response {
-    let row = match load_playlist(&pool, &query.id).await {
+    let row = match load_playlist(&pool, auth.user.id, &query.id).await {
         Ok(Some(row)) => row,
         Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => return internal(e, auth.format, "loading a playlist to delete"),
@@ -305,9 +311,11 @@ fn can_write(auth: &Authenticated, row: &PlaylistRow) -> bool {
 
 async fn load_playlist(
     pool: &SqlitePool,
+    user_id: i64,
     public_id: &str,
 ) -> Result<Option<PlaylistRow>, sqlx::Error> {
     sqlx::query_as(concat!(playlist_columns!(), " WHERE p.public_id = ?"))
+        .bind(user_id)
         .bind(public_id)
         .fetch_optional(pool)
         .await
@@ -357,7 +365,7 @@ async fn replace_playlist(
     public_id: &str,
     song_ids: &[String],
 ) -> Result<Refused, sqlx::Error> {
-    let Some(row) = load_playlist(pool, public_id).await? else {
+    let Some(row) = load_playlist(pool, auth.user.id, public_id).await? else {
         return Ok(Refused::NotFound);
     };
     if !can_write(auth, &row) {
@@ -378,7 +386,7 @@ async fn apply_update(
     auth: &Authenticated,
     query: &UpdateQuery,
 ) -> Result<Refused, sqlx::Error> {
-    let Some(row) = load_playlist(pool, &query.playlist_id).await? else {
+    let Some(row) = load_playlist(pool, auth.user.id, &query.playlist_id).await? else {
         return Ok(Refused::NotFound);
     };
     if !can_write(auth, &row) {
@@ -463,19 +471,22 @@ async fn finish(
 
     let row: Result<Option<PlaylistRow>, _> =
         sqlx::query_as(concat!(playlist_columns!(), " WHERE p.id = ?"))
+            .bind(auth.user.id)
             .bind(id)
             .fetch_optional(pool)
             .await;
 
     match row {
         Ok(Some(row)) => {
-            let ids: Vec<i64> = match sqlx::query_scalar(
-                "SELECT pt.track_id FROM playlist_tracks pt
-                   JOIN tracks t ON t.id = pt.track_id
-                  WHERE pt.playlist_id = ? AND t.missing_since IS NULL
-                    AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-                  ORDER BY pt.position",
-            )
+            let ids: Vec<i64> = match sqlx::query_scalar(concat!(
+                visible_libraries!(),
+                " SELECT pt.track_id FROM playlist_tracks pt
+                    JOIN tracks t ON t.id = pt.track_id
+                   WHERE pt.playlist_id = ? AND t.missing_since IS NULL
+                     AND t.library_id IN (SELECT id FROM visible_libraries)
+                   ORDER BY pt.position"
+            ))
+            .bind(auth.user.id)
             .bind(row.id)
             .fetch_all(pool)
             .await

@@ -99,6 +99,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(libraries::change, libraries::remove))
         .routes(routes!(users::list, users::create))
         .routes(routes!(users::one, users::change, users::delete))
+        .routes(routes!(users::restrict))
         .routes(routes!(keys::list, keys::issue))
         .routes(routes!(keys::revoke))
         .routes(routes!(stats::stats))

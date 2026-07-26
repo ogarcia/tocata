@@ -97,14 +97,16 @@ struct PlayQueue {
 }
 
 pub async fn get_bookmarks(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
-    let rows: Result<Vec<BookmarkRow>, _> = sqlx::query_as(
+    let rows: Result<Vec<BookmarkRow>, _> = sqlx::query_as(concat!(
+        visible_libraries!(),
         "SELECT b.track_id, b.position_ms, b.comment, b.created_at, b.updated_at
            FROM bookmarks b
            JOIN tracks t ON t.id = b.track_id
           WHERE b.user_id = ? AND t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-          ORDER BY b.updated_at DESC",
-    )
+            AND t.library_id IN (SELECT id FROM visible_libraries)
+          ORDER BY b.updated_at DESC"
+    ))
+    .bind(auth.user.id)
     .bind(auth.user.id)
     .fetch_all(&pool)
     .await;
@@ -149,10 +151,12 @@ pub async fn create_bookmark(
     State(pool): State<SqlitePool>,
     Query(query): Query<CreateBookmarkQuery>,
 ) -> Response {
-    let track_id: Result<Option<i64>, _> = sqlx::query_scalar(
+    let track_id: Result<Option<i64>, _> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
         "SELECT id FROM tracks WHERE public_id = ? AND missing_since IS NULL
-        AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
-    )
+        AND library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(auth.user.id)
     .bind(&query.id)
     .fetch_optional(&pool)
     .await;
@@ -240,13 +244,15 @@ pub async fn get_play_queue(auth: Authenticated, State(pool): State<SqlitePool>)
         );
     };
 
-    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(
+    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
         "SELECT q.track_id FROM play_queue_tracks q
            JOIN tracks t ON t.id = q.track_id
           WHERE q.user_id = ? AND t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-          ORDER BY q.position",
-    )
+            AND t.library_id IN (SELECT id FROM visible_libraries)
+          ORDER BY q.position"
+    ))
+    .bind(auth.user.id)
     .bind(auth.user.id)
     .fetch_all(&pool)
     .await;

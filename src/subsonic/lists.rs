@@ -222,12 +222,13 @@ pub async fn get_genres(auth: Authenticated, State(pool): State<SqlitePool>) -> 
     // Counts come from what is still present, so a genre whose files all went
     // away reports zero rather than promising music that cannot be played.
     let rows: Result<Vec<(String, i64, i64)>, _> = sqlx::query_as(concat!(
+        visible_libraries!(),
         "SELECT g.name,
                     (SELECT count(*) FROM track_genres tg
                        JOIN tracks t ON t.id = tg.track_id
                       WHERE tg.genre_id = g.id
                         AND t.missing_since IS NULL
-                        AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1))
+                        AND t.library_id IN (SELECT id FROM visible_libraries))
                         AS song_count,
                     (SELECT count(DISTINCT ag.album_id) FROM album_genres ag
                       WHERE ag.genre_id = g.id AND ",
@@ -236,6 +237,7 @@ pub async fn get_genres(auth: Authenticated, State(pool): State<SqlitePool>) -> 
                FROM genres g
               ORDER BY g.name COLLATE NOCASE"
     ))
+    .bind(auth.user.id)
     .fetch_all(&pool)
     .await;
 
@@ -266,10 +268,11 @@ pub async fn get_random_songs(
 ) -> Response {
     let size = clamp(query.size, DEFAULT_RANDOM_SIZE, MAX_RANDOM_SIZE);
 
-    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(
+    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
         "SELECT t.id FROM tracks t
           WHERE t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+            AND t.library_id IN (SELECT id FROM visible_libraries)
             AND (? IS NULL OR EXISTS (
                     SELECT 1 FROM track_genres tg
                       JOIN genres g ON g.id = tg.genre_id
@@ -278,8 +281,9 @@ pub async fn get_random_songs(
             AND (? IS NULL OR t.year >= ?)
             AND (? IS NULL OR t.year <= ?)
           ORDER BY random()
-          LIMIT ?",
-    )
+          LIMIT ?"
+    ))
+    .bind(auth.user.id)
     .bind(&query.genre)
     .bind(&query.genre)
     .bind(query.from_year)
@@ -314,15 +318,17 @@ pub async fn get_songs_by_genre(
     let count = clamp(query.count, DEFAULT_SIZE, MAX_SIZE);
     let offset = query.offset.unwrap_or(0).max(0);
 
-    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(
+    let ids: Result<Vec<i64>, _> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
         "SELECT t.id FROM tracks t
            JOIN track_genres tg ON tg.track_id = t.id
            JOIN genres g ON g.id = tg.genre_id
           WHERE t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1) AND g.name = ?
+            AND t.library_id IN (SELECT id FROM visible_libraries) AND g.name = ?
           ORDER BY t.title COLLATE NOCASE
-          LIMIT ? OFFSET ?",
-    )
+          LIMIT ? OFFSET ?"
+    ))
+    .bind(auth.user.id)
     .bind(&query.genre)
     .bind(count)
     .bind(offset)
@@ -346,16 +352,18 @@ pub async fn get_songs_by_genre(
 }
 
 pub async fn get_now_playing(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
-    let rows: Result<Vec<(i64, String, String, i64)>, _> = sqlx::query_as(
+    let rows: Result<Vec<(i64, String, String, i64)>, _> = sqlx::query_as(concat!(
+        visible_libraries!(),
         "SELECT np.track_id, u.username, np.client,
                 cast((julianday('now') - julianday(np.started_at)) * 24 * 60 AS INTEGER)
            FROM now_playing np
            JOIN users u ON u.id = np.user_id
            JOIN tracks t ON t.id = np.track_id
           WHERE t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-          ORDER BY np.started_at DESC",
-    )
+            AND t.library_id IN (SELECT id FROM visible_libraries)
+          ORDER BY np.started_at DESC"
+    ))
+    .bind(auth.user.id)
     .fetch_all(&pool)
     .await;
 
@@ -434,7 +442,7 @@ async fn starred_ids(
                JOIN tracks t ON t.id = s.track_id
               WHERE s.user_id = ? AND s.starred_at IS NOT NULL
                 AND t.missing_since IS NULL
-                AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+                AND t.library_id IN (SELECT id FROM visible_libraries)
               ORDER BY s.starred_at DESC"
         }
         Starred_::Albums => {
@@ -470,20 +478,24 @@ async fn album_ids(
     let ids = match query.r#type.as_str() {
         "random" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT id FROM albums WHERE ",
                 album_is_visible!("albums.id"),
                 " ORDER BY random() LIMIT ?"
             ))
+            .bind(user_id)
             .bind(size)
             .fetch_all(pool)
             .await?
         }
         "newest" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT id FROM albums WHERE ",
                 album_is_visible!("albums.id"),
                 " ORDER BY created_at DESC LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -491,11 +503,13 @@ async fn album_ids(
         }
         "highest" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT s.album_id FROM user_album_stats s
                       WHERE s.user_id = ? AND s.rating IS NOT NULL AND ",
                 album_is_visible!("s.album_id"),
                 " ORDER BY s.rating DESC LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -504,11 +518,13 @@ async fn album_ids(
         }
         "frequent" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT s.album_id FROM user_album_stats s
                       WHERE s.user_id = ? AND s.play_count > 0 AND ",
                 album_is_visible!("s.album_id"),
                 " ORDER BY s.play_count DESC LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -517,11 +533,13 @@ async fn album_ids(
         }
         "recent" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT s.album_id FROM user_album_stats s
                       WHERE s.user_id = ? AND s.last_played IS NOT NULL AND ",
                 album_is_visible!("s.album_id"),
                 " ORDER BY s.last_played DESC LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -530,11 +548,13 @@ async fn album_ids(
         }
         "starred" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT s.album_id FROM user_album_stats s
                       WHERE s.user_id = ? AND s.starred_at IS NOT NULL AND ",
                 album_is_visible!("s.album_id"),
                 " ORDER BY s.starred_at DESC LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(user_id)
             .bind(size)
             .bind(offset)
@@ -543,10 +563,12 @@ async fn album_ids(
         }
         "alphabeticalByName" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT id FROM albums WHERE ",
                 album_is_visible!("albums.id"),
                 " ORDER BY coalesce(sort_name, name) COLLATE NOCASE LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -554,6 +576,7 @@ async fn album_ids(
         }
         "alphabeticalByArtist" => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT al.id FROM albums al
                        LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0
                        LEFT JOIN artists ar ON ar.id = aa.artist_id
@@ -563,6 +586,7 @@ async fn album_ids(
                                coalesce(al.sort_name, al.name) COLLATE NOCASE
                       LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(size)
             .bind(offset)
             .fetch_all(pool)
@@ -579,10 +603,12 @@ async fn album_ids(
 
             if descending {
                 sqlx::query_scalar(concat!(
+                    visible_libraries!(),
                     "SELECT id FROM albums WHERE year BETWEEN ? AND ? AND ",
                     album_is_visible!("albums.id"),
                     " ORDER BY year DESC LIMIT ? OFFSET ?"
                 ))
+                .bind(user_id)
                 .bind(low)
                 .bind(high)
                 .bind(size)
@@ -591,10 +617,12 @@ async fn album_ids(
                 .await?
             } else {
                 sqlx::query_scalar(concat!(
+                    visible_libraries!(),
                     "SELECT id FROM albums WHERE year BETWEEN ? AND ? AND ",
                     album_is_visible!("albums.id"),
                     " ORDER BY year LIMIT ? OFFSET ?"
                 ))
+                .bind(user_id)
                 .bind(low)
                 .bind(high)
                 .bind(size)
@@ -607,6 +635,7 @@ async fn album_ids(
             let genre = query.genre.as_deref().ok_or(Rejected::Missing("genre"))?;
 
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT DISTINCT al.id FROM albums al
                        JOIN album_genres ag ON ag.album_id = al.id
                        JOIN genres g ON g.id = ag.genre_id
@@ -615,6 +644,7 @@ async fn album_ids(
                 " ORDER BY coalesce(al.sort_name, al.name) COLLATE NOCASE
                       LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(genre)
             .bind(size)
             .bind(offset)

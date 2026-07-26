@@ -99,10 +99,15 @@ struct SongBody {
 }
 
 pub async fn get_music_folders(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
-    let rows: Result<Vec<(i64, String)>, _> =
-        sqlx::query_as("SELECT id, name FROM libraries WHERE enabled = 1 ORDER BY name")
-            .fetch_all(&pool)
-            .await;
+    let rows: Result<Vec<(i64, String)>, _> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        " SELECT id, name FROM libraries
+           WHERE id IN (SELECT id FROM visible_libraries)
+           ORDER BY name"
+    ))
+    .bind(auth.user.id)
+    .fetch_all(&pool)
+    .await;
 
     let folders = match rows {
         Ok(rows) => rows
@@ -326,13 +331,13 @@ macro_rules! artist_columns_tail {
                 SELECT 1 FROM track_artists ta
                   JOIN tracks t ON t.id = ta.track_id
                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
-                   AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+                   AND t.library_id IN (SELECT id FROM visible_libraries)
             )
          OR EXISTS (
                 SELECT 1 FROM album_artists aa
                   JOIN tracks t ON t.album_id = aa.album_id
                  WHERE aa.artist_id = a.id AND t.missing_since IS NULL
-                   AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+                   AND t.library_id IN (SELECT id FROM visible_libraries)
             ))"
     };
 }
@@ -340,7 +345,12 @@ macro_rules! artist_columns_tail {
 /// The whole statement, for the callers that bind the user themselves.
 macro_rules! artist_columns {
     () => {
-        concat!(artist_columns_head!(), "?", artist_columns_tail!())
+        concat!(
+            visible_libraries!(),
+            artist_columns_head!(),
+            "?",
+            artist_columns_tail!()
+        )
     };
 }
 
@@ -349,6 +359,7 @@ async fn load_artists(pool: &SqlitePool, user_id: i64) -> Result<Vec<ArtistId3>,
         artist_columns!(),
         " ORDER BY coalesce(a.sort_name, a.name) COLLATE NOCASE"
     ))
+    .bind(user_id)
     .bind(user_id)
     .fetch_all(pool)
     .await?;
@@ -362,6 +373,7 @@ async fn load_artist(
     public_id: &str,
 ) -> Result<Option<ArtistId3>, sqlx::Error> {
     let row: Option<ArtistRow> = sqlx::query_as(concat!(artist_columns!(), " AND a.public_id = ?"))
+        .bind(user_id)
         .bind(user_id)
         .bind(public_id)
         .fetch_optional(pool)
@@ -392,24 +404,26 @@ struct AlbumRow {
 /// than lying about what can be played.
 macro_rules! album_columns_head {
     () => {
-        "
+        concat!(
+            "
     SELECT al.id, al.public_id, al.name, al.sort_name, al.year, al.is_compilation,
            al.mbid_release, al.created_at,
            (SELECT count(*) FROM tracks t
              WHERE t.album_id = al.id AND t.missing_since IS NULL
-               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS song_count,
+               AND t.library_id IN (SELECT id FROM visible_libraries)) AS song_count,
            (SELECT sum(t.duration_ms) FROM tracks t
              WHERE t.album_id = al.id AND t.missing_since IS NULL
-               AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)) AS duration_ms,
+               AND t.library_id IN (SELECT id FROM visible_libraries)) AS duration_ms,
            s.play_count, s.starred_at, s.rating
       FROM albums al
       LEFT JOIN user_album_stats s ON s.album_id = al.id AND s.user_id = "
+        )
     };
 }
 
 macro_rules! album_columns {
     () => {
-        concat!(album_columns_head!(), "?")
+        concat!(visible_libraries!(), album_columns_head!(), "?")
     };
 }
 
@@ -433,11 +447,12 @@ async fn load_albums_of_artist(
                      JOIN track_artists ta ON ta.track_id = t.id
                      JOIN artists ar ON ar.id = ta.artist_id
                     WHERE t.album_id = al.id AND t.missing_since IS NULL
-                      AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+                      AND t.library_id IN (SELECT id FROM visible_libraries)
                       AND ar.public_id = ?
                )
          ORDER BY al.year, coalesce(al.sort_name, al.name) COLLATE NOCASE"
     ))
+    .bind(user_id)
     .bind(user_id)
     .bind(artist_public_id)
     .bind(artist_public_id)
@@ -458,7 +473,15 @@ async fn load_album(
     public_id: &str,
 ) -> Result<Option<AlbumId3>, sqlx::Error> {
     let row: Option<AlbumRow> =
-        sqlx::query_as(concat!(album_columns!(), " WHERE al.public_id = ?"))
+        // The visibility condition belongs here rather than only in the counts:
+        // without it, naming an album in a library you may not see answers with
+        // its title and an empty track list instead of saying it is not there.
+        sqlx::query_as(concat!(
+            album_columns!(),
+            " WHERE al.public_id = ? AND ",
+            album_is_visible!("al.id")
+        ))
+            .bind(user_id)
             .bind(user_id)
             .bind(public_id)
             .fetch_optional(pool)
@@ -581,7 +604,8 @@ struct TrackRow {
 
 macro_rules! track_columns_head {
     () => {
-        "
+        concat!(
+            "
     SELECT t.id, t.public_id, t.title, t.sort_title, t.track_number, t.disc_number,
            t.year, t.duration_ms, t.bit_rate, t.bit_depth, t.sampling_rate,
            t.channel_count, t.bpm, t.comment, t.mbid_recording, t.isrc,
@@ -595,6 +619,7 @@ macro_rules! track_columns_head {
       JOIN folders f ON f.id = t.folder_id
       LEFT JOIN albums al ON al.id = t.album_id
       LEFT JOIN user_track_stats s ON s.track_id = t.id AND s.user_id = "
+        )
     };
 }
 
@@ -602,13 +627,18 @@ macro_rules! track_columns_tail {
     () => {
         "
      WHERE t.missing_since IS NULL
-       AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)"
+       AND t.library_id IN (SELECT id FROM visible_libraries)"
     };
 }
 
 macro_rules! track_columns {
     () => {
-        concat!(track_columns_head!(), "?", track_columns_tail!())
+        concat!(
+            visible_libraries!(),
+            track_columns_head!(),
+            "?",
+            track_columns_tail!()
+        )
     };
 }
 
@@ -623,6 +653,7 @@ async fn load_songs_of_album(
          ORDER BY t.disc_number, t.track_number, t.title COLLATE NOCASE"
     ))
     .bind(user_id)
+    .bind(user_id)
     .bind(album_public_id)
     .fetch_all(pool)
     .await?;
@@ -636,6 +667,7 @@ async fn load_song(
     public_id: &str,
 ) -> Result<Option<Child>, sqlx::Error> {
     let row: Option<TrackRow> = sqlx::query_as(concat!(track_columns!(), " AND t.public_id = ?"))
+        .bind(user_id)
         .bind(user_id)
         .bind(public_id)
         .fetch_optional(pool)
@@ -935,7 +967,7 @@ pub async fn get_indexes(
     State(config): State<Arc<Config>>,
     Query(query): Query<IndexesQuery>,
 ) -> Response {
-    let last_modified = match load_last_modified(&pool, query.music_folder_id).await {
+    let last_modified = match load_last_modified(&pool, auth.user.id, query.music_folder_id).await {
         Ok(value) => value,
         Err(e) => return internal(e, auth.format, "reading when the tree last changed"),
     };
@@ -961,7 +993,7 @@ pub async fn get_indexes(
         );
     }
 
-    let roots = match load_root_folders(&pool, query.music_folder_id).await {
+    let roots = match load_root_folders(&pool, auth.user.id, query.music_folder_id).await {
         Ok(roots) => roots,
         Err(e) => return internal(e, auth.format, "listing the top level folders"),
     };
@@ -1002,13 +1034,15 @@ pub async fn get_music_directory(
     State(pool): State<SqlitePool>,
     Query(query): Query<IdQuery>,
 ) -> Response {
-    let folder: Option<(String, String, Option<String>)> = match sqlx::query_as(
-        "SELECT f.public_id, f.name, parent.public_id
-           FROM folders f
-           LEFT JOIN folders parent ON parent.id = f.parent_id
-          WHERE f.public_id = ? AND f.missing_since IS NULL
-            AND f.library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
-    )
+    let folder: Option<(String, String, Option<String>)> = match sqlx::query_as(concat!(
+        visible_libraries!(),
+        " SELECT f.public_id, f.name, parent.public_id
+            FROM folders f
+            LEFT JOIN folders parent ON parent.id = f.parent_id
+           WHERE f.public_id = ? AND f.missing_since IS NULL
+             AND f.library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(auth.user.id)
     .bind(&query.id)
     .fetch_optional(&pool)
     .await
@@ -1023,7 +1057,7 @@ pub async fn get_music_directory(
 
     // Subdirectories first, then the songs, which is the order clients expect
     // and the reason the response mixes both in one array.
-    let mut children = match load_child_folders(&pool, &query.id).await {
+    let mut children = match load_child_folders(&pool, auth.user.id, &query.id).await {
         Ok(folders) => folders,
         Err(e) => return internal(e, auth.format, "listing subdirectories"),
     };
@@ -1050,13 +1084,16 @@ pub async fn get_music_directory(
 /// reports. Zero when the library is empty, which is a truthful "never".
 async fn load_last_modified(
     pool: &SqlitePool,
+    user_id: i64,
     library_id: Option<i64>,
 ) -> Result<i64, sqlx::Error> {
-    let newest: Option<String> = sqlx::query_scalar(
-        "SELECT max(modified_at) FROM folders
-          WHERE missing_since IS NULL AND (? IS NULL OR library_id = ?)
-            AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)",
-    )
+    let newest: Option<String> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
+        " SELECT max(modified_at) FROM folders
+           WHERE missing_since IS NULL AND (? IS NULL OR library_id = ?)
+             AND library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(user_id)
     .bind(library_id)
     .bind(library_id)
     .fetch_optional(pool)
@@ -1076,17 +1113,20 @@ async fn load_last_modified(
 /// single artist containing everything.
 async fn load_root_folders(
     pool: &SqlitePool,
+    user_id: i64,
     library_id: Option<i64>,
 ) -> Result<Vec<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "SELECT f.public_id, f.name
-           FROM folders f
-           JOIN folders root ON root.id = f.parent_id
-          WHERE root.parent_id IS NULL AND f.missing_since IS NULL
-            AND f.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-            AND (? IS NULL OR f.library_id = ?)
-          ORDER BY f.name COLLATE NOCASE",
-    )
+    sqlx::query_as(concat!(
+        visible_libraries!(),
+        " SELECT f.public_id, f.name
+            FROM folders f
+            JOIN folders root ON root.id = f.parent_id
+           WHERE root.parent_id IS NULL AND f.missing_since IS NULL
+             AND f.library_id IN (SELECT id FROM visible_libraries)
+             AND (? IS NULL OR f.library_id = ?)
+           ORDER BY f.name COLLATE NOCASE"
+    ))
+    .bind(user_id)
     .bind(library_id)
     .bind(library_id)
     .fetch_all(pool)
@@ -1095,16 +1135,19 @@ async fn load_root_folders(
 
 async fn load_child_folders(
     pool: &SqlitePool,
+    user_id: i64,
     parent_public_id: &str,
 ) -> Result<Vec<Child>, sqlx::Error> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT f.public_id, f.name
-           FROM folders f
-           JOIN folders parent ON parent.id = f.parent_id
-          WHERE parent.public_id = ? AND f.missing_since IS NULL
-            AND f.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
-          ORDER BY f.name COLLATE NOCASE",
-    )
+    let rows: Vec<(String, String)> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        " SELECT f.public_id, f.name
+            FROM folders f
+            JOIN folders parent ON parent.id = f.parent_id
+           WHERE parent.public_id = ? AND f.missing_since IS NULL
+             AND f.library_id IN (SELECT id FROM visible_libraries)
+           ORDER BY f.name COLLATE NOCASE"
+    ))
+    .bind(user_id)
     .bind(parent_public_id)
     .fetch_all(pool)
     .await?;
@@ -1126,6 +1169,7 @@ async fn load_songs_of_folder(
           ORDER BY t.disc_number, t.track_number, t.title COLLATE NOCASE"
     ))
     .bind(user_id)
+    .bind(user_id)
     .bind(folder_public_id)
     .fetch_all(pool)
     .await?;
@@ -1145,6 +1189,7 @@ async fn load_loose_songs(
         " AND f.parent_id IS NULL AND (? IS NULL OR t.library_id = ?)
           ORDER BY t.title COLLATE NOCASE"
     ))
+    .bind(user_id)
     .bind(user_id)
     .bind(library_id)
     .bind(library_id)
@@ -1177,7 +1222,12 @@ pub(super) async fn load_artists_by_ids(
         return Ok(Vec::new());
     }
 
-    let mut builder = sqlx::QueryBuilder::new(artist_columns_head!());
+    // The expression, its parameter, and then the columns: a QueryBuilder writes a
+    // `?` for every argument it takes, so the statement is handed over in pieces
+    // either side of each one.
+    let mut builder = sqlx::QueryBuilder::new(visible_libraries_head!());
+    builder.push_bind(user_id);
+    builder.push(concat!(visible_libraries_tail!(), artist_columns_head!()));
     builder.push_bind(user_id);
     builder.push(concat!(artist_columns_tail!(), " AND a.id IN ("));
     push_ids(&mut builder, ids);
@@ -1201,9 +1251,21 @@ pub(super) async fn load_albums_by_ids(
         return Ok(Vec::new());
     }
 
-    let mut builder = sqlx::QueryBuilder::new(album_columns_head!());
+    // The expression, its parameter, and then the columns: a QueryBuilder writes a
+    // `?` for every argument it takes, so the statement is handed over in pieces
+    // either side of each one.
+    let mut builder = sqlx::QueryBuilder::new(visible_libraries_head!());
     builder.push_bind(user_id);
-    builder.push(" WHERE al.id IN (");
+    builder.push(concat!(visible_libraries_tail!(), album_columns_head!()));
+    builder.push_bind(user_id);
+    // The albums the caller named, minus any it may not see. The callers all
+    // choose their identifiers from a filtered query already, but a loader that
+    // depends on that is a loader that leaks the day one of them forgets.
+    builder.push(concat!(
+        " WHERE ",
+        album_is_visible!("al.id"),
+        " AND al.id IN ("
+    ));
     push_ids(&mut builder, ids);
     builder.push(")");
 
@@ -1227,7 +1289,12 @@ pub(super) async fn load_tracks_by_ids(
         return Ok(Vec::new());
     }
 
-    let mut builder = sqlx::QueryBuilder::new(track_columns_head!());
+    // The expression, its parameter, and then the columns: a QueryBuilder writes a
+    // `?` for every argument it takes, so the statement is handed over in pieces
+    // either side of each one.
+    let mut builder = sqlx::QueryBuilder::new(visible_libraries_head!());
+    builder.push_bind(user_id);
+    builder.push(concat!(visible_libraries_tail!(), track_columns_head!()));
     builder.push_bind(user_id);
     builder.push(concat!(track_columns_tail!(), " AND t.id IN ("));
     push_ids(&mut builder, ids);
@@ -1255,5 +1322,198 @@ fn push_ids(builder: &mut sqlx::QueryBuilder<sqlx::Sqlite>, ids: &[i64]) {
     let mut separated = builder.separated(", ");
     for id in ids {
         separated.push_bind(*id);
+    }
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+    use crate::db;
+
+    /// Two libraries with an album each, and two people: one who may see
+    /// everything and one restricted to the first.
+    async fn two_libraries() -> (SqlitePool, i64, i64, Vec<i64>) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let at = db::now();
+        for (id, name) in [(1, "a"), (2, "b")] {
+            sqlx::query(
+                "INSERT INTO libraries (id, name, path, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(name)
+            .bind(format!("/{name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO folders (id, public_id, library_id, name, path, last_seen_scan)
+                 VALUES (?, ?, ?, ?, ?, 1)",
+            )
+            .bind(id)
+            .bind(format!("f{id}"))
+            .bind(id)
+            .bind(name)
+            .bind(format!("/{name}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO albums (id, public_id, name, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("alb{id}"))
+            .bind(format!("Album {name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("art{id}"))
+            .bind(format!("Artist {name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
+                                     file_size, file_modified_at, content_type, suffix, title,
+                                     last_seen_scan, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'audio/wav', 'wav', ?, 1, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("trk{id}"))
+            .bind(id)
+            .bind(id)
+            .bind(id)
+            .bind(format!("/{name}/one.wav"))
+            .bind(&at)
+            .bind(format!("Song {name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, ?, 'main')",
+            )
+            .bind(id)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let mut users = Vec::new();
+        for name in ["everybody", "restricted"] {
+            let id: i64 = sqlx::query_scalar(
+                "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+                 VALUES (?, 'x', 0, ?, ?) RETURNING id",
+            )
+            .bind(name)
+            .bind(&at)
+            .bind(&at)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            users.push(id);
+        }
+
+        // The second one may see the first library only.
+        sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, 1)")
+            .bind(users[1])
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        (pool, users[0], users[1], vec![1, 2])
+    }
+
+    /// The loaders that take a list of identifiers are assembled by a
+    /// `QueryBuilder`, which writes a `?` for every argument it is given. That
+    /// makes their parameter order the easiest thing here to get wrong, and a
+    /// wrong one is quiet: the answer comes back short rather than failing.
+    #[tokio::test]
+    async fn loading_by_ids_leaves_out_what_may_not_be_seen() {
+        let (pool, unrestricted, restricted, ids) = two_libraries().await;
+
+        let albums = load_albums_by_ids(&pool, unrestricted, &ids).await.unwrap();
+        assert_eq!(albums.len(), 2, "no restriction means every album");
+
+        let albums = load_albums_by_ids(&pool, restricted, &ids).await.unwrap();
+        assert_eq!(albums.len(), 1, "only the album of the allowed library");
+        assert_eq!(albums[0].name, "Album a");
+
+        let tracks = load_tracks_by_ids(&pool, unrestricted, &ids).await.unwrap();
+        assert_eq!(tracks.len(), 2);
+
+        let tracks = load_tracks_by_ids(&pool, restricted, &ids).await.unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "Song a");
+
+        let artists = load_artists_by_ids(&pool, unrestricted, &ids)
+            .await
+            .unwrap();
+        assert_eq!(artists.len(), 2);
+
+        let artists = load_artists_by_ids(&pool, restricted, &ids).await.unwrap();
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].name, "Artist a");
+    }
+
+    #[tokio::test]
+    async fn naming_a_hidden_album_is_a_miss_not_an_empty_shell() {
+        let (pool, unrestricted, restricted, _) = two_libraries().await;
+
+        assert!(
+            load_album(&pool, unrestricted, "alb2")
+                .await
+                .unwrap()
+                .is_some(),
+            "visible to somebody with no restriction"
+        );
+        assert!(
+            load_album(&pool, restricted, "alb2")
+                .await
+                .unwrap()
+                .is_none(),
+            "not there as far as this account is concerned"
+        );
+        assert!(
+            load_album(&pool, restricted, "alb1")
+                .await
+                .unwrap()
+                .is_some(),
+            "and the one it may see is still there"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_library_is_hidden_from_everybody() {
+        let (pool, unrestricted, _, ids) = two_libraries().await;
+
+        sqlx::query("UPDATE libraries SET enabled = 0 WHERE id = 2")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let albums = load_albums_by_ids(&pool, unrestricted, &ids).await.unwrap();
+        assert_eq!(albums.len(), 1, "switched off, so nobody sees it");
     }
 }

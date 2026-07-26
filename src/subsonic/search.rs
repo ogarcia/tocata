@@ -183,6 +183,7 @@ async fn load_artists(
         Matched::Nothing => Vec::new(),
         Matched::Search(expression) => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT f.rowid FROM artists_fts f
                        JOIN artists a ON a.id = f.rowid
                       WHERE artists_fts MATCH ? AND ",
@@ -190,6 +191,7 @@ async fn load_artists(
                 " ORDER BY f.rank
                       LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(expression)
             .bind(count)
             .bind(offset)
@@ -198,11 +200,13 @@ async fn load_artists(
         }
         Matched::Everything => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT id FROM artists WHERE ",
                 artist_is_visible!("artists.id"),
                 " ORDER BY coalesce(sort_name, name) COLLATE NOCASE
                       LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(count)
             .bind(offset)
             .fetch_all(pool)
@@ -224,6 +228,7 @@ async fn load_albums(
         Matched::Nothing => Vec::new(),
         Matched::Search(expression) => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT f.rowid FROM albums_fts f
                        JOIN albums a ON a.id = f.rowid
                       WHERE albums_fts MATCH ? AND ",
@@ -231,6 +236,7 @@ async fn load_albums(
                 " ORDER BY f.rank
                       LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(expression)
             .bind(count)
             .bind(offset)
@@ -239,11 +245,13 @@ async fn load_albums(
         }
         Matched::Everything => {
             sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT id FROM albums WHERE ",
                 album_is_visible!("albums.id"),
                 " ORDER BY coalesce(sort_name, name) COLLATE NOCASE
                       LIMIT ? OFFSET ?"
             ))
+            .bind(user_id)
             .bind(count)
             .bind(offset)
             .fetch_all(pool)
@@ -267,14 +275,16 @@ async fn load_songs(
     let ids: Vec<i64> = match matched {
         Matched::Nothing => Vec::new(),
         Matched::Search(expression) => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT f.rowid FROM tracks_fts f
                    JOIN tracks t ON t.id = f.rowid
                   WHERE tracks_fts MATCH ? AND t.missing_since IS NULL
-                    AND t.library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+                    AND t.library_id IN (SELECT id FROM visible_libraries)
                   ORDER BY f.rank
-                  LIMIT ? OFFSET ?",
-            )
+                  LIMIT ? OFFSET ?"
+            ))
+            .bind(user_id)
             .bind(expression)
             .bind(count)
             .bind(offset)
@@ -282,13 +292,15 @@ async fn load_songs(
             .await?
         }
         Matched::Everything => {
-            sqlx::query_scalar(
+            sqlx::query_scalar(concat!(
+                visible_libraries!(),
                 "SELECT id FROM tracks
                   WHERE missing_since IS NULL
-                    AND library_id IN (SELECT id FROM libraries WHERE enabled = 1)
+                    AND library_id IN (SELECT id FROM visible_libraries)
                   ORDER BY title COLLATE NOCASE
-                  LIMIT ? OFFSET ?",
-            )
+                  LIMIT ? OFFSET ?"
+            ))
+            .bind(user_id)
             .bind(count)
             .bind(offset)
             .fetch_all(pool)

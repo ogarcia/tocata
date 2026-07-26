@@ -17,9 +17,8 @@
 //! favourites and playlists all hang off the row's own identifier, so a rename is
 //! a rename and not a migration.
 //!
-//! What is deliberately absent is the per-user library restriction the schema has
-//! room for. Browsing does not honour it yet, so a switch for it in the panel
-//! would be a switch that does nothing.
+//! Which libraries an account may see lives here too. No rows means all of them,
+//! which is the ordinary case and the one that costs nothing.
 
 use super::error::{ApiError, ErrorBody};
 use super::session::{Administrator, Panel};
@@ -30,6 +29,15 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use utoipa::ToSchema;
+
+/// Which libraries an account is restricted to.
+#[derive(Deserialize, ToSchema)]
+pub struct LibraryAccess {
+    /// Identifiers of the libraries this account may see. An empty list removes
+    /// the restriction, which is not the same as seeing nothing: an account with
+    /// no restriction sees every library that is switched on.
+    libraries: Vec<i64>,
+}
 
 /// An account, as somebody entitled to see it may.
 #[derive(Serialize, ToSchema)]
@@ -47,15 +55,28 @@ pub struct Account {
     sessions: i64,
     /// API keys issued to this account and not revoked.
     keys: i64,
+    /// Libraries this account is restricted to. Empty means no restriction, so
+    /// every library that is switched on.
+    libraries: Vec<i64>,
     created_at: String,
     updated_at: String,
 }
 
-type AccountRow = (String, Option<String>, bool, bool, i64, i64, String, String);
+type AccountRow = (
+    String,
+    Option<String>,
+    bool,
+    bool,
+    i64,
+    i64,
+    Option<String>,
+    String,
+    String,
+);
 
 impl From<AccountRow> for Account {
     fn from(
-        (username, email, admin, scrobbling, sessions, keys, created_at, updated_at): AccountRow,
+        (username, email, admin, scrobbling, sessions, keys, libraries, created_at, updated_at): AccountRow,
     ) -> Self {
         Self {
             username,
@@ -64,6 +85,13 @@ impl From<AccountRow> for Account {
             scrobbling,
             sessions,
             keys,
+            // group_concat gives back what we put in, so these parse or the
+            // database has been edited by hand.
+            libraries: libraries
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|id| id.parse().ok())
+                .collect(),
             created_at,
             updated_at,
         }
@@ -83,6 +111,8 @@ macro_rules! account_columns {
                 (SELECT count(*) FROM sessions s
                   WHERE s.user_id = u.id AND s.expires_at > ?),
                 (SELECT count(*) FROM api_keys k WHERE k.user_id = u.id),
+                (SELECT group_concat(ul.library_id) FROM user_libraries ul
+                  WHERE ul.user_id = u.id),
                 u.created_at, u.updated_at
            FROM users u"
     };
@@ -373,6 +403,84 @@ pub async fn delete(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Restrict an account to some libraries
+///
+/// Replaces whatever restriction the account had. An empty list means no
+/// restriction: every library that is switched on, which is how an account starts
+/// and how most stay.
+///
+/// A restriction is enforced everywhere, not merely in the list of folders a
+/// client is offered. Anything the account may not see is absent from browsing,
+/// from both searches, from the album lists, from its own playlists, and cannot
+/// be streamed or have its cover fetched by naming an identifier directly.
+#[utoipa::path(
+    put,
+    path = "/users/{username}/libraries",
+    tag = "users",
+    params(("username" = String, Path, description = "Whose access")),
+    request_body = LibraryAccess,
+    responses(
+        (status = 200, description = "The account as it now is", body = Account),
+        (status = 400, description = "One of those libraries does not exist", body = ErrorBody),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Not an administrator", body = ErrorBody),
+        (status = 404, description = "No such account", body = ErrorBody),
+    )
+)]
+pub async fn restrict(
+    _admin: Administrator,
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+    Json(access): Json<LibraryAccess>,
+) -> Result<Json<Account>, ApiError> {
+    let user_id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
+        .bind(&username)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "looking up an account to restrict"))?;
+
+    let Some(user_id) = user_id else {
+        return Err(ApiError::NotFound);
+    };
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::internal(e, "restricting an account"))?;
+
+    // Replaced whole rather than merged: the request says what the restriction is,
+    // not what to add to it, so there is no order in which two calls disagree.
+    sqlx::query("DELETE FROM user_libraries WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(e, "clearing a restriction"))?;
+
+    for library_id in &access.libraries {
+        let written = sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, ?)")
+            .bind(user_id)
+            .bind(library_id)
+            .execute(&mut *tx)
+            .await;
+
+        match written {
+            Ok(_) => {}
+            // The foreign key is what catches a library that is not there, so
+            // there is no separate lookup to race against.
+            Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => {
+                return Err(ApiError::Invalid("No such library"));
+            }
+            Err(e) => return Err(ApiError::internal(e, "restricting an account")),
+        }
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(e, "restricting an account"))?;
+
+    Ok(Json(load(&pool, &username).await?))
 }
 
 /// Reads one back, for the handlers that answer with what they just wrote.
