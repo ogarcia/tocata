@@ -176,6 +176,59 @@ pub struct AlbumId3 {
     pub disc_titles: Vec<DiscTitle>,
 }
 
+impl Child {
+    /// A directory as it appears inside a listing.
+    ///
+    /// `getMusicDirectory` returns folders and songs in one array, which is why
+    /// Child has an `isDir` flag at all. That flag is a shape of the response,
+    /// not a reason to keep both kinds in one table: this is two selects and a
+    /// concatenation.
+    pub fn directory(id: String, title: String, parent: Option<String>) -> Self {
+        Self {
+            id,
+            is_dir: true,
+            title,
+            parent,
+            album: None,
+            artist: None,
+            track: None,
+            year: None,
+            genre: None,
+            cover_art: None,
+            size: None,
+            content_type: None,
+            suffix: None,
+            duration: None,
+            bit_rate: None,
+            bit_depth: None,
+            sampling_rate: None,
+            channel_count: None,
+            disc_number: None,
+            created: None,
+            starred: None,
+            user_rating: None,
+            play_count: None,
+            played: None,
+            album_id: None,
+            artist_id: None,
+            is_video: false,
+            r#type: "music",
+            media_type: "album",
+            bpm: None,
+            comment: None,
+            sort_name: None,
+            music_brainz_id: None,
+            isrc: Vec::new(),
+            genres: Vec::new(),
+            artists: Vec::new(),
+            display_artist: None,
+            album_artists: Vec::new(),
+            display_album_artist: None,
+            replay_gain: None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ItemGenre {
     pub name: String,

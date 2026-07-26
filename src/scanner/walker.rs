@@ -39,13 +39,21 @@ pub enum Entry {
 /// table, so a parent row has to exist before its children. Walking top down
 /// gives that for free, with no need to sort by path depth afterwards.
 ///
+/// The root itself is included. Without it a file sitting directly in the
+/// library root has no parent folder to belong to and gets dropped, which is
+/// not hypothetical: plenty of libraries have loose tracks at the top.
+///
 /// Unreadable entries are skipped rather than aborting the walk. One
 /// directory with awkward permissions should not cost the user their library.
 pub fn walk(root: &Path) -> impl Iterator<Item = Entry> + use<> {
     WalkDir::new(root)
-        .min_depth(1)
+        .min_depth(0)
         .into_iter()
-        .filter_entry(|entry| !is_skipped(entry.file_name().to_string_lossy().as_ref()))
+        // The root is exempt from the name filter: a library living in a
+        // directory that starts with a dot is the user's business, not rubbish.
+        .filter_entry(|entry| {
+            entry.depth() == 0 || !is_skipped(entry.file_name().to_string_lossy().as_ref())
+        })
         .filter_map(Result::ok)
         .filter_map(|entry| classify(entry.path()))
 }
@@ -126,6 +134,8 @@ mod tests {
         }
     }
 
+    /// Names relative to the root, with the root itself left out so the
+    /// assertions stay about the contents.
     fn names(root: &Path) -> Vec<String> {
         walk(root)
             .map(|entry| {
@@ -135,6 +145,7 @@ mod tests {
                     .to_string_lossy()
                     .replace('\\', "/")
             })
+            .filter(|name| !name.is_empty())
             .collect()
     }
 
@@ -241,6 +252,27 @@ mod tests {
     fn an_empty_library_yields_nothing_and_does_not_fail() {
         let root = library("empty", &["Empty/"]);
         assert_eq!(names(&root), vec!["Empty".to_string()]);
+    }
+
+    /// The root has to come out of the walk, or a track sitting in it has no
+    /// folder to belong to and is dropped without trace.
+    #[test]
+    fn the_root_itself_is_yielded_first() {
+        let root = library("root", &["loose.flac", "Album/inside.flac"]);
+        let first = walk(&root).next().expect("something should come out");
+
+        match first {
+            Entry::Directory { path, .. } => assert_eq!(path, root),
+            other => panic!("expected the root directory first, got {other:?}"),
+        }
+
+        assert!(names(&root).contains(&"loose.flac".to_string()));
+    }
+
+    #[test]
+    fn a_library_in_a_dotted_directory_is_still_walked() {
+        let root = library(".hidden-library", &["Album/song.flac"]);
+        assert!(names(&root).contains(&"Album/song.flac".to_string()));
     }
 
     #[test]

@@ -39,6 +39,8 @@ pub fn router(state: AppState) -> Router {
         "getArtist" => browsing::get_artist,
         "getAlbum" => browsing::get_album,
         "getSong" => browsing::get_song,
+        "getIndexes" => browsing::get_indexes,
+        "getMusicDirectory" => browsing::get_music_directory,
     }
     .with_state(state)
 }

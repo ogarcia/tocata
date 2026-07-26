@@ -822,3 +822,289 @@ mod tests {
         assert_eq!(display_names(&[]), None);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Browsing by folder
+// ---------------------------------------------------------------------------
+//
+// The other tree. Clients that browse by directory need this, and so does
+// anybody whose library is well organised but poorly tagged.
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexesQuery {
+    music_folder_id: Option<i64>,
+    /// Milliseconds since the epoch. A client that already has the tree asks
+    /// for it again with this set, and gets an empty answer if nothing moved.
+    if_modified_since: Option<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IndexesBody {
+    indexes: Indexes,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Indexes {
+    last_modified: i64,
+    ignored_articles: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    index: Vec<FolderIndexGroup>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    child: Vec<Child>,
+}
+
+#[derive(Serialize)]
+struct FolderIndexGroup {
+    name: String,
+    artist: Vec<FolderEntry>,
+}
+
+/// The older, plainer artist object this endpoint uses. Its id is a folder,
+/// not a row in `artists`: browsing by directory takes the convention that the
+/// top level of a library is one folder per artist.
+#[derive(Serialize)]
+struct FolderEntry {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DirectoryBody {
+    directory: Directory,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Directory {
+    id: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    child: Vec<Child>,
+}
+
+pub async fn get_indexes(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    State(config): State<Arc<Config>>,
+    Query(query): Query<IndexesQuery>,
+) -> Response {
+    let last_modified = match load_last_modified(&pool, query.music_folder_id).await {
+        Ok(value) => value,
+        Err(e) => return internal(e, auth.format, "reading when the tree last changed"),
+    };
+
+    let articles = config.ignored_articles();
+
+    // Nothing has moved since the client last asked, so say so with an empty
+    // body rather than sending the whole tree again.
+    if query
+        .if_modified_since
+        .is_some_and(|since| last_modified <= since)
+    {
+        return response::ok(
+            auth.format,
+            IndexesBody {
+                indexes: Indexes {
+                    last_modified,
+                    ignored_articles: articles.join(" "),
+                    index: Vec::new(),
+                    child: Vec::new(),
+                },
+            },
+        );
+    }
+
+    let roots = match load_root_folders(&pool, query.music_folder_id).await {
+        Ok(roots) => roots,
+        Err(e) => return internal(e, auth.format, "listing the top level folders"),
+    };
+
+    let loose = match load_loose_songs(&pool, auth.user.id, query.music_folder_id).await {
+        Ok(songs) => songs,
+        Err(e) => return internal(e, auth.format, "listing songs outside any folder"),
+    };
+
+    let mut groups: Vec<FolderIndexGroup> = Vec::new();
+    for (id, name) in roots {
+        let letter = index_letter(&name, articles);
+        let entry = FolderEntry { id, name };
+        match groups.last_mut() {
+            Some(group) if group.name == letter => group.artist.push(entry),
+            _ => groups.push(FolderIndexGroup {
+                name: letter,
+                artist: vec![entry],
+            }),
+        }
+    }
+
+    response::ok(
+        auth.format,
+        IndexesBody {
+            indexes: Indexes {
+                last_modified,
+                ignored_articles: articles.join(" "),
+                index: groups,
+                child: loose,
+            },
+        },
+    )
+}
+
+pub async fn get_music_directory(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    let folder: Option<(String, String, Option<String>)> = match sqlx::query_as(
+        "SELECT f.public_id, f.name, parent.public_id
+           FROM folders f
+           LEFT JOIN folders parent ON parent.id = f.parent_id
+          WHERE f.public_id = ? AND f.missing_since IS NULL",
+    )
+    .bind(&query.id)
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(folder) => folder,
+        Err(e) => return internal(e, auth.format, "loading a directory"),
+    };
+
+    let Some((id, name, parent)) = folder else {
+        return ApiError::NotFound.in_format(auth.format).into_response();
+    };
+
+    // Subdirectories first, then the songs, which is the order clients expect
+    // and the reason the response mixes both in one array.
+    let mut children = match load_child_folders(&pool, &query.id).await {
+        Ok(folders) => folders,
+        Err(e) => return internal(e, auth.format, "listing subdirectories"),
+    };
+
+    match load_songs_of_folder(&pool, auth.user.id, &query.id).await {
+        Ok(songs) => children.extend(songs),
+        Err(e) => return internal(e, auth.format, "listing the songs of a directory"),
+    }
+
+    response::ok(
+        auth.format,
+        DirectoryBody {
+            directory: Directory {
+                id,
+                name,
+                parent,
+                child: children,
+            },
+        },
+    )
+}
+
+/// Most recent folder modification time, in the milliseconds this endpoint
+/// reports. Zero when the library is empty, which is a truthful "never".
+async fn load_last_modified(
+    pool: &SqlitePool,
+    library_id: Option<i64>,
+) -> Result<i64, sqlx::Error> {
+    let newest: Option<String> = sqlx::query_scalar(
+        "SELECT max(modified_at) FROM folders
+          WHERE missing_since IS NULL AND (? IS NULL OR library_id = ?)",
+    )
+    .bind(library_id)
+    .bind(library_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+
+    Ok(newest
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(&value).ok())
+        .map(|parsed| parsed.timestamp_millis())
+        .unwrap_or(0))
+}
+
+/// The top level a client sees: the children of each library root.
+///
+/// The root folder itself is a row with no parent, and it is not what anyone
+/// wants to see in an index — a library called "music" would show up as a
+/// single artist containing everything.
+async fn load_root_folders(
+    pool: &SqlitePool,
+    library_id: Option<i64>,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT f.public_id, f.name
+           FROM folders f
+           JOIN folders root ON root.id = f.parent_id
+          WHERE root.parent_id IS NULL AND f.missing_since IS NULL
+            AND (? IS NULL OR f.library_id = ?)
+          ORDER BY f.name COLLATE NOCASE",
+    )
+    .bind(library_id)
+    .bind(library_id)
+    .fetch_all(pool)
+    .await
+}
+
+async fn load_child_folders(
+    pool: &SqlitePool,
+    parent_public_id: &str,
+) -> Result<Vec<Child>, sqlx::Error> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT f.public_id, f.name
+           FROM folders f
+           JOIN folders parent ON parent.id = f.parent_id
+          WHERE parent.public_id = ? AND f.missing_since IS NULL
+          ORDER BY f.name COLLATE NOCASE",
+    )
+    .bind(parent_public_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, name)| Child::directory(id, name, Some(parent_public_id.to_string())))
+        .collect())
+}
+
+async fn load_songs_of_folder(
+    pool: &SqlitePool,
+    user_id: i64,
+    folder_public_id: &str,
+) -> Result<Vec<Child>, sqlx::Error> {
+    let rows: Vec<TrackRow> = sqlx::query_as(concat!(
+        track_columns!(),
+        " AND f.public_id = ?
+          ORDER BY t.disc_number, t.track_number, t.title COLLATE NOCASE"
+    ))
+    .bind(user_id)
+    .bind(folder_public_id)
+    .fetch_all(pool)
+    .await?;
+
+    build_children(pool, rows).await
+}
+
+/// Songs sitting directly in a library root, which `getIndexes` reports beside
+/// the folder list because there is no folder a client would open to find them.
+async fn load_loose_songs(
+    pool: &SqlitePool,
+    user_id: i64,
+    library_id: Option<i64>,
+) -> Result<Vec<Child>, sqlx::Error> {
+    let rows: Vec<TrackRow> = sqlx::query_as(concat!(
+        track_columns!(),
+        " AND f.parent_id IS NULL AND (? IS NULL OR t.library_id = ?)
+          ORDER BY t.title COLLATE NOCASE"
+    ))
+    .bind(user_id)
+    .bind(library_id)
+    .bind(library_id)
+    .fetch_all(pool)
+    .await?;
+
+    build_children(pool, rows).await
+}
