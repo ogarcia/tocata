@@ -55,15 +55,23 @@ struct Envelope<T> {
 }
 
 impl<T> Envelope<T> {
-    fn ok(body: T) -> Self {
+    fn new(status: &'static str, body: T) -> Self {
         Self {
-            status: "ok",
+            status,
             version: API_VERSION,
             server_type: SERVER_TYPE,
             server_version: env!("CARGO_PKG_VERSION"),
             open_subsonic: true,
             body,
         }
+    }
+
+    fn ok(body: T) -> Self {
+        Self::new("ok", body)
+    }
+
+    fn failed(body: T) -> Self {
+        Self::new("failed", body)
     }
 }
 
@@ -73,6 +81,12 @@ impl<T> Envelope<T> {
 /// response is the only thing that can produce a different status here.
 pub fn ok<T: Serialize>(format: Format, body: T) -> Response {
     render(format, Envelope::ok(body))
+}
+
+/// Renders a failed response. Still HTTP 200: in this protocol the error
+/// lives in the payload, not in the status line.
+pub fn failed<T: Serialize>(format: Format, body: T) -> Response {
+    render(format, Envelope::failed(body))
 }
 
 fn render<T: Serialize>(format: Format, envelope: Envelope<T>) -> Response {

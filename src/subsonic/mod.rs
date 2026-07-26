@@ -3,21 +3,15 @@
 
 //! The OpenSubsonic API, served under `/rest`.
 
+mod auth;
+mod error;
 mod response;
 mod system;
 mod xml;
 
 use axum::Router;
 use axum::routing::get;
-use serde::Deserialize;
-
-/// Parameters every endpoint of the API accepts. Only what is read today:
-/// authentication adds its own as it lands.
-#[derive(Debug, Deserialize)]
-pub struct CommonParams {
-    /// Requested response format.
-    pub f: Option<String>,
-}
+use sqlx::SqlitePool;
 
 /// Registers each endpoint twice, because clients are free to append `.view`
 /// to any of them and plenty do.
@@ -31,8 +25,9 @@ macro_rules! endpoints {
     };
 }
 
-pub fn router() -> Router {
+pub fn router(pool: SqlitePool) -> Router {
     endpoints! {
         "ping" => system::ping,
     }
+    .with_state(pool)
 }

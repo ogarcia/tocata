@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
+mod auth;
 mod config;
 mod db;
 mod subsonic;
+mod user;
 
 use anyhow::{Context, Result};
 use axum::Router;
@@ -30,10 +32,12 @@ async fn main() -> Result<()> {
         .with_context(|| format!("creating data directory {}", config.data_dir().display()))?;
 
     let database_path = config.database_path();
-    let _pool = db::connect(&database_path).await?;
+    let pool = db::connect(&database_path).await?;
     info!("database ready at {}", database_path.display());
 
-    let app = Router::new().nest("/rest", subsonic::router());
+    user::ensure_initial_user(&pool).await?;
+
+    let app = Router::new().nest("/rest", subsonic::router(pool));
 
     let addr = config.listen_addr();
     let listener = TcpListener::bind(addr)
