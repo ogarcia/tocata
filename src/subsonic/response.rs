@@ -4,9 +4,12 @@
 //! The envelope every endpoint of the API answers with.
 
 use super::xml;
+use axum::extract::{FromRequestParts, Query};
+use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use tracing::error;
 
 /// Version of the API this server implements.
@@ -38,6 +41,30 @@ impl Format {
             Some(value) if value.eq_ignore_ascii_case("json") => Self::Json,
             _ => Self::Xml,
         }
+    }
+}
+
+/// The requested format on its own, for the endpoints that answer without
+/// authenticating. Extracting this cannot fail: an unreadable query simply
+/// means nobody asked for JSON.
+#[derive(Debug)]
+pub struct RequestFormat(pub Format);
+
+#[derive(Deserialize)]
+struct FormatParam {
+    f: Option<String>,
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for RequestFormat {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Infallible> {
+        let format = Query::<FormatParam>::from_request_parts(parts, state)
+            .await
+            .map(|Query(params)| Format::from_param(params.f.as_deref()))
+            .unwrap_or(Format::Xml);
+
+        Ok(Self(format))
     }
 }
 

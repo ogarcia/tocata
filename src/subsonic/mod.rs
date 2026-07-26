@@ -28,6 +28,8 @@ macro_rules! endpoints {
 pub fn router(pool: SqlitePool) -> Router {
     endpoints! {
         "ping" => system::ping,
+        "getLicense" => system::get_license,
+        "getOpenSubsonicExtensions" => system::get_open_subsonic_extensions,
     }
     .with_state(pool)
 }
