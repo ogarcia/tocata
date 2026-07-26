@@ -159,16 +159,16 @@ jobs:
       # needed the password it printed a second earlier.
       - name: Start it and ask it something
         run: |
-          docker run --detach --name tocata --publish 4040:4040 tocata:ci
+          docker run --detach --name tocata --publish 4224:4224 tocata:ci
           for _ in $(seq 1 30); do
-            curl -sf -o /dev/null http://127.0.0.1:4040/rest/ping && break
+            curl -sf -o /dev/null http://127.0.0.1:4224/rest/ping && break
             sleep 1
           done
           docker logs tocata > log.txt 2>&1
           cat log.txt
           password="$(sed -n "s/.*initial password for 'admin': //p" log.txt)"
           test -n "$password"
-          curl -sf "http://127.0.0.1:4040/rest/ping?u=admin&p=$password&v=1.16.1&c=ci&f=json" \
+          curl -sf "http://127.0.0.1:4224/rest/ping?u=admin&p=$password&v=1.16.1&c=ci&f=json" \
             | tee /dev/stderr \
             | grep -q '"status":"ok"'
 

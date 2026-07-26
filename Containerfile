@@ -94,12 +94,12 @@ RUN addgroup -g 1000 tocata \
 
 ENV TOCATA_DATA_DIR=/data \
     TOCATA_LIBRARY_PATHS=/music \
-    TOCATA_PORT=4040
+    TOCATA_PORT=4224
 
 # No VOLUME for /data. It would look like protection for the database while
 # actually creating an unnamed volume that goes away with the next container;
 # where the state lives is the operator's decision to make and to name.
-EXPOSE 4040
+EXPOSE 4224
 
 # No HEALTHCHECK either: ping needs credentials, and putting a password in the
 # image to check on itself is worse than not checking. The native /api will be

@@ -12,8 +12,11 @@ const DEFAULT_DATA_DIR: &str = "data";
 /// The database file, always inside the data directory.
 const DATABASE_FILE: &str = "tocata.db";
 
-/// The port Subsonic servers have historically listened on.
-const DEFAULT_PORT: u16 = 4040;
+/// Where Tocata listens unless told otherwise. Subsonic servers have
+/// historically used 4040, but that one is registered to something else, is also
+/// Spark's web interface, and turns up in too many examples of too many other
+/// things to be a safe guess. 4224 is in nobody's registry.
+const DEFAULT_PORT: u16 = 4224;
 
 /// Articles dropped when deciding which letter an artist files under. Spanish
 /// and English by default, since those are the two the author has in his own
