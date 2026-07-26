@@ -49,6 +49,8 @@ pub fn router(state: AppState) -> Router {
         "stream" => media::stream,
         "download" => media::download,
         "getCoverArt" => media::get_cover_art,
+        "getLyrics" => media::get_lyrics,
+        "getLyricsBySongId" => media::get_lyrics_by_song_id,
         "search3" => search::search3,
         "star" => annotation::star,
         "unstar" => annotation::unstar,

@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tags::Metadata;
+pub use tags::read as read_tags;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use walker::Entry;

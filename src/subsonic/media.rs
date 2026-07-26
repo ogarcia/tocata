@@ -6,12 +6,13 @@
 use super::auth::Authenticated;
 use super::browsing::IdQuery;
 use super::error::ApiError;
-use super::response::Format;
+use super::response::{self, Format};
 use crate::artwork;
 use crate::config::Config;
 use axum::extract::{Query, Request, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -268,6 +269,220 @@ pub async fn get_cover_art(
             ApiError::NotFound.in_format(auth.format).into_response()
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lyrics
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct LyricsQuery {
+    artist: Option<String>,
+    title: Option<String>,
+}
+
+#[derive(Serialize)]
+struct LyricsBody {
+    lyrics: Lyrics,
+}
+
+/// The old shape: everything in one blob, with the words as the element's text.
+#[derive(Serialize)]
+struct Lyrics {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    value: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LyricsListBody {
+    lyrics_list: LyricsList,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LyricsList {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    structured_lyrics: Vec<StructuredLyrics>,
+}
+
+/// The OpenSubsonic shape, which can carry timings.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuredLyrics {
+    lang: String,
+    synced: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_title: Option<String>,
+    line: Vec<LyricLine>,
+}
+
+#[derive(Serialize)]
+struct LyricLine {
+    /// Milliseconds from the start, absent on unsynchronised lyrics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start: Option<i64>,
+    value: String,
+}
+
+/// Reads the lyrics out of a file, off the async threads.
+///
+/// Not stored in the database on purpose. Lyrics are the one piece of long text
+/// a music file carries, and a copy of them in the database would be hundreds of
+/// megabytes duplicating what is already on disk. Reading the tags of one file is
+/// a seek and a few kilobytes, and it only happens when somebody actually looks
+/// at the words — which also means an edited lyric shows up without a rescan.
+async fn read_lyrics(path: PathBuf) -> Option<String> {
+    let read = tokio::task::spawn_blocking(move || crate::scanner::read_tags(&path)).await;
+
+    match read {
+        Ok(Ok(metadata)) => metadata.lyrics,
+        Ok(Err(e)) => {
+            warn!("reading lyrics: {e:#}");
+            None
+        }
+        Err(e) => {
+            error!("the lyric reader panicked: {e}");
+            None
+        }
+    }
+}
+
+/// Lyrics by artist and title, which is how the older call asks for them.
+///
+/// Answers with an empty element rather than an error when there are none: the
+/// older clients that use this treat a 70 as a failure worth showing the user,
+/// and having no lyrics is not a failure.
+pub async fn get_lyrics(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<LyricsQuery>,
+) -> Response {
+    let found: Result<Option<(String, String, Option<String>)>, _> = sqlx::query_as(
+        "SELECT t.path, t.title,
+                (SELECT ar.name FROM track_artists ta
+                   JOIN artists ar ON ar.id = ta.artist_id
+                  WHERE ta.track_id = t.id ORDER BY ta.position LIMIT 1)
+           FROM tracks t
+          WHERE t.missing_since IS NULL
+            AND (? IS NULL OR t.title = ?)
+            AND (? IS NULL OR EXISTS (
+                    SELECT 1 FROM track_artists ta
+                      JOIN artists ar ON ar.id = ta.artist_id
+                     WHERE ta.track_id = t.id AND ar.name = ?
+                ))
+          LIMIT 1",
+    )
+    .bind(&query.title)
+    .bind(&query.title)
+    .bind(&query.artist)
+    .bind(&query.artist)
+    .fetch_optional(&pool)
+    .await;
+
+    let (path, title, artist) = match found {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return response::ok(
+                auth.format,
+                LyricsBody {
+                    lyrics: Lyrics {
+                        artist: query.artist,
+                        title: query.title,
+                        value: String::new(),
+                    },
+                },
+            );
+        }
+        Err(e) => {
+            error!("looking up a song for its lyrics: {e}");
+            return ApiError::Internal.in_format(auth.format).into_response();
+        }
+    };
+
+    response::ok(
+        auth.format,
+        LyricsBody {
+            lyrics: Lyrics {
+                artist,
+                title: Some(title),
+                value: read_lyrics(PathBuf::from(path)).await.unwrap_or_default(),
+            },
+        },
+    )
+}
+
+pub async fn get_lyrics_by_song_id(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    let found: Result<Option<String>, _> =
+        sqlx::query_scalar("SELECT path FROM tracks WHERE public_id = ? AND missing_since IS NULL")
+            .bind(&query.id)
+            .fetch_optional(&pool)
+            .await;
+
+    let path = match found {
+        Ok(Some(path)) => path,
+        Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
+        Err(e) => {
+            error!("looking up a song for its lyrics: {e}");
+            return ApiError::Internal.in_format(auth.format).into_response();
+        }
+    };
+
+    let Some(content) = read_lyrics(PathBuf::from(path)).await else {
+        // No lyrics is an empty list, not an error: the song exists.
+        return response::ok(
+            auth.format,
+            LyricsListBody {
+                lyrics_list: LyricsList {
+                    structured_lyrics: Vec::new(),
+                },
+            },
+        );
+    };
+
+    let synced = crate::lyrics::looks_synchronised(&content);
+    let line = if synced {
+        crate::lyrics::parse(&content)
+            .into_iter()
+            .map(|line| LyricLine {
+                start: Some(line.start),
+                value: line.value,
+            })
+            .collect()
+    } else {
+        content
+            .lines()
+            .map(|value| LyricLine {
+                start: None,
+                value: value.to_string(),
+            })
+            .collect()
+    };
+
+    response::ok(
+        auth.format,
+        LyricsListBody {
+            lyrics_list: LyricsList {
+                structured_lyrics: vec![StructuredLyrics {
+                    // Nothing in a tag says which language the words are in.
+                    lang: "xxx".to_string(),
+                    synced,
+                    display_artist: None,
+                    display_title: None,
+                    line,
+                }],
+            },
+        },
+    )
 }
 
 #[cfg(test)]

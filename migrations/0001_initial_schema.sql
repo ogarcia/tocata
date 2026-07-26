@@ -256,15 +256,6 @@ CREATE TABLE track_moods (
     PRIMARY KEY (track_id, mood_id)
 ) WITHOUT ROWID;
 
--- Both plain and synchronised lyrics, one row per language.
-CREATE TABLE lyrics (
-    id       INTEGER PRIMARY KEY,
-    track_id INTEGER NOT NULL REFERENCES tracks (id) ON DELETE CASCADE,
-    lang     TEXT    NOT NULL DEFAULT 'xxx',
-    synced   INTEGER NOT NULL DEFAULT 0 CHECK (synced IN (0, 1)),
-    content  TEXT    NOT NULL,
-    UNIQUE (track_id, lang, synced)
-);
 
 -- ---------------------------------------------------------------------------
 -- Artwork lookups

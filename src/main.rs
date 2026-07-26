@@ -5,6 +5,7 @@ mod artwork;
 mod auth;
 mod config;
 mod db;
+mod lyrics;
 mod scanner;
 mod state;
 mod subsonic;
