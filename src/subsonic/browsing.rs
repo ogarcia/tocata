@@ -257,6 +257,7 @@ fn index_letter(name: &str, articles: &[String]) -> String {
 
 #[derive(sqlx::FromRow)]
 struct ArtistRow {
+    id: i64,
     public_id: String,
     name: String,
     sort_name: Option<String>,
@@ -294,7 +295,7 @@ impl From<ArtistRow> for ArtistId3 {
 macro_rules! artist_columns_head {
     () => {
         "
-    SELECT a.public_id, a.name, a.sort_name, a.mbid,
+    SELECT a.id, a.public_id, a.name, a.sort_name, a.mbid,
            (SELECT count(*) FROM albums al
              WHERE EXISTS (
                        SELECT 1 FROM album_artists aa
@@ -363,6 +364,7 @@ async fn load_artist(
 
 #[derive(sqlx::FromRow)]
 struct AlbumRow {
+    id: i64,
     public_id: String,
     name: String,
     sort_name: Option<String>,
@@ -384,7 +386,7 @@ struct AlbumRow {
 macro_rules! album_columns_head {
     () => {
         "
-    SELECT al.public_id, al.name, al.sort_name, al.year, al.is_compilation,
+    SELECT al.id, al.public_id, al.name, al.sort_name, al.year, al.is_compilation,
            al.mbid_release, al.created_at, aw.public_id AS artwork_public_id,
            (SELECT count(*) FROM tracks t
              WHERE t.album_id = al.id AND t.missing_since IS NULL) AS song_count,
@@ -532,6 +534,7 @@ async fn build_album(pool: &SqlitePool, row: AlbumRow) -> Result<AlbumId3, sqlx:
 
 #[derive(sqlx::FromRow)]
 struct TrackRow {
+    id: i64,
     public_id: String,
     title: String,
     sort_title: Option<String>,
@@ -568,7 +571,7 @@ struct TrackRow {
 macro_rules! track_columns_head {
     () => {
         "
-    SELECT t.public_id, t.title, t.sort_title, t.track_number, t.disc_number,
+    SELECT t.id, t.public_id, t.title, t.sort_title, t.track_number, t.disc_number,
            t.year, t.duration_ms, t.bit_rate, t.bit_depth, t.sampling_rate,
            t.channel_count, t.bpm, t.comment, t.mbid_recording, t.isrc,
            t.rg_track_gain, t.rg_track_peak, t.file_size, t.content_type,
@@ -1149,10 +1152,13 @@ async fn load_loose_songs(
 // Loading by internal id, for the search module
 // ---------------------------------------------------------------------------
 //
-// Search resolves what matched into internal ids and then asks for the entities
-// themselves, so the shape of a response is built in one place. The order of
-// `ids` is the order of relevance, and SQLite gives no order to an IN clause, so
-// each of these restores it afterwards.
+// Callers resolve what they want into internal ids and then ask for the entities
+// themselves, so the shape of a response is built in one place.
+//
+// The order of `ids` carries meaning — relevance for a search, recency for a
+// list, and the rows a caller is about to zip against — and SQLite gives no
+// order at all to an IN clause. Each of these restores it, which is why the row
+// types carry the internal id.
 
 pub(super) async fn load_artists_by_ids(
     pool: &SqlitePool,
@@ -1169,7 +1175,8 @@ pub(super) async fn load_artists_by_ids(
     push_ids(&mut builder, ids);
     builder.push(")");
 
-    let rows: Vec<ArtistRow> = builder.build_query_as().fetch_all(pool).await?;
+    let mut rows: Vec<ArtistRow> = builder.build_query_as().fetch_all(pool).await?;
+    sort_to_match(&mut rows, ids, |row| row.id);
 
     Ok(rows.into_iter().map(ArtistId3::from).collect())
 }
@@ -1189,7 +1196,8 @@ pub(super) async fn load_albums_by_ids(
     push_ids(&mut builder, ids);
     builder.push(")");
 
-    let rows: Vec<AlbumRow> = builder.build_query_as().fetch_all(pool).await?;
+    let mut rows: Vec<AlbumRow> = builder.build_query_as().fetch_all(pool).await?;
+    sort_to_match(&mut rows, ids, |row| row.id);
 
     let mut albums = Vec::with_capacity(rows.len());
     for row in rows {
@@ -1214,9 +1222,25 @@ pub(super) async fn load_tracks_by_ids(
     push_ids(&mut builder, ids);
     builder.push(")");
 
-    let rows: Vec<TrackRow> = builder.build_query_as().fetch_all(pool).await?;
+    let mut rows: Vec<TrackRow> = builder.build_query_as().fetch_all(pool).await?;
+    sort_to_match(&mut rows, ids, |row| row.id);
 
     build_children(pool, rows).await
+}
+
+/// Puts rows back into the order their ids were asked for.
+///
+/// Anything the query did not return simply drops out, which is what should
+/// happen to an id that no longer resolves.
+fn sort_to_match<T>(rows: &mut Vec<T>, ids: &[i64], id_of: impl Fn(&T) -> i64) {
+    let position: HashMap<i64, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (*id, index))
+        .collect();
+
+    rows.retain(|row| position.contains_key(&id_of(row)));
+    rows.sort_by_key(|row| position[&id_of(row)]);
 }
 
 fn push_ids(builder: &mut sqlx::QueryBuilder<sqlx::Sqlite>, ids: &[i64]) {

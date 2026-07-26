@@ -7,6 +7,7 @@ mod annotation;
 mod auth;
 mod browsing;
 mod error;
+mod lists;
 mod media;
 mod models;
 mod response;
@@ -52,6 +53,12 @@ pub fn router(state: AppState) -> Router {
         "unstar" => annotation::unstar,
         "setRating" => annotation::set_rating,
         "scrobble" => annotation::scrobble,
+        "getAlbumList2" => lists::get_album_list2,
+        "getStarred2" => lists::get_starred2,
+        "getGenres" => lists::get_genres,
+        "getRandomSongs" => lists::get_random_songs,
+        "getSongsByGenre" => lists::get_songs_by_genre,
+        "getNowPlaying" => lists::get_now_playing,
     }
     .with_state(state)
 }

@@ -12,11 +12,19 @@
 //! object, scalars become attributes and anything structured becomes a child
 //! element; an array becomes a repeated element under its key. Adding an
 //! endpoint costs nothing here.
+//!
+//! With one exception the protocol forces. A few responses put their payload in
+//! the element's text rather than in an attribute — `<genre songCount="28">Rock
+//! </genre>`, and the body of a lyric — while JSON has to call it something, and
+//! calls it `value`. So a key named `value` becomes the text of its element.
 
 use quick_xml::Writer;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use serde_json::Value;
 use std::io::Cursor;
+
+/// Key whose value belongs in the element's text instead of an attribute.
+const TEXT_KEY: &str = "value";
 
 /// Namespace every XML response carries. It is meaningless in JSON, so it
 /// lives here rather than in the response types.
@@ -47,19 +55,32 @@ fn write_element(
 
     match value {
         Value::Object(map) => {
+            let text = map.get(TEXT_KEY).and_then(scalar_to_string);
+
             for (key, child) in map {
-                if let Some(text) = scalar_to_string(child) {
-                    start.push_attribute((key.as_str(), text.as_str()));
+                if key == TEXT_KEY && text.is_some() {
+                    continue;
+                }
+                if let Some(attribute) = scalar_to_string(child) {
+                    start.push_attribute((key.as_str(), attribute.as_str()));
                 }
             }
 
-            let has_children = map.values().any(|v| scalar_to_string(v).is_none());
-            if !has_children {
+            let has_children = map
+                .iter()
+                .any(|(key, v)| key != TEXT_KEY && scalar_to_string(v).is_none());
+
+            if !has_children && text.is_none() {
                 writer.write_event(Event::Empty(start))?;
                 return Ok(());
             }
 
             writer.write_event(Event::Start(start))?;
+
+            if let Some(text) = &text {
+                writer.write_event(Event::Text(BytesText::new(text)))?;
+            }
+
             for (key, child) in map {
                 match child {
                     // Every item of an array is an element named after the
@@ -140,11 +161,58 @@ mod tests {
     fn arrays_repeat_their_element() {
         let xml = render(
             "subsonic-response",
+            &json!({"artists": {"artist": [{"name": "Queen"}, {"name": "Pulp"}]}}),
+        )
+        .unwrap();
+        assert!(xml.contains(r#"<artist name="Queen"/>"#), "got {xml}");
+        assert!(xml.contains(r#"<artist name="Pulp"/>"#), "got {xml}");
+    }
+
+    #[test]
+    fn a_repeated_element_can_carry_text() {
+        let xml = render(
+            "subsonic-response",
             &json!({"genres": {"genre": [{"value": "Rock"}, {"value": "Jazz"}]}}),
         )
         .unwrap();
-        assert!(xml.contains(r#"<genre value="Rock"/>"#));
-        assert!(xml.contains(r#"<genre value="Jazz"/>"#));
+        assert!(xml.contains("<genre>Rock</genre>"), "got {xml}");
+        assert!(xml.contains("<genre>Jazz</genre>"), "got {xml}");
+    }
+
+    /// `<genre songCount="28" albumCount="6">Rock</genre>`: the payload is the
+    /// element's text, and JSON has to give it a name, so it is called `value`.
+    #[test]
+    fn a_value_key_becomes_the_element_text() {
+        let xml = render(
+            "subsonic-response",
+            &json!({"genres": {"genre": [{"value": "Rock", "songCount": 28}]}}),
+        )
+        .unwrap();
+
+        assert!(xml.contains(r#"songCount="28""#), "got {xml}");
+        assert!(xml.contains(">Rock</genre>"), "got {xml}");
+        assert!(
+            !xml.contains(r#"value="Rock""#),
+            "not as an attribute: {xml}"
+        );
+    }
+
+    #[test]
+    fn a_value_key_alongside_children_keeps_both() {
+        let xml = render(
+            "subsonic-response",
+            &json!({"outer": {"value": "text", "inner": {"a": 1}}}),
+        )
+        .unwrap();
+
+        assert!(xml.contains(">text"), "got {xml}");
+        assert!(xml.contains(r#"<inner a="1"/>"#), "got {xml}");
+    }
+
+    #[test]
+    fn text_in_a_value_key_is_escaped_too() {
+        let xml = render("subsonic-response", &json!({"g": {"value": "AC&DC <x>"}})).unwrap();
+        assert!(xml.contains("AC&amp;DC &lt;x&gt;"), "got {xml}");
     }
 
     #[test]
