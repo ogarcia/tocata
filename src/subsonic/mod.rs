@@ -3,6 +3,7 @@
 
 //! The OpenSubsonic API, served under `/rest`.
 
+mod annotation;
 mod auth;
 mod browsing;
 mod error;
@@ -47,6 +48,10 @@ pub fn router(state: AppState) -> Router {
         "download" => media::download,
         "getCoverArt" => media::get_cover_art,
         "search3" => search::search3,
+        "star" => annotation::star,
+        "unstar" => annotation::unstar,
+        "setRating" => annotation::set_rating,
+        "scrobble" => annotation::scrobble,
     }
     .with_state(state)
 }

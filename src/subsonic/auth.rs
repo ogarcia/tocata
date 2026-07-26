@@ -13,6 +13,11 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 use tracing::error;
 
+/// Stands in for a client that did not name itself, so the column is never
+/// empty and two anonymous clients at least share one row instead of fighting
+/// over a blank key.
+const UNNAMED_CLIENT: &str = "unknown";
+
 /// The authentication parameters a request may carry.
 ///
 /// The rename is load bearing: the extension spells the key `apiKey`, and
@@ -34,6 +39,9 @@ struct AuthParams {
     s: Option<String>,
     /// Key from the apiKeyAuthentication extension.
     api_key: Option<String>,
+    /// Name the client gives for itself. Required of every request by the
+    /// specification, and what tells one of a person's players from another.
+    c: Option<String>,
 }
 
 /// What a request offers as proof, once the combination has been validated.
@@ -106,6 +114,8 @@ impl AuthParams {
 pub struct Authenticated {
     pub user: User,
     pub format: Format,
+    /// What the client called itself, or a placeholder when it did not say.
+    pub client: String,
 }
 
 impl<S> FromRequestParts<S> for Authenticated
@@ -145,8 +155,20 @@ where
             Credentials::SaltedToken => Ok(Err(ApiError::MechanismNotSupported)),
         };
 
+        let client = params
+            .c
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(UNNAMED_CLIENT)
+            .to_string();
+
         match outcome {
-            Ok(Ok(user)) => Ok(Self { user, format }),
+            Ok(Ok(user)) => Ok(Self {
+                user,
+                format,
+                client,
+            }),
             Ok(Err(e)) => Err(e.in_format(format)),
             Err(e) => {
                 error!("authenticating request: {e:#}");
@@ -168,6 +190,7 @@ mod tests {
             t: None,
             s: None,
             api_key: None,
+            c: None,
         }
     }
 

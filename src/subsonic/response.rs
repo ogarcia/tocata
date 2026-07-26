@@ -146,6 +146,46 @@ fn render<T: Serialize>(format: Format, envelope: Envelope<T>) -> Response {
     }
 }
 
+/// Query parameters that may repeat.
+///
+/// `axum::extract::Query` goes through serde_urlencoded, which keeps only one
+/// value per name. The API repeats names instead of using an array syntax —
+/// `id=1&id=2&id=3` is how a client stars three songs at once — so those
+/// endpoints need a reader that collects them.
+#[derive(Debug)]
+pub struct Repeated<T>(pub T);
+
+impl<T, S> FromRequestParts<S> for Repeated<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = BadParams;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, BadParams> {
+        let query = parts.uri.query().unwrap_or_default();
+
+        serde_html_form::from_str(query)
+            .map(Repeated)
+            .map_err(|e| BadParams(e.to_string()))
+    }
+}
+
+/// A rejection carrying why the parameters could not be read. Rendered as the
+/// protocol's own missing-parameter error, in XML, since a request this broken
+/// has not told us what format it wanted either.
+#[derive(Debug)]
+pub struct BadParams(String);
+
+impl IntoResponse for BadParams {
+    fn into_response(self) -> Response {
+        error!("reading repeated query parameters: {}", self.0);
+        super::error::ApiError::MissingParameter("id")
+            .in_format(Format::Xml)
+            .into_response()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

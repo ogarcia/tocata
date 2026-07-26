@@ -16,6 +16,14 @@ pub fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+/// A moment given in milliseconds since the epoch, in the shape the schema
+/// stores. Clients hand these over when scrobbling plays they cached offline.
+pub fn from_epoch_millis(millis: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(millis)
+        .unwrap_or_default()
+        .to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
 /// Bytes behind a public identifier. Sixty-four bits of randomness: short
 /// enough to live in a URL, wide enough that a library would need billions of
 /// rows before a collision became thinkable, and the UNIQUE constraint catches
