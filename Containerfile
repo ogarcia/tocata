@@ -11,6 +11,9 @@
 # the same bargain the dependencies are on.
 ARG ALPINE_VERSION=3.24
 ARG RUST_VERSION=1
+# Trunk builds the panel. Pinned to a patch, unlike the two above, because it is
+# fetched from a release by name and there is nothing to resolve a range against.
+ARG TRUNK_VERSION=0.21.14
 
 # Which of the two stages below the binary comes from. Declared out here because
 # global scope is the only one a FROM can read.
@@ -19,17 +22,47 @@ ARG BINARY_SOURCE=builder
 # --- the binary, compiled here -----------------------------------------------
 
 FROM docker.io/library/rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
+ARG TRUNK_VERSION
 
-# Nothing to install: the base image already carries gcc and musl-dev, without
-# which rustc could not link at all, and those are also what libsqlite3-sys needs
-# to compile SQLite itself.
+# gcc and musl-dev come with the base image, without which rustc could not link
+# at all, and they are also what libsqlite3-sys needs to compile SQLite itself.
+# binaryen is for the panel: trunk would otherwise fetch a wasm-opt built against
+# glibc, which on Alpine does not run.
+RUN apk add --no-cache binaryen curl
+
+# The musl build, because this image is one. Taken straight from the release and
+# checked, rather than compiled here, which would add minutes for a tool that
+# only shuffles files around.
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64) arch=x86_64 ;; \
+        aarch64) arch=aarch64 ;; \
+        *) echo "no trunk build for $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    url="https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}"; \
+    name="trunk-${arch}-unknown-linux-musl.tar.gz"; \
+    curl -fsSL "${url}/${name}" -o /tmp/trunk.tar.gz; \
+    curl -fsSL "${url}/${name}.sha256" -o /tmp/trunk.sha256; \
+    echo "$(cut -d" " -f1 /tmp/trunk.sha256)  /tmp/trunk.tar.gz" | sha256sum -c; \
+    tar -xzf /tmp/trunk.tar.gz -C /usr/local/bin trunk; \
+    rm /tmp/trunk.tar.gz /tmp/trunk.sha256; \
+    rustup target add wasm32-unknown-unknown
 
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
-# migrate!() reads this directory while compiling and embeds what it finds, which
-# is also why the shipped image needs no copy of it.
-COPY migrations ./migrations
-COPY src ./src
+COPY panel ./panel
+COPY server ./server
+
+# First, because the server embeds what this produces and will not compile
+# without it. Both steps share the one target directory, which costs nothing:
+# they build for different triples and land in different subdirectories of it.
+# What trunk writes to panel/dist is outside the mount, so it is still there
+# when the next step goes looking.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    set -eux; \
+    cd panel; \
+    trunk build --release
 
 # No target is named: this image's own is a musl one, whichever architecture it
 # runs on, and building for the host is what makes the same file work on x86_64

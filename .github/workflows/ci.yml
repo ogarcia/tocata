@@ -18,6 +18,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pinned: the panel's build tool decides what the bundle looks like.
+  TRUNK_VERSION: 0.21.14
 
 jobs:
   check:
@@ -37,12 +39,47 @@ jobs:
           # was compiled last time is still what this time wants.
           restore-keys: cargo-check-
 
+      # The server carries the panel inside its binary, so the panel is built
+      # first or there is nothing to carry.
+      - run: rustup target add wasm32-unknown-unknown
+
+      # Trunk fetches wasm-bindgen and wasm-opt itself on first use, which is
+      # the one thing in this build that reaches the network without being
+      # pinned. Caching that directory is what keeps a run from downloading them
+      # again, and what keeps two runs a month apart from getting different
+      # tools.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ runner.arch }}-${{ env.TRUNK_VERSION }}
+
+      # Straight from the release, at a version we chose, rather than through a
+      # third party action that would decide for us what "latest" means today.
+      - name: Install trunk
+        run: |
+          case "${{ runner.arch }}" in
+            X64)   arch=x86_64 ;;
+            ARM64) arch=aarch64 ;;
+            *) echo "no trunk build for ${{ runner.arch }}" >&2; exit 1 ;;
+          esac
+          url="https://github.com/trunk-rs/trunk/releases/download/v$TRUNK_VERSION"
+          name="trunk-$arch-unknown-linux-musl.tar.gz"
+          curl -fsSL "$url/$name" -o trunk.tar.gz
+          curl -fsSL "$url/$name.sha256" -o trunk.sha256
+          # The name inside the checksum file is the one it was published under.
+          echo "$(cut -d' ' -f1 trunk.sha256)  trunk.tar.gz" | sha256sum --check
+          tar -xzf trunk.tar.gz -C /usr/local/bin trunk
+          rm trunk.tar.gz trunk.sha256
+
+      - run: trunk build --release
+        working-directory: panel
+
       # The first two are what the pre-commit hook already refuses to commit
       # without. The third is the part the hook leaves to us, so that a local
       # commit stays quick.
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --locked
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --locked
 
   binary:
     name: Static binary (${{ matrix.arch }})
@@ -78,6 +115,41 @@ jobs:
             target
           key: cargo-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ matrix.target }}-
+
+      # The server carries the panel inside its binary, so the panel is built
+      # first or there is nothing to carry.
+      - run: rustup target add wasm32-unknown-unknown
+
+      # Trunk fetches wasm-bindgen and wasm-opt itself on first use, which is
+      # the one thing in this build that reaches the network without being
+      # pinned. Caching that directory is what keeps a run from downloading them
+      # again, and what keeps two runs a month apart from getting different
+      # tools.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ runner.arch }}-${{ env.TRUNK_VERSION }}
+
+      # Straight from the release, at a version we chose, rather than through a
+      # third party action that would decide for us what "latest" means today.
+      - name: Install trunk
+        run: |
+          case "${{ runner.arch }}" in
+            X64)   arch=x86_64 ;;
+            ARM64) arch=aarch64 ;;
+            *) echo "no trunk build for ${{ runner.arch }}" >&2; exit 1 ;;
+          esac
+          url="https://github.com/trunk-rs/trunk/releases/download/v$TRUNK_VERSION"
+          name="trunk-$arch-unknown-linux-musl.tar.gz"
+          curl -fsSL "$url/$name" -o trunk.tar.gz
+          curl -fsSL "$url/$name.sha256" -o trunk.sha256
+          # The name inside the checksum file is the one it was published under.
+          echo "$(cut -d' ' -f1 trunk.sha256)  trunk.tar.gz" | sha256sum --check
+          tar -xzf trunk.tar.gz -C /usr/local/bin trunk
+          rm trunk.tar.gz trunk.sha256
+
+      - run: trunk build --release
+        working-directory: panel
 
       # Static linking is the musl target's own default, so no flag asks for it
       # here either.

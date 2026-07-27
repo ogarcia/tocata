@@ -7,38 +7,15 @@
 //! adds and enables what it names. What exists beyond that is this table's
 //! business, which is what makes a library added here survive a restart.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::{Administrator, Panel};
 use crate::db;
+use crate::types::{ErrorBody, Library, LibraryChanges, NewLibrary};
 use axum::Json;
 use axum::extract::{Path as UrlPath, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::path::Path;
-use utoipa::ToSchema;
-
-/// A library and how much of it there is.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Library {
-    id: i64,
-    #[schema(example = "music")]
-    name: String,
-    #[schema(example = "/srv/music")]
-    path: String,
-    /// A disabled library is skipped by scans and left out of the folder list
-    /// clients ask for. Everything already recorded from it stays browsable, so
-    /// this is not a way to hide music; enabling it again costs nothing.
-    enabled: bool,
-    /// Tracks that were there the last time this library was scanned.
-    tracks: i64,
-    /// Tracks recorded here that are no longer on disk. Marked, never deleted, so
-    /// a disk that failed to mount does not take somebody's playlists with it.
-    missing: i64,
-    /// When a scan of this library last ran to the end.
-    last_scanned_at: Option<String>,
-}
 
 type LibraryRow = (i64, String, String, bool, i64, i64, Option<String>);
 
@@ -68,26 +45,6 @@ macro_rules! library_columns {
                 (SELECT max(r.finished_at) FROM scan_runs r WHERE r.library_id = l.id)
            FROM libraries l"
     };
-}
-
-/// What it takes to add one.
-#[derive(Deserialize, ToSchema)]
-pub struct NewLibrary {
-    /// Absolute path to a directory that already exists.
-    #[schema(example = "/srv/music")]
-    path: String,
-    /// What to call it. Defaults to the name of the directory, which is what
-    /// `TOCATA_LIBRARY_PATHS` does too.
-    #[schema(example = "music")]
-    name: Option<String>,
-}
-
-/// What may be changed about one. Anything left out is left alone.
-#[derive(Deserialize, ToSchema)]
-pub struct LibraryChanges {
-    #[schema(example = "vinyl rips")]
-    name: Option<String>,
-    enabled: Option<bool>,
 }
 
 /// List libraries

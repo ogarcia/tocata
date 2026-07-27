@@ -13,53 +13,16 @@
 //! things that cannot be got back — a catalogue rebuilds itself on the next scan,
 //! a rating does not. The second does it.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::{Administrator, Panel};
 use crate::config::Config;
 use crate::scanner::Progress;
+use crate::types::{ErrorBody, Loss, Removed};
 use axum::Json;
 use axum::extract::State;
-use serde::Serialize;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use tracing::{info, warn};
-use utoipa::ToSchema;
-
-/// What a purge would take, in the terms that matter.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Loss {
-    /// Tracks marked absent, which is what would be deleted.
-    tracks: i64,
-    /// Playlist entries pointing at them. The playlists themselves survive,
-    /// shorter.
-    playlist_entries: i64,
-    /// Of those tracks, how many somebody had starred.
-    favourites: i64,
-    /// How many carried a rating.
-    ratings: i64,
-    /// How many had been played at least once, and would lose the count.
-    played: i64,
-    /// Bookmarks inside them.
-    bookmarks: i64,
-}
-
-/// What a purge actually took.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Removed {
-    tracks: i64,
-    folders: i64,
-    /// Albums left with no tracks.
-    albums: i64,
-    /// Artists left with neither tracks nor albums.
-    artists: i64,
-    genres: i64,
-    moods: i64,
-    /// Cover art no album or artist refers to any more. Cached files go with the
-    /// rows.
-    artworks: i64,
-}
 
 /// What a purge would remove
 ///

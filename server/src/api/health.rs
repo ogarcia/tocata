@@ -8,25 +8,13 @@
 //! payload, so no probe watching status lines can tell a working server from a
 //! broken one. This is what a probe is meant to ask.
 
+use crate::types::Health;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
 use sqlx::SqlitePool;
 use tracing::warn;
-use utoipa::ToSchema;
-
-/// Deliberately says nothing beyond whether the answer is yes.
-///
-/// No version, no counts, no scan state. This is the only call that answers
-/// without a session, so what it discloses to a stranger is the whole of what it
-/// discloses.
-#[derive(Serialize, ToSchema)]
-pub struct Health {
-    #[schema(example = "ok")]
-    status: &'static str,
-}
 
 /// Health
 ///
@@ -51,13 +39,19 @@ pub async fn health(State(pool): State<SqlitePool>) -> Response {
         .fetch_one(&pool)
         .await
     {
-        Ok(_) => (StatusCode::OK, Json(Health { status: "ok" })).into_response(),
+        Ok(_) => (
+            StatusCode::OK,
+            Json(Health {
+                status: "ok".to_string(),
+            }),
+        )
+            .into_response(),
         Err(e) => {
             warn!("unhealthy: {e}");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(Health {
-                    status: "unavailable",
+                    status: "unavailable".to_string(),
                 }),
             )
                 .into_response()

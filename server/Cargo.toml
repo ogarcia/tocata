@@ -1,0 +1,51 @@
+[package]
+name = "tocata"
+description = "An OpenSubsonic compatible music server"
+repository = "https://github.com/ogarcia/tocata"
+readme = "../README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords = ["opensubsonic", "music", "server", "audio", "streaming"]
+categories = ["multimedia::audio", "web-programming::http-server"]
+
+[dependencies]
+anyhow = { version = "1.0", optional = true }
+argon2 = { version = "0.5", optional = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"], optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"], optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true }
+getrandom = { version = "0.4", optional = true }
+include_dir = { version = "0.7", optional = true }
+lofty = { version = "0.24", optional = true }
+mime = { version = "0.3", optional = true }
+quick-xml = { version = "0.41", optional = true }
+serde.workspace = true
+serde_html_form = { version = "0.4", optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.11", optional = true }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-none", "sqlite", "macros", "migrate", "chrono"], optional = true }
+tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"], optional = true }
+tower = { version = "0.5", default-features = false, features = ["util"], optional = true }
+tower-http = { version = "0.7", default-features = false, features = ["fs"], optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+utoipa.workspace = true
+utoipa-axum = { version = "0.2", optional = true }
+utoipa-scalar = { version = "0.3", features = ["axum"], optional = true }
+walkdir = { version = "2.5", optional = true }
+
+[features]
+default = ["server"]
+
+# Everything but the shapes on the wire. Off, what is left is `types` and the
+# serde derives that make it travel, which is all the panel wants and all that
+# builds for wasm32.
+server = [
+    "dep:anyhow", "dep:argon2", "dep:axum", "dep:chrono", "dep:futures-util",
+    "dep:getrandom", "dep:include_dir", "dep:lofty", "dep:mime", "dep:quick-xml",
+    "dep:serde_html_form", "dep:serde_json", "dep:sha2", "dep:sqlx", "dep:tokio",
+    "dep:tower", "dep:tower-http", "dep:tracing", "dep:tracing-subscriber",
+    "dep:utoipa-axum", "dep:utoipa-scalar", "dep:walkdir",
+]

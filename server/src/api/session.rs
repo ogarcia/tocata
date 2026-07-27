@@ -4,7 +4,8 @@
 //! Logging in and out of the panel, and the extractor everything else sits
 //! behind.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
+use crate::types::{Credentials, ErrorBody, Identity};
 use crate::user::User;
 use crate::{session, user};
 use axum::extract::{FromRef, FromRequestParts, State};
@@ -13,9 +14,7 @@ use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, RequestPartsExt};
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use utoipa::ToSchema;
 
 /// Name of the cookie the token travels in.
 const COOKIE_NAME: &str = "tocata_session";
@@ -101,29 +100,6 @@ fn token_from_cookies(headers: &HeaderMap) -> Option<String> {
         .filter_map(|pair| pair.trim().split_once('='))
         .find(|(name, _)| *name == COOKIE_NAME)
         .map(|(_, token)| token.to_string())
-}
-
-/// What a login asks for.
-#[derive(Deserialize, ToSchema)]
-pub struct Credentials {
-    #[schema(example = "admin")]
-    username: String,
-    password: String,
-}
-
-/// Who is logged in.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Identity {
-    #[schema(example = "admin")]
-    username: String,
-    /// Whether this account administers the server, which is what decides how
-    /// much of the panel is worth drawing.
-    admin: bool,
-    /// When the session stops working, so the panel can say so before it does
-    /// rather than after a call has already failed.
-    #[schema(example = "2026-08-25T18:00:00Z")]
-    expires_at: String,
 }
 
 impl Identity {

@@ -7,46 +7,18 @@
 //! specification defines. This says everything the scanner knows, which is the
 //! difference between a spinner and a panel.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::{Administrator, Panel};
 use crate::scanner::{self, Progress, Snapshot};
 use crate::state::AppState;
+use crate::types::{ErrorBody, Status};
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 use tracing::{error, info};
-use utoipa::{IntoParams, ToSchema};
-
-/// How a scan is going, or how the last one went.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Status {
-    /// Whether one is running now. Everything else describes that run while it
-    /// is true, and the run before it once it is not.
-    scanning: bool,
-    /// Name of the library being walked.
-    #[schema(example = "music")]
-    library: Option<String>,
-    /// Where the scan had got to when this was sampled. Not every file goes past
-    /// here: it is here to show that something is happening.
-    path: Option<String>,
-    folders: u64,
-    /// Files recorded, including the ones whose tags could not be read.
-    tracks: u64,
-    /// Of those, the ones already known and unchanged, so never reopened.
-    unchanged: u64,
-    /// Of those, the ones whose tags could not be understood.
-    failed: u64,
-    /// Marked absent because they are no longer on disk. Marked, never deleted.
-    gone: u64,
-    started_at: Option<String>,
-    finished_at: Option<String>,
-    /// True when the last run gave up rather than finishing, in which case
-    /// nothing it had written was kept.
-    cancelled: bool,
-}
+use utoipa::IntoParams;
 
 impl From<Snapshot> for Status {
     fn from(snapshot: Snapshot) -> Self {

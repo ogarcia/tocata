@@ -7,35 +7,13 @@
 //! and none of it is a secret. Writing is administration: it changes what every
 //! client sees.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::{Administrator, Panel};
 use crate::settings;
+use crate::types::{ErrorBody, Settings, SettingsChanges};
 use axum::Json;
 use axum::extract::State;
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use utoipa::ToSchema;
-
-/// The settings, whole. Small enough that there is no reason to fetch pieces.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Settings {
-    /// Words skipped when deciding which letter a name files under, so that
-    /// "The Beatles" appears among the Bs. A list rather than one string,
-    /// because a separator is a thing to get wrong and a list is not.
-    #[schema(example = json!(["The", "El", "La", "Los", "Las"]))]
-    ignored_articles: Vec<String>,
-}
-
-/// What may be changed. Anything left out is left alone.
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SettingsChanges {
-    /// The replacement list. An empty list is a valid answer: it means no word
-    /// is skipped, which is what a collection in a language without articles
-    /// wants.
-    ignored_articles: Option<Vec<String>>,
-}
 
 impl From<settings::Settings> for Settings {
     fn from(settings: settings::Settings) -> Self {

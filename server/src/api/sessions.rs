@@ -12,35 +12,14 @@
 //! There is no token here, in or out. A session is pointed at by its row, so
 //! ending somebody else's never needs the thing that would let you use it.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::Panel;
 use crate::session;
+use crate::types::{Closed, ErrorBody, Login};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::Serialize;
 use sqlx::SqlitePool;
-use utoipa::ToSchema;
-
-/// A session as the panel can talk about it, which is to say without the token.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Login {
-    id: i64,
-    created_at: String,
-    /// Roughly when a request last arrived on it, to the nearest few minutes.
-    last_seen_at: String,
-    expires_at: String,
-    /// Whether this is the session asking. What keeps somebody from closing the
-    /// window they are looking through by mistake.
-    current: bool,
-}
-
-/// How many were closed, so the panel can say something true afterwards.
-#[derive(Serialize, ToSchema)]
-pub struct Closed {
-    closed: u64,
-}
 
 /// Anybody may manage their own sessions; only an administrator somebody else's.
 ///

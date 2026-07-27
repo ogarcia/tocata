@@ -1,0 +1,4 @@
+[build]
+# Not the plain release profile: that one is the server's, and a server must not
+# be built with `panic = "abort"`.
+cargo_profile = "wasm-release"

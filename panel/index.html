@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tocata</title>
+    <!-- The wasm-opt trunk fetches is older than what rustc emits, so the
+         features it should accept are spelled out. -->
+    <link data-trunk rel="rust" data-wasm-opt="z"
+          data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-reference-types --enable-mutable-globals" />
+    <link data-trunk rel="css" href="panel.css" />
+  </head>
+  <body></body>
+</html>

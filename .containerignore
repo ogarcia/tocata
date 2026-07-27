@@ -4,3 +4,5 @@ target
 data
 .git
 .githooks
+# Built inside the image by trunk; a copy from here would only be stale.
+panel/dist

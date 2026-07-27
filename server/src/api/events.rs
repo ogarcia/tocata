@@ -11,10 +11,9 @@
 //! that reverse proxies have to be told about and a reconnection loop we would
 //! have to write ourselves. `EventSource` reconnects on its own.
 
-use super::error::ErrorBody;
-use super::scan::Status;
 use super::session::Panel;
 use crate::scanner::{Progress, Snapshot};
+use crate::types::{ErrorBody, Status};
 use axum::extract::State;
 use axum::response::Sse;
 use axum::response::sse::{Event, KeepAlive};

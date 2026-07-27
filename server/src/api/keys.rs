@@ -23,36 +23,14 @@
 //! date can be pushed out and the same key works again, so a week's trial does
 //! not have to become setting the client up a second time.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::Panel;
+use crate::types::{ErrorBody, IssuedKey, Key, KeyChanges, NewKey};
 use crate::{auth, db};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use utoipa::ToSchema;
-
-/// A key as it can be talked about afterwards, which is to say without the key.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Key {
-    id: i64,
-    /// What it is for, so one can be revoked without guessing.
-    #[schema(example = "phone")]
-    label: String,
-    created_at: String,
-    /// When it stops working. Null means never, which is the default.
-    #[schema(example = "2026-12-31T23:59:59Z")]
-    expires_at: Option<String>,
-    /// Whether that moment has passed. Worked out here so that a panel showing a
-    /// list does not have to compare timestamps of its own to know what to grey
-    /// out, and so it cannot disagree with the server about which keys work.
-    expired: bool,
-    /// When a request last arrived with it. Null means it has never been used,
-    /// which is the interesting case when something is not working.
-    last_used_at: Option<String>,
-}
 
 /// Every column the two readers below select, in the order they select it.
 type KeyRow = (i64, String, String, Option<String>, Option<String>);
@@ -71,61 +49,6 @@ impl Key {
             last_used_at,
         }
     }
-}
-
-/// What may be changed about a key once it exists.
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyChanges {
-    #[schema(example = "phone")]
-    label: Option<String>,
-    /// A new expiry, or null for none at all. Leaving it out keeps whatever the
-    /// key has, which is why this is an option inside an option: "never again"
-    /// and "not mentioned" are different answers and both have to be sayable.
-    #[serde(default, deserialize_with = "mentioned")]
-    #[schema(example = "2027-06-30T00:00:00Z")]
-    expires_at: Option<Option<String>>,
-}
-
-/// Tells `null` apart from absent for a nullable field.
-///
-/// Serde folds both into `None` by default, since the outer option is filled in
-/// by `default` and the inner one swallows the null. Deserializing the inner
-/// value and wrapping it here means this only runs when the key was written, so
-/// what comes back is `Some(None)` for null and `None` for absent.
-fn mentioned<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::deserialize(deserializer).map(Some)
-}
-
-/// A key at the one moment it can be read.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct IssuedKey {
-    id: i64,
-    label: String,
-    created_at: String,
-    /// When it stops working, if it was given a date.
-    expires_at: Option<String>,
-    /// The key itself. Not stored and not shown again: what the database keeps is
-    /// a hash of it.
-    #[schema(example = "3b1f...")]
-    key: String,
-}
-
-/// What it takes to issue one.
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct NewKey {
-    /// A name for it. Defaults to something unhelpful on purpose, so that whoever
-    /// makes several is nudged into naming them.
-    #[schema(example = "phone")]
-    label: Option<String>,
-    /// When it should stop working. Left out, it never does.
-    #[schema(example = "2026-12-31T23:59:59Z")]
-    expires_at: Option<String>,
 }
 
 /// Stands in when no label was given.

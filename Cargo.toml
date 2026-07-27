@@ -1,36 +1,44 @@
-[package]
-name = "tocata"
+# Two crates, because one of them compiles to WebAssembly and the other cannot.
+#
+# The shapes that travel between them live in `server`, behind a feature the
+# panel switches off, rather than in a crate of their own: a path dependency
+# cannot be published, so a separate types crate would have to go up to
+# crates.io alongside the server and be maintained there for nobody.
+[workspace]
+members = ["panel", "server"]
+
+# The panel is left out of a bare `cargo build`: it is real work to compile and
+# what comes of it is only useful once trunk has run wasm-bindgen over it.
+# Naming it explicitly, or running trunk, is how it gets built.
+default-members = ["server"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "An OpenSubsonic compatible music server"
-authors = ["Óscar García Amor <ogarcia@connectical.com>"]
 license = "GPL-3.0-or-later"
-repository = "https://github.com/ogarcia/tocata"
-readme = "README.md"
-keywords = ["opensubsonic", "music", "server", "audio", "streaming"]
-categories = ["multimedia::audio", "web-programming::http-server"]
+authors = ["Óscar García Amor <ogarcia@connectical.com>"]
 
-[dependencies]
-anyhow = "1.0"
-argon2 = "0.5"
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-futures-util = { version = "0.3", default-features = false }
-getrandom = "0.4"
-lofty = "0.24"
-mime = "0.3"
-quick-xml = "0.41"
+# Only what more than one of them needs. Everything else belongs to whichever
+# crate actually uses it.
+[workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_html_form = "0.4"
-serde_json = "1"
-sha2 = "0.11"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-none", "sqlite", "macros", "migrate", "chrono"] }
-tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
-tower = { version = "0.5", default-features = false, features = ["util"] }
-tower-http = { version = "0.7", default-features = false, features = ["fs"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 utoipa = "5"
-utoipa-axum = "0.2"
-utoipa-scalar = { version = "0.3", features = ["axum"] }
-walkdir = "2.5"
+
+# A profile of its own for the panel, because what a release panel is judged on
+# is how much travels down the wire and a server is judged on nothing of the
+# sort. It was briefly at workspace level, which quietly applied it to the
+# server too: `panic = "abort"` there turns a panic in one tokio task into the
+# whole process going down.
+#
+# It has to be a separate profile rather than a per package override because
+# `lto` and `panic` belong to the final link and cannot be set per package.
+# Without them the bundle is 37% bigger, which is what makes this worth the
+# extra name. Trunk is told to use it in Trunk.toml.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

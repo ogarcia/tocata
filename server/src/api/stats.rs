@@ -3,41 +3,14 @@
 
 //! What there is, in figures.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::Panel;
 use crate::config::Config;
+use crate::types::{ErrorBody, Stats};
 use axum::Json;
 use axum::extract::State;
-use serde::Serialize;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use utoipa::ToSchema;
-
-/// The dashboard, more or less.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Stats {
-    /// Version of the server answering.
-    #[schema(example = "0.1.0")]
-    version: &'static str,
-    artists: i64,
-    albums: i64,
-    /// Tracks that are on disk.
-    tracks: i64,
-    /// Tracks recorded but no longer on disk. What a purge would remove.
-    missing: i64,
-    genres: i64,
-    playlists: i64,
-    users: i64,
-    libraries: i64,
-    /// Bytes of music, counting only what is still there.
-    total_size: i64,
-    /// Seconds of music, likewise.
-    total_duration: i64,
-    /// Bytes the database takes, its write-ahead log included, since during
-    /// normal running that is where a good part of it lives.
-    database_size: i64,
-}
 
 /// Every figure in one row, in the order the statement below asks for them.
 type Counts = (
@@ -93,7 +66,7 @@ pub async fn stats(
         row;
 
     Ok(Json(Stats {
-        version: env!("CARGO_PKG_VERSION"),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         artists,
         albums,
         tracks,

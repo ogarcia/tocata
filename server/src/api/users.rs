@@ -20,47 +20,14 @@
 //! Which libraries an account may see lives here too. No rows means all of them,
 //! which is the ordinary case and the one that costs nothing.
 
-use super::error::{ApiError, ErrorBody};
+use super::error::ApiError;
 use super::session::{Administrator, Panel};
+use crate::types::{Account, AccountChanges, ErrorBody, LibraryAccess, NewAccount};
 use crate::{auth, db, session};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use utoipa::ToSchema;
-
-/// Which libraries an account is restricted to.
-#[derive(Deserialize, ToSchema)]
-pub struct LibraryAccess {
-    /// Identifiers of the libraries this account may see. An empty list removes
-    /// the restriction, which is not the same as seeing nothing: an account with
-    /// no restriction sees every library that is switched on.
-    libraries: Vec<i64>,
-}
-
-/// An account, as somebody entitled to see it may.
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Account {
-    #[schema(example = "admin")]
-    username: String,
-    email: Option<String>,
-    /// Whether this account administers the server.
-    admin: bool,
-    /// Whether plays from this account are passed on to a scrobbling service.
-    scrobbling: bool,
-    /// Sessions logged in and not yet expired. What tells an administrator that
-    /// an account is in use before they remove it.
-    sessions: i64,
-    /// API keys issued to this account and not revoked.
-    keys: i64,
-    /// Libraries this account is restricted to. Empty means no restriction, so
-    /// every library that is switched on.
-    libraries: Vec<i64>,
-    created_at: String,
-    updated_at: String,
-}
 
 type AccountRow = (
     String,
@@ -116,32 +83,6 @@ macro_rules! account_columns {
                 u.created_at, u.updated_at
            FROM users u"
     };
-}
-
-/// What it takes to create an account.
-#[derive(Deserialize, ToSchema)]
-pub struct NewAccount {
-    #[schema(example = "oscar")]
-    username: String,
-    password: String,
-    email: Option<String>,
-    /// Defaults to false. An account that administers nothing is the safe thing
-    /// to create by accident.
-    #[serde(default)]
-    admin: bool,
-}
-
-/// What may be changed. Anything left out is left alone.
-#[derive(Deserialize, ToSchema)]
-pub struct AccountChanges {
-    /// A new name for the account. Nothing else has to move with it.
-    #[schema(example = "oscar")]
-    username: Option<String>,
-    password: Option<String>,
-    email: Option<String>,
-    /// Only an administrator may set this, and none may clear their own.
-    admin: Option<bool>,
-    scrobbling: Option<bool>,
 }
 
 /// Anybody may look at their own account; only an administrator at somebody

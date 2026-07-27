@@ -13,12 +13,11 @@
 //! own language; the message is for whoever is looking at the raw response, and
 //! is never what a user is shown.
 
+use crate::types::ErrorBody;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
 use tracing::error;
-use utoipa::ToSchema;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiError {
@@ -85,24 +84,13 @@ impl ApiError {
     }
 }
 
-/// What a failed call returns.
-#[derive(Serialize, ToSchema)]
-pub struct ErrorBody {
-    /// Stable identifier for the kind of failure. What a client should branch on.
-    #[schema(example = "wrongCredentials")]
-    pub code: &'static str,
-    /// English, for people reading responses. Never shown to a user as is.
-    #[schema(example = "Wrong username or password")]
-    pub message: &'static str,
-}
-
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (
             self.status(),
             Json(ErrorBody {
-                code: self.code(),
-                message: self.message(),
+                code: self.code().to_string(),
+                message: self.message().to_string(),
             }),
         )
             .into_response()

@@ -1,25 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
-mod api;
-mod artwork;
-mod auth;
-mod config;
-mod db;
-mod lyrics;
-mod scanner;
-mod session;
-mod settings;
-mod state;
-mod subsonic;
-mod user;
-
 use anyhow::{Context, Result};
 use axum::Router;
-use config::Config;
-use state::AppState;
 use std::sync::Arc;
 use std::time::Duration;
+use tocata::config::Config;
+use tocata::state::AppState;
+use tocata::{api, db, panel, scanner, settings, subsonic, user};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{oneshot, watch};
@@ -73,7 +61,8 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .nest("/rest", subsonic::router(state.clone()))
-        .merge(api::router(state.clone()));
+        .merge(api::router(state.clone()))
+        .fallback(panel::serve);
 
     let addr = config.listen_addr();
     let listener = TcpListener::bind(addr)

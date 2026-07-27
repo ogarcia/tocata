@@ -1,6 +1,7 @@
-/target
+target/
 /dist
 .env
 *.db
 *.db-shm
 *.db-wal
+panel/dist

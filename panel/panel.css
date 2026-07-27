@@ -1,0 +1,6 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+main { max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+input, button { display: block; margin: 0.5rem 0; padding: 0.5rem; font: inherit; }
+table { border-collapse: collapse; }
+td { padding: 0.25rem 1rem 0.25rem 0; }
+.failure { color: #c00; }
