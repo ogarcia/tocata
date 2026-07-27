@@ -26,6 +26,7 @@ mod purge;
 mod scan;
 mod session;
 mod sessions;
+mod settings;
 mod stats;
 mod users;
 
@@ -80,6 +81,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "users", description = "Accounts"),
         (name = "keys", description = "API keys, for clients that authenticate with one"),
         (name = "sessions", description = "The panel logins an account has open"),
+        (name = "settings", description = "What the server knows about the collection"),
         (name = "stats", description = "What there is, in figures"),
         (name = "purge", description = "Removing for good what a scan only marked"),
     )
@@ -115,6 +117,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(keys::revoke))
         .routes(routes!(sessions::list, sessions::close_all))
         .routes(routes!(sessions::close))
+        .routes(routes!(settings::read, settings::change))
         .routes(routes!(stats::stats))
         .routes(routes!(purge::preview, purge::purge))
 }

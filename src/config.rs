@@ -20,7 +20,12 @@ const DEFAULT_PORT: u16 = 4224;
 
 /// Articles dropped when deciding which letter an artist files under. Spanish
 /// and English by default, since those are the two the author has in his own
-/// library; anything else is a matter of setting the variable.
+/// library.
+///
+/// This and the variable behind it only seed the setting on first run. What the
+/// server uses afterwards lives in the database, because the answer depends on
+/// the language of the music rather than on how the server was started, and
+/// changing it should not mean restarting anything.
 const DEFAULT_IGNORED_ARTICLES: &str = "The El La Los Las Le Les";
 
 /// Separator for the library list. A colon, as in PATH, because a comma is a
@@ -86,6 +91,8 @@ impl Config {
         &self.library_paths
     }
 
+    /// Only for seeding the setting of the same name; nothing serving a request
+    /// should read this.
     pub fn ignored_articles(&self) -> &[String] {
         &self.ignored_articles
     }

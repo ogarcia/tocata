@@ -9,6 +9,7 @@ mod db;
 mod lyrics;
 mod scanner;
 mod session;
+mod settings;
 mod state;
 mod subsonic;
 mod user;
@@ -57,6 +58,7 @@ async fn main() -> Result<()> {
 
     user::ensure_initial_user(&pool).await?;
     scanner::sync_libraries(&pool, config.library_paths()).await?;
+    settings::seed(&pool, config.ignored_articles()).await?;
 
     // Held here and handed out through the state, so a handler that keeps a
     // connection open can tell when to let go of it.

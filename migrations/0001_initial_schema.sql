@@ -487,3 +487,19 @@ CREATE TABLE scan_runs (
     tracks_added INTEGER NOT NULL DEFAULT 0,
     error        TEXT
 );
+
+-- ---------------------------------------------------------------------------
+-- Server settings
+-- ---------------------------------------------------------------------------
+
+-- One row, enforced by the check. Named columns rather than a key/value table:
+-- with key/value every setting is text, every read is an untyped parse, and the
+-- schema stops saying which settings exist.
+CREATE TABLE settings (
+    id               INTEGER PRIMARY KEY CHECK (id = 1),
+    -- Words dropped when deciding which letter a name files under, separated by
+    -- spaces. Stored the way OpenSubsonic reports them, and an article with a
+    -- space in it would not work anyway: only the first word is compared.
+    ignored_articles TEXT    NOT NULL,
+    updated_at       TEXT    NOT NULL
+);

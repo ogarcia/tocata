@@ -13,13 +13,12 @@ use super::models::{
     AlbumId3, ArtistId3, Child, DiscTitle, ItemGenre, NamedEntry, ReplayGain, seconds,
 };
 use super::response;
-use crate::config::Config;
+use crate::settings;
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::error;
 
 #[derive(Debug, Deserialize)]
@@ -127,17 +126,20 @@ pub async fn get_music_folders(auth: Authenticated, State(pool): State<SqlitePoo
     )
 }
 
-pub async fn get_artists(
-    auth: Authenticated,
-    State(pool): State<SqlitePool>,
-    State(config): State<Arc<Config>>,
-) -> Response {
+pub async fn get_artists(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
     let artists = match load_artists(&pool, auth.user.id).await {
         Ok(artists) => artists,
         Err(e) => return internal(e, auth.format, "listing artists"),
     };
 
-    let articles = config.ignored_articles();
+    let articles = match settings::load(&pool).await {
+        Ok(settings) => settings.ignored_articles,
+        Err(e) => {
+            error!("reading the settings: {e:#}");
+            return ApiError::Internal.in_format(auth.format).into_response();
+        }
+    };
+    let articles = articles.as_slice();
 
     let groups = by_letter(artists, articles, |artist| {
         artist.sort_name.as_deref().unwrap_or(&artist.name)
@@ -1017,7 +1019,6 @@ struct Directory {
 pub async fn get_indexes(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    State(config): State<Arc<Config>>,
     Query(query): Query<IndexesQuery>,
 ) -> Response {
     let last_modified = match load_last_modified(&pool, auth.user.id, query.music_folder_id).await {
@@ -1025,7 +1026,14 @@ pub async fn get_indexes(
         Err(e) => return internal(e, auth.format, "reading when the tree last changed"),
     };
 
-    let articles = config.ignored_articles();
+    let articles = match settings::load(&pool).await {
+        Ok(settings) => settings.ignored_articles,
+        Err(e) => {
+            error!("reading the settings: {e:#}");
+            return ApiError::Internal.in_format(auth.format).into_response();
+        }
+    };
+    let articles = articles.as_slice();
 
     // Nothing has moved since the client last asked, so say so with an empty
     // body rather than sending the whole tree again.
