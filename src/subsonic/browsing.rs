@@ -138,23 +138,13 @@ pub async fn get_artists(
     };
 
     let articles = config.ignored_articles();
-    let mut groups: Vec<IndexGroup> = Vec::new();
 
-    // The query already sorted them, so a run of equal letters is contiguous and
-    // grouping is a single pass.
-    for artist in artists {
-        let letter = index_letter(
-            artist.sort_name.as_deref().unwrap_or(&artist.name),
-            articles,
-        );
-        match groups.last_mut() {
-            Some(group) if group.name == letter => group.artist.push(artist),
-            _ => groups.push(IndexGroup {
-                name: letter,
-                artist: vec![artist],
-            }),
-        }
-    }
+    let groups = by_letter(artists, articles, |artist| {
+        artist.sort_name.as_deref().unwrap_or(&artist.name)
+    })
+    .into_iter()
+    .map(|(name, artist)| IndexGroup { name, artist })
+    .collect();
 
     response::ok(
         auth.format,
@@ -237,29 +227,62 @@ fn internal(error: sqlx::Error, format: response::Format, doing: &str) -> Respon
     ApiError::Internal.in_format(format).into_response()
 }
 
-/// First letter for the alphabetical index, with the leading article dropped so
-/// "The Beatles" files under B.
+/// A name with its leading article dropped, so "The Beatles" files under B.
 ///
 /// Compares whole words rather than slicing off a prefix. Slicing a string by
 /// byte length panics when the cut lands inside a character, and "Björk" against
 /// the article "La " does exactly that. Splitting on the space is both safe and
 /// more correct: "Theatre of Tragedy" keeps its T because its first word is not
 /// an article.
-fn index_letter(name: &str, articles: &[String]) -> String {
+fn without_article<'a>(name: &'a str, articles: &[String]) -> &'a str {
     let name = name.trim();
-    let without_article = match name.split_once(' ') {
+
+    match name.split_once(' ') {
         Some((first, rest)) if articles.iter().any(|a| a.eq_ignore_ascii_case(first)) => {
             rest.trim_start()
         }
         _ => name,
-    };
+    }
+}
 
-    match without_article.chars().next() {
+/// First letter for the alphabetical index.
+fn index_letter(name: &str, articles: &[String]) -> String {
+    match without_article(name, articles).chars().next() {
         Some(first) if first.is_alphabetic() => first.to_uppercase().to_string(),
         // Digits, punctuation and everything else share one bucket, which is
         // what clients expect to see at the top of the list.
         _ => "#".to_string(),
     }
+}
+
+/// Groups a list into the runs of one letter that an index is made of.
+///
+/// The sort happens here, on the same name the letter comes from, and that is
+/// the point of the function. The database orders by the whole name, article
+/// and all, so "The Beatles" arrives among the Ts while belonging under B —
+/// and since a group is a run of equal letters, it would open a second B group
+/// further down. Two of the same letter in one index, and the artist filed
+/// where nobody would look.
+///
+/// Sorting is stable, so whatever order the database sent still decides ties.
+fn by_letter<T, F>(mut items: Vec<T>, articles: &[String], name_of: F) -> Vec<(String, Vec<T>)>
+where
+    F: Fn(&T) -> &str,
+{
+    items.sort_by_cached_key(|item| without_article(name_of(item), articles).to_lowercase());
+
+    let mut groups: Vec<(String, Vec<T>)> = Vec::new();
+
+    for item in items {
+        let letter = index_letter(name_of(&item), articles);
+
+        match groups.last_mut() {
+            Some((name, run)) if *name == letter => run.push(item),
+            _ => groups.push((letter, vec![item])),
+        }
+    }
+
+    groups
 }
 
 #[derive(sqlx::FromRow)]
@@ -849,6 +872,36 @@ mod tests {
         assert_eq!(index_letter("La Oreja de Van Gogh", &a), "O");
     }
 
+    /// Names in the order the database sends them, which is by the whole name,
+    /// article included.
+    fn as_the_database_sends_them() -> Vec<String> {
+        ["Beach Boys", "Bee Gees", "Cure", "The Beatles"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect()
+    }
+
+    /// The failure this guards against: grouping drops the article but the
+    /// database's order does not, so "The Beatles" arrives after "Cure" and
+    /// starts a second B group of its own.
+    #[test]
+    fn a_letter_never_opens_twice() {
+        let groups = by_letter(as_the_database_sends_them(), &articles(), |n| n.as_str());
+        let letters: Vec<&str> = groups.iter().map(|(name, _)| name.as_str()).collect();
+
+        assert_eq!(letters, ["B", "C"]);
+    }
+
+    /// And it lands in its place within the group, not merely inside it: an
+    /// artist filed under B is looked for where its name without the article
+    /// says, between "Beach Boys" and "Bee Gees".
+    #[test]
+    fn the_article_is_gone_from_the_order_too() {
+        let groups = by_letter(as_the_database_sends_them(), &articles(), |n| n.as_str());
+
+        assert_eq!(groups[0].1, ["Beach Boys", "The Beatles", "Bee Gees"]);
+    }
+
     #[test]
     fn an_article_that_is_the_whole_name_stays_put() {
         let a = articles();
@@ -1003,18 +1056,15 @@ pub async fn get_indexes(
         Err(e) => return internal(e, auth.format, "listing songs outside any folder"),
     };
 
-    let mut groups: Vec<FolderIndexGroup> = Vec::new();
-    for (id, name) in roots {
-        let letter = index_letter(&name, articles);
-        let entry = NamedEntry { id, name };
-        match groups.last_mut() {
-            Some(group) if group.name == letter => group.artist.push(entry),
-            _ => groups.push(FolderIndexGroup {
-                name: letter,
-                artist: vec![entry],
-            }),
-        }
-    }
+    let entries = roots
+        .into_iter()
+        .map(|(id, name)| NamedEntry { id, name })
+        .collect();
+
+    let groups = by_letter(entries, articles, |entry| &entry.name)
+        .into_iter()
+        .map(|(name, artist)| FolderIndexGroup { name, artist })
+        .collect();
 
     response::ok(
         auth.format,
