@@ -70,26 +70,67 @@ a { color: var(--accent); }
   font-size: 1.1rem;
 }
 
-.side nav { display: flex; flex-direction: column; padding: 0.5rem 0; }
+.side nav { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem; }
 
+/* Inset and rounded, so what lights up is a shape rather than the whole width of
+ * the panel. */
 .side nav a {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.55rem 1rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
   color: inherit;
   text-decoration: none;
-  border-left: 3px solid transparent;
 }
 
-.side nav a:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.side nav a:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 
-/* The router sets this on whichever section matches the URL. */
-.side nav a.active {
-  border-left-color: var(--accent);
+/* `aria-current` and not a class: that is what the router sets, and the class
+ * this waited for never existed, so nothing was ever marked. Which is also why
+ * the attribute is the better hook — it cannot fall out of step with the router
+ * without the page being wrong for a screen reader too. */
+.side nav a[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Looks like an entry and behaves like a heading: same shape, but it opens
+ * something instead of going somewhere. */
+.group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.group:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+
+/* The last thing in the row, whatever the label's length. Pointing along the row
+ * while folded and down into it once open, which is the direction the thing it
+ * opens actually comes from. */
+.group .chevron { margin-left: auto; transition: transform 0.15s ease-out; }
+.group.open .chevron { transform: rotate(90deg); }
+
+/* Folded over the section you are in: the heading says what the hidden entry
+ * would have said. */
+.group.current {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Indented so the group reads as a heading over them rather than a sibling. */
+.grouped a { padding-left: 1.6rem; }
 
 .head {
   grid-area: head;
@@ -100,9 +141,15 @@ a { color: var(--accent); }
   padding: 0 1rem;
 }
 
-/* Pushes what follows to the right without a wrapper to hold it there. Whichever
- * comes first takes the gap, so it works with or without the scan badge. */
-.head .scanning, .head .you:first-of-type { margin-left: auto; }
+/* One wrapper takes the whole gap, so the buttons end up at the right hand end
+ * whatever they are and however many. Pushing whichever came first was what left
+ * them adrift on the left the moment the first one stopped being the first. */
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
 
 /* Only there while something is running, so it never sits saying nothing. */
 .scanning {
@@ -223,7 +270,28 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 /* --- what belongs to you ------------------------------------------------- */
 
-.you { position: relative; }
+.dropdown { position: relative; }
+
+/* The header's own buttons: commands, not the point of the screen, so they do
+ * not shout. */
+.plain {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  background: transparent;
+  color: inherit;
+  border-color: var(--line);
+  font-weight: normal;
+}
+
+.plain .chevron { opacity: 0.6; }
+
+/* A label worth the width on a wide screen and not worth it on a narrow one. */
+@media (max-width: 45rem) {
+  .wide-only { display: none; }
+}
 
 .avatar {
   width: 2rem;
@@ -295,6 +363,30 @@ button:disabled { opacity: 0.6; cursor: default; }
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+/* The second line of an entry that needs explaining. Inside the button, so the
+ * whole thing highlights together and every part of it is clickable. */
+.explained {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.menu-note {
+  font-size: 0.8rem;
+  color: var(--quiet);
+}
+
+/* Follows the entry when the entry lights up, rather than staying grey against a
+ * tinted background. */
+.explained:hover .menu-note { color: inherit; }
+
+.menu-item.chosen {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .menu-field {
   display: flex;
   flex-direction: column;
@@ -333,6 +425,163 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 
 .icon svg { width: 100%; height: 100%; }
+
+/* --- where you land ------------------------------------------------------ */
+
+.greeting { margin: 0 0 0.25rem; }
+.lead { margin: 0 0 1.75rem; }
+
+/* Four, then two, then one. Counted rather than fitted: `auto-fit` would happily
+ * leave three across and one alone underneath, which reads as a mistake. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 62rem) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 26rem) {
+  .tiles { grid-template-columns: 1fr; }
+}
+
+/* Icon on the left across both rows, figure over label on the right. Two columns
+ * and a span rather than a wrapper around the text: the three elements are
+ * already there, so the layout can be told where they go instead of being given
+ * another box to hold them. */
+.tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 0.85rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+/* The icon carries the colour, in a tinted round of the same hue. The figure
+ * stays the colour of text: four coloured numbers would compete instead of
+ * count. */
+.mark {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  color: var(--hue);
+  background: color-mix(in srgb, var(--hue) 15%, transparent);
+}
+
+.mark .icon { width: 1.35rem; height: 1.35rem; }
+
+.songs { --hue: light-dark(#0057b8, #6aa9e9); }
+.albums { --hue: light-dark(#2e7d32, #7cc47f); }
+.artists { --hue: light-dark(#b25000, #e8a15c); }
+.genres { --hue: light-dark(#6a3fa0, #b191dd); }
+
+.tile .figure {
+  align-self: end;
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Against the top of its row, so the two lines sit as one block against the
+ * icon rather than drifting apart inside the box. */
+.tile .quiet { align-self: start; }
+
+/* Side by side when there is room and stacked when there is not, which is a
+ * decision the browser is better placed to make than we are. */
+/* Two across or one, never anything in between, and both the height of the taller
+ * one. `align-items: start` left them ending at different points, which looks
+ * like one of them failed to load. */
+.panes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 46rem) {
+  .panes { grid-template-columns: 1fr; }
+}
+
+.pane {
+  padding: 1rem 1.1rem;
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.pane h2 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--quiet);
+}
+
+/* Two columns of pairs: the name against the left, the figure against the
+ * right, so a column of numbers lines up. */
+.pane dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem 1rem;
+  margin: 0;
+}
+
+.pane dt { color: var(--quiet); }
+
+.pane dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the scan, while it lasts -------------------------------------------- */
+
+/* Full width under the two panes: last, so starting a scan does not push the
+ * figures off the screen every time. */
+.running {
+  grid-column: 1 / -1;
+  margin-top: 0.75rem;
+}
+
+.running h2 { margin-bottom: 0.5rem; }
+.running .counts { margin: 0; font-variant-numeric: tabular-nums; }
+.running .row { margin-top: 1rem; }
+
+/* The marker itself is the summary, so the arrow the browser draws is enough and
+ * ours would be a second one. */
+.last-scan summary {
+  cursor: pointer;
+  text-align: right;
+}
+
+.last-scan[open] summary { margin-bottom: 0.4rem; }
+
+/* Nested inside a cell of the outer list, so it keeps its own two columns
+ * without inheriting the gaps of the one around it. */
+.last-scan .inner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.last-scan .inner dt { color: var(--quiet); }
+
+.last-scan .inner dd {
+  margin: 0;
+  text-align: right;
+}
+
+/* Said in the header's accent while it happens, without the box a badge would
+ * put around it. */
+.working-text { color: var(--accent); }
 
 .state { margin: 0 0 1rem; }
 

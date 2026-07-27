@@ -17,6 +17,7 @@ mod layout;
 mod locale;
 mod login;
 mod pages;
+mod theme;
 
 // Compiles the translations in. `fallback` is what a key missing from a
 // translation falls back to, so a half translated language shows English rather
@@ -84,6 +85,11 @@ fn Panel() -> impl IntoView {
 #[component]
 fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     let admin = identity.admin;
+    let who = identity.clone();
+
+    // Applied before anything is drawn, so a dark panel does not flash white on
+    // the way in.
+    let theme = theme::settle();
 
     // One stream for the whole panel, opened here and read in two places: the
     // header, which says a scan is running, and the screen that shows it in
@@ -92,17 +98,25 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
 
     view! {
         <Router>
-            <layout::Shell identity on_out=forget scan>
+            <layout::Shell identity on_out=forget scan theme>
                 <Routes fallback=move || {
-                    view! { <pages::Unbuilt heading=t!("nav.overview").to_string() /> }
+                    view! { <pages::Unbuilt heading=t!("nav.home").to_string() /> }
                 }>
                     <Route
                         path=path!("/")
-                        view=move || view! { <pages::overview::Overview on_expired=forget /> }
-                    />
-                    <Route
-                        path=path!("/scan")
-                        view=move || view! { <pages::scan::Scan status=scan admin /> }
+                        view={
+                            let who = who.clone();
+                            move || {
+                                view! {
+                                    <pages::home::Home
+                                        identity=who.clone()
+                                        scan
+                                        admin
+                                        on_expired=forget
+                                    />
+                                }
+                            }
+                        }
                     />
                     <Route
                         path=path!("/account")

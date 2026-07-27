@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
-//! The frame every screen sits in: sections down the left, and along the top the
-//! button that opens what belongs to you rather than to the server.
+//! The frame every screen sits in.
+//!
+//! Down the left, where you can go. Along the top, what you can do from anywhere:
+//! start a scan, change how it looks, and what belongs to you.
 //!
 //! The header and the sections share one background, and the screen sits on
 //! another. Nothing is divided by a line because the change of colour already
@@ -19,62 +21,56 @@
 use crate::api;
 use crate::icon::{Glyph, Icon};
 use crate::locale;
+use crate::theme::{self, Theme};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
+use leptos_router::hooks::use_location;
 use rust_i18n::t;
 use tocata::types::{Identity, Status};
 
 /// A place to go, and what to call it.
 ///
-/// Held as a function rather than a string so the label is fetched at render
-/// time: it has to come out in whatever language is in force.
+/// The label is a function rather than a string so it is fetched at render time:
+/// it has to come out in whatever language is in force.
 struct Section {
     path: &'static str,
     label: fn() -> String,
     icon: Icon,
-    /// Whether it is only worth drawing for somebody who administers the server.
-    administration: bool,
 }
 
-/// What the collection is made of. Anything that belongs to the person rather
-/// than to the server lives in the menu behind the button instead.
-const SECTIONS: [Section; 6] = [
-    Section {
-        path: "/",
-        label: || t!("nav.overview").to_string(),
-        icon: Icon::Overview,
-        administration: false,
-    },
-    Section {
-        path: "/scan",
-        label: || t!("nav.scan").to_string(),
-        icon: Icon::Scan,
-        administration: false,
-    },
+/// What anybody with a session can reach.
+const EVERYONE: [Section; 1] = [Section {
+    path: "/",
+    label: || t!("nav.home").to_string(),
+    icon: Icon::Home,
+}];
+
+/// What only an administrator can reach, gathered under one heading.
+///
+/// Called administration rather than settings because two of them are not
+/// settings: a library is a place music comes from and an account is a person.
+/// Grouping them under the wrong word would spend the word for nothing.
+const ADMINISTRATION: [Section; 4] = [
     Section {
         path: "/libraries",
         label: || t!("nav.libraries").to_string(),
         icon: Icon::Libraries,
-        administration: true,
     },
     Section {
         path: "/accounts",
         label: || t!("nav.accounts").to_string(),
         icon: Icon::Accounts,
-        administration: true,
     },
     Section {
         path: "/settings",
         label: || t!("nav.settings").to_string(),
         icon: Icon::Settings,
-        administration: true,
     },
     Section {
         path: "/maintenance",
         label: || t!("nav.maintenance").to_string(),
         icon: Icon::Maintenance,
-        administration: true,
     },
 ];
 
@@ -83,6 +79,7 @@ pub fn Shell(
     identity: Identity,
     on_out: Callback<()>,
     scan: ReadSignal<Option<Status>>,
+    theme: RwSignal<Theme>,
     children: Children,
 ) -> impl IntoView {
     let admin = identity.admin;
@@ -95,31 +92,21 @@ pub fn Shell(
                     <Glyph icon=Icon::Logo />
                     {t!("app.name")}
                 </div>
+
                 <nav>
-                    {SECTIONS
+                    {EVERYONE
                         .iter()
-                        .filter(|section| admin || !section.administration)
-                        .map(|section| {
-                            view! {
-                                // Going somewhere folds them away again. On a
-                                // wide screen there is nothing to fold and this
-                                // changes nothing.
-                                <A
-                                    href=section.path
-                                    exact=section.path == "/"
-                                    on:click=move |_| fold.set(false)
-                                >
-                                    <Glyph icon=section.icon />
-                                    {(section.label)()}
-                                </A>
-                            }
-                        })
+                        .map(|section| view! { <Entry section fold /> })
                         .collect_view()}
+
+                    <Show when=move || admin>
+                        <Group fold />
+                    </Show>
                 </nav>
             </aside>
 
-            // Over the screen while they are out, so a touch anywhere else folds
-            // them rather than landing on whatever is underneath.
+            // Over the screen while the sections are out, so a touch anywhere
+            // else folds them rather than landing on what is underneath.
             <Show when=move || folded_out.get()>
                 <div class="menu-shade" on:click=move |_| fold.set(false)></div>
             </Show>
@@ -134,12 +121,85 @@ pub fn Shell(
                     <Glyph icon=Icon::Menu />
                 </button>
 
-                <Scanning scan />
-                <You identity on_out />
+                // Grouped rather than pushed one by one: whatever is in here
+                // sits at the right hand end, and adding another button later
+                // does not depend on which of them happens to come first.
+                <div class="tools">
+                    <Scanning scan />
+                    <Show when=move || admin>
+                        <StartScan scan />
+                    </Show>
+                    <Looks theme />
+                    <You identity on_out />
+                </div>
             </header>
 
             <main class="body">{children()}</main>
         </div>
+    }
+}
+
+/// One place to go. Going there folds the sections away again, which on a wide
+/// screen changes nothing because there is nothing folded.
+#[component]
+fn Entry(section: &'static Section, fold: WriteSignal<bool>) -> impl IntoView {
+    view! {
+        <A href=section.path exact=section.path == "/" on:click=move |_| fold.set(false)>
+            <Glyph icon=section.icon />
+            {(section.label)()}
+        </A>
+    }
+}
+
+/// The administration sections, behind a heading that folds.
+///
+/// Arriving inside one of them opens it, so the menu never disagrees with the
+/// screen about where you are. Closing it again is allowed even then — it is a
+/// fold, and one that refuses to fold is a decoration — and while it is closed
+/// over the section you are in, the heading itself carries the mark. Something
+/// has to say where you are.
+#[component]
+fn Group(fold: WriteSignal<bool>) -> impl IntoView {
+    let location = use_location();
+    let inside = move || {
+        let path = location.pathname.get();
+        ADMINISTRATION.iter().any(|section| section.path == path)
+    };
+
+    let (open, set_open) = signal(inside());
+
+    // Opens on the way in, and only then. Landing inside from a typed URL or a
+    // reload should show where that is; closing it afterwards is a choice this
+    // does not undo, because nothing it watches has changed.
+    Effect::new(move |_| {
+        if inside() {
+            set_open.set(true);
+        }
+    });
+
+    view! {
+        <button
+            class="group"
+            class:open=move || open.get()
+            class:current=move || !open.get() && inside()
+            aria-expanded=move || open.get().to_string()
+            on:click=move |_| set_open.update(|shown| *shown = !*shown)
+        >
+            <Glyph icon=Icon::Settings />
+            {t!("nav.administration")}
+            <span class="chevron">
+                <Glyph icon=Icon::Chevron />
+            </span>
+        </button>
+
+        <Show when=move || open.get()>
+            <div class="grouped">
+                {ADMINISTRATION
+                    .iter()
+                    .map(|section| view! { <Entry section fold /> })
+                    .collect_view()}
+            </div>
+        </Show>
     }
 }
 
@@ -154,7 +214,7 @@ pub fn Shell(
 fn Scanning(scan: ReadSignal<Option<Status>>) -> impl IntoView {
     view! {
         <Show when=move || scan.get().is_some_and(|status| status.scanning)>
-            <A href="/scan" attr:class="scanning" attr:title=t!("scan.running")>
+            <A href="/" attr:class="scanning" attr:title=t!("scan.running")>
                 <Glyph icon=Icon::Scan />
                 <span class="counted">
                     {move || scan.get().map(|status| status.tracks).unwrap_or_default()}
@@ -164,15 +224,124 @@ fn Scanning(scan: ReadSignal<Option<Status>>) -> impl IntoView {
     }
 }
 
+/// Starting a scan without going anywhere to do it.
+///
+/// Two kinds, so it is a menu rather than a button: one of them reads every file
+/// again and takes as long as the collection is big, which is not something to set
+/// off by aiming badly.
+///
+/// The icon carries it alone. Two arrows going round is what every program on this
+/// machine uses for "go and look again", and a word beside it would be a word
+/// nobody needs to read twice.
+///
+/// Gone while a scan runs. Cancelling stays on the scan's own screen, because
+/// stopping something should mean having looked at what is being stopped.
+#[component]
+fn StartScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
+    let (open, set_open) = signal(false);
+
+    let start = move |full: bool| {
+        set_open.set(false);
+        spawn_local(async move {
+            let _ = api::start_scan(full).await;
+        });
+    };
+
+    view! {
+        <Show when=move || !scan.get().is_some_and(|status| status.scanning)>
+            <div class="dropdown">
+                <button
+                    class="plain"
+                    title=t!("scan.start")
+                    aria-expanded=move || open.get().to_string()
+                    on:click=move |_| set_open.update(|shown| *shown = !*shown)
+                >
+                    <Glyph icon=Icon::Scan />
+                </button>
+
+                <Show when=move || open.get()>
+                    <div class="veil" on:click=move |_| set_open.set(false)></div>
+                    <div class="menu">
+                        // The note is inside the button rather than under it.
+                        // Beside it, it looked like something to click that did
+                        // nothing when clicked, and left a gap in the middle of
+                        // the menu that highlighted neither entry.
+                        <button class="menu-item explained" on:click=move |_| start(false)>
+                            <span>{t!("scan.quick")}</span>
+                            <span class="menu-note">{t!("scan.quick_note")}</span>
+                        </button>
+                        <button class="menu-item explained" on:click=move |_| start(true)>
+                            <span>{t!("scan.start_full")}</span>
+                            <span class="menu-note">{t!("scan.full_note")}</span>
+                        </button>
+                    </div>
+                </Show>
+            </div>
+        </Show>
+    }
+}
+
+/// Light, dark, or whatever the machine says. Takes effect at once, unlike the
+/// language, because one CSS property does all of it.
+#[component]
+fn Looks(theme: RwSignal<Theme>) -> impl IntoView {
+    let (open, set_open) = signal(false);
+
+    view! {
+        <div class="dropdown">
+            <button
+                class="plain"
+                title=t!("looks.heading")
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| set_open.update(|shown| *shown = !*shown)
+            >
+                <Glyph icon=Icon::Theme />
+            </button>
+
+            <Show when=move || open.get()>
+                <div class="veil" on:click=move |_| set_open.set(false)></div>
+                <div class="menu">
+                    {theme::AVAILABLE
+                        .iter()
+                        .map(|choice| {
+                            let choice = *choice;
+                            view! {
+                                <button
+                                    class="menu-item"
+                                    class:chosen=move || theme.get() == choice
+                                    on:click=move |_| {
+                                        theme::choose(theme, choice);
+                                        set_open.set(false);
+                                    }
+                                >
+                                    {looks_label(choice)}
+                                </button>
+                            }
+                        })
+                        .collect_view()}
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+fn looks_label(theme: Theme) -> String {
+    match theme {
+        Theme::Auto => t!("looks.auto").to_string(),
+        Theme::Light => t!("looks.light").to_string(),
+        Theme::Dark => t!("looks.dark").to_string(),
+    }
+}
+
 /// The round button, and what it opens.
 ///
 /// Closing it was `focusout` on the container, which reads well and does not
 /// work: the order is mousedown, then focusout, then click, so the menu went away
 /// before the click could land on anything in it. Nothing inside was clickable.
 ///
-/// It closes the way the folded sections do instead — a sheet behind the menu
-/// catches anything aimed elsewhere — and every entry in it closes it on the way
-/// out, since choosing one is finishing with it.
+/// It closes the way the folded sections do — a sheet behind the menu catches
+/// anything aimed elsewhere — and every entry closes it on the way out, since
+/// choosing one is finishing with it.
 #[component]
 fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
     let (open, set_open) = signal(false);
@@ -190,7 +359,7 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
     let admin = identity.admin;
 
     view! {
-        <div class="you">
+        <div class="dropdown you">
             <button
                 class="avatar"
                 title=name.clone()
@@ -201,10 +370,7 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
             </button>
 
             <Show when=move || open.get()>
-                // Behind the menu, over everything else: a click inside reaches
-                // what it was aimed at, and a click anywhere else lands here.
                 <div class="veil" on:click=move |_| set_open.set(false)></div>
-
                 <div class="menu">
                     <div class="menu-who">
                         <span class="quiet">{t!("header.you")}</span>

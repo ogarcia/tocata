@@ -19,8 +19,14 @@ use leptos::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Logo,
-    Overview,
+    Home,
     Scan,
+    Chevron,
+    Theme,
+    Songs,
+    Albums,
+    Artists,
+    Genres,
     Libraries,
     Accounts,
     Settings,
@@ -36,8 +42,14 @@ impl Icon {
     fn svg(self) -> &'static str {
         match self {
             Self::Logo => include_str!("../icons/logo.svg"),
-            Self::Overview => include_str!("../icons/overview.svg"),
+            Self::Home => include_str!("../icons/home.svg"),
             Self::Scan => include_str!("../icons/scan.svg"),
+            Self::Chevron => include_str!("../icons/chevron.svg"),
+            Self::Theme => include_str!("../icons/theme.svg"),
+            Self::Songs => include_str!("../icons/songs.svg"),
+            Self::Albums => include_str!("../icons/albums.svg"),
+            Self::Artists => include_str!("../icons/artists.svg"),
+            Self::Genres => include_str!("../icons/genres.svg"),
             Self::Libraries => include_str!("../icons/libraries.svg"),
             Self::Accounts => include_str!("../icons/accounts.svg"),
             Self::Settings => include_str!("../icons/settings.svg"),

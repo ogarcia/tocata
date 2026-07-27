@@ -3,12 +3,14 @@
 
 //! One module per section of the panel.
 //!
-//! Only the overview is written. The rest announce themselves as unbuilt, which
-//! is honest and takes three lines, and each will be filled in as its turn comes
-//! — the scan next, because it is the one that needs the event stream.
+//! Only home is written. The rest announce themselves as unbuilt, which is honest
+//! and takes three lines, and each will be filled in as its turn comes.
+//!
+//! There is no screen for the scan. A scan is not a place, it is something the
+//! server is doing, so it shows up on the screen you are already looking at and
+//! goes away when there is nothing to report.
 
-pub mod overview;
-pub mod scan;
+pub mod home;
 
 use leptos::prelude::*;
 use rust_i18n::t;

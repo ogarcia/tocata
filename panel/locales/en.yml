@@ -9,8 +9,8 @@ app:
   name: Tocata
 
 nav:
-  scan: Scan
-  overview: Overview
+  home: Home
+  administration: Administration
   libraries: Libraries
   accounts: Accounts
   settings: Settings
@@ -19,7 +19,6 @@ nav:
   menu: Menu
 
 login:
-  heading: Log in
   username: Username
   password: Password
   submit: Log in
@@ -33,40 +32,51 @@ header:
   log_out: Log out
   language: Language
 
+looks:
+  heading: Appearance
+  auto: Automatic
+  light: Light
+  dark: Dark
+
+home:
+  greeting: Hello, %{name}
+  lead: What there is, and how the server is doing.
+  songs: Songs
+  albums: Albums
+  artists: Artists
+  genres: Genres
+  collection: The collection
+  server: The server
+  size: Size
+  duration: Length
+  playlists: Playlists
+  missing: Missing
+  version: Version
+  last_scan: Last scan
+  libraries: Libraries
+  accounts: Accounts
+  database: Database
+  moments: moments ago
+  minutes: "%{count} min ago"
+  hours: "%{count} h ago"
+  days: "%{count} d ago"
+
 scan:
-  heading: Scan
-  running: Scanning
-  idle: Not running
-  cancelled: Cancelled
-  never: Never scanned
   start: Scan
+  quick: Quick scan
+  quick_note: Skips what has not changed
   start_full: Read everything again
+  full_note: Reads every file again
+  running: Scanning
+  never: Never scanned
+  cancelled: Cancelled
   cancel: Cancel
-  refused: The server would not do that
+  seen: "%{tracks} tracks · %{folders} folders"
   folders: Folders
-  tracks: Tracks
   unchanged: Unchanged
   failed: Unreadable
   gone: Gone missing
-  started: Started
-  finished: Finished
-
-overview:
-  heading: Overview
-  version: Version
-  artists: Artists
-  albums: Albums
-  tracks: Tracks
-  missing: Missing
-  genres: Genres
-  playlists: Playlists
-  accounts: Accounts
-  libraries: Libraries
-  size: Size of the collection
-  duration: Length of the collection
-  database: Size of the database
 
 common:
   loading: Loading…
   not_yet: Not built yet
-  retry: Try again
