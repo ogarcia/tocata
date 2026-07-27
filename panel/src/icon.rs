@@ -33,6 +33,7 @@ pub enum Icon {
     Folder,
     On,
     Off,
+    Close,
     Libraries,
     Accounts,
     Settings,
@@ -64,6 +65,7 @@ impl Icon {
             // button does to it reads without a word.
             Self::On => include_str!("../icons/on.svg"),
             Self::Off => include_str!("../icons/off.svg"),
+            Self::Close => include_str!("../icons/close.svg"),
             Self::Libraries => include_str!("../icons/libraries.svg"),
             Self::Accounts => include_str!("../icons/accounts.svg"),
             Self::Settings => include_str!("../icons/settings.svg"),

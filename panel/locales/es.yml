@@ -96,6 +96,7 @@ libraries:
   already: Ese directorio ya es una biblioteca
 
 common:
+  close: Cerrar
   refused: El servidor no lo permitió
   save: Guardar
   cancel: Cancelar

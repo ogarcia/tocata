@@ -28,6 +28,13 @@
 
 * { box-sizing: border-box; }
 
+/* Nothing here leans on the margins a browser gives a paragraph or a heading.
+ * Every gap is either a `gap` on the container or a margin this file asks for,
+ * because a default margin on the last thing in a box is what leaves a dialogue
+ * with more air under its buttons than over its title — and it does that in
+ * every box, not just the one you happen to be looking at. */
+p, h1, h2, dl, dd { margin: 0; }
+
 body {
   margin: 0;
   color: var(--ink);
@@ -555,7 +562,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 
 .running h2 { margin-bottom: 0.5rem; }
-.running .counts { margin: 0; font-variant-numeric: tabular-nums; }
+.running .counts { font-variant-numeric: tabular-nums; }
 .running .row { margin-top: 1rem; }
 
 /* The marker itself is the summary, so the arrow the browser draws is enough and
@@ -598,7 +605,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 
 /* Buttons in a row rather than stacked the way a form stacks them. */
+/* Space above only. Whatever holds it decides how much, and there is never any
+ * below because a row of buttons is the last thing in its box. */
 .row { display: flex; gap: 0.5rem; margin-top: 1.25rem; }
+
+/* Against the right hand edge, with the one that does the thing furthest over:
+ * that corner is where a pointer ends up. */
+.row.ends { justify-content: flex-end; }
 .row button { margin: 0; }
 
 /* The one that does more than the obvious thing should not look like the obvious
@@ -612,13 +625,22 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 /* A path is long, arbitrary and not worth breaking the layout over. */
 .path {
-  margin: 0.75rem 0 0;
   font-size: 0.85rem;
   overflow-wrap: anywhere;
 }
 
 .quiet { color: var(--quiet); }
-.failure { color: var(--alarm); }
+
+/* Its own space, because with the browser's margins gone it would otherwise sit
+ * against whatever it is complaining about. */
+.failure {
+  margin-top: 0.75rem;
+  color: var(--alarm);
+}
+
+/* Inside a form the gap already spaces it, and a margin on top of that would
+ * make the message drift away from the field it belongs to. */
+form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 
@@ -658,7 +680,12 @@ table { border-collapse: collapse; }
   gap: 0.75rem;
 }
 
+/* Column with a gap rather than margins on each child: the spacing is stated
+ * once, and the last child cannot leave a gap under itself. */
 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 1rem 1.1rem;
   border-radius: 8px;
   background: var(--raised);
@@ -672,7 +699,6 @@ table { border-collapse: collapse; }
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin-bottom: 0.35rem;
 }
 
 .card h2 {
@@ -684,12 +710,11 @@ table { border-collapse: collapse; }
 }
 
 .card .path {
-  margin: 0 0 0.35rem;
   font-size: 0.9rem;
   overflow-wrap: anywhere;
 }
 
-.card .counts { margin: 0; font-size: 0.9rem; }
+.card .counts { font-size: 0.9rem; }
 
 .badge.muted {
   margin: 0;
@@ -709,6 +734,8 @@ table { border-collapse: collapse; }
 /* Wraps rather than overflowing: there are five things here at the widest and a
  * card is only as wide as the screen. */
 .row.wrap { flex-wrap: wrap; align-items: center; }
+
+.card .row { margin-top: 0.5rem; }
 
 .small {
   padding: 0.3rem 0.55rem;
@@ -760,7 +787,28 @@ table { border-collapse: collapse; }
 
 .sheet::backdrop { background: rgb(0 0 0 / 45%); }
 
-.sheet h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+/* The title and the way out. The button is the only thing in a dialogue that is
+ * about the dialogue rather than about what it asks. */
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.sheet h2 { font-size: 1.15rem; }
+
+.close {
+  margin: 0;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  line-height: 1;
+}
+
+.close:hover { color: var(--ink); }
 
 .sheet form {
   display: flex;
@@ -769,4 +817,3 @@ table { border-collapse: collapse; }
 }
 
 .sheet .row { margin-top: 1rem; }
-.sheet .hint { margin: 0; }

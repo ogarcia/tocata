@@ -209,7 +209,9 @@ fn Details(
             // to hear about it or reopening would do nothing.
             on:close=move |_| set_editing.set(None)
         >
-            <form on:submit=submit>
+            // Outside the form, because closing is something done to the
+            // dialogue rather than to what is being filled in.
+            <header class="sheet-head">
                 <h2>
                     {move || {
                         match editing.get() {
@@ -218,6 +220,29 @@ fn Details(
                         }
                     }}
                 </h2>
+                <button
+                    type="button"
+                    class="close"
+                    title=t!("common.close")
+                    on:click=move |_| set_editing.set(None)
+                >
+                    <Glyph icon=Icon::Close />
+                </button>
+            </header>
+
+            <form on:submit=submit>
+
+                // What it is called comes first: somebody adding a library has
+                // decided to add "the vinyl rips" and then goes looking for where
+                // they are, not the other way round.
+                <label for="name">{t!("libraries.name")}</label>
+                <input
+                    id="name"
+                    placeholder=t!("libraries.name_default")
+                    autofocus
+                    prop:value=name
+                    on:input:target=move |e| set_name.set(e.target().value())
+                />
 
                 <label for="path">{t!("libraries.path")}</label>
                 <input
@@ -231,26 +256,13 @@ fn Details(
                 // there, so this says what it will be looking for.
                 <span class="hint quiet">{t!("libraries.path_note")}</span>
 
-                <label for="name">{t!("libraries.name")}</label>
-                <input
-                    id="name"
-                    placeholder=t!("libraries.name_default")
-                    prop:value=name
-                    on:input:target=move |e| set_name.set(e.target().value())
-                />
-
                 // Only when moving one, because only then is there anything under
                 // an old path to reconcile.
                 <Show when=move || matches!(editing.get(), Some(Editing::Existing { .. }))>
                     <p class="hint quiet">{t!("libraries.move_note")}</p>
                 </Show>
 
-                <p class="row">
-                    <button type="submit" disabled=waiting>
-                        {move || {
-                            if waiting.get() { t!("login.working") } else { t!("common.save") }
-                        }}
-                    </button>
+                <p class="row ends">
                     <button
                         type="button"
                         class="second"
@@ -258,6 +270,11 @@ fn Details(
                         on:click=move |_| set_editing.set(None)
                     >
                         {t!("common.cancel")}
+                    </button>
+                    <button type="submit" disabled=waiting>
+                        {move || {
+                            if waiting.get() { t!("login.working") } else { t!("common.save") }
+                        }}
                     </button>
                 </p>
 
