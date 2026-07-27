@@ -10,6 +10,7 @@
 use super::error::ApiError;
 use super::session::{Administrator, Panel};
 use crate::db;
+use crate::scanner::overlaps;
 use crate::types::{ErrorBody, Library, LibraryChanges, NewLibrary};
 use axum::Json;
 use axum::extract::{Path as UrlPath, State};
@@ -98,6 +99,8 @@ pub async fn add(
     let checked = usable(new.path.trim()).await?;
     let path = Path::new(&checked);
 
+    unclaimed(&pool, path, None).await?;
+
     let name = new
         .name
         .as_deref()
@@ -160,7 +163,7 @@ pub async fn add(
         (status = 401, description = "No valid session", body = ErrorBody),
         (status = 403, description = "Not an administrator", body = ErrorBody),
         (status = 404, description = "No such library", body = ErrorBody),
-        (status = 409, description = "Another library already reads from that directory", body = ErrorBody),
+        (status = 409, description = "Another library already reads from that directory, or from one around or inside it", body = ErrorBody),
     )
 )]
 pub async fn change(
@@ -176,7 +179,11 @@ pub async fn change(
         .filter(|name| !name.is_empty());
 
     let moved = match changes.path.as_deref().map(str::trim) {
-        Some(path) if !path.is_empty() => Some(usable(path).await?),
+        Some(path) if !path.is_empty() => {
+            let checked = usable(path).await?;
+            unclaimed(&pool, Path::new(&checked), Some(id)).await?;
+            Some(checked)
+        }
         _ => None,
     };
 
@@ -284,6 +291,37 @@ async fn usable(path: &str) -> Result<String, ApiError> {
         Ok(_) => Err(ApiError::Invalid("That path is not a directory")),
         Err(_) => Err(ApiError::Invalid("That path cannot be read")),
     }
+}
+
+/// Refuses a root that is the same as, inside, or around another library.
+///
+/// Two libraries that overlap have no meaning. Every file under the shared part
+/// belongs to both, so it is scanned twice and counted twice — a directory added
+/// twice this way turned 48 tracks into 96 and 4 albums into 8 — and there is no
+/// answer to which library it is in, which is the question every per-account
+/// permission is asked. Nothing downstream can sort that out, so it is refused
+/// here.
+///
+/// `except` is the library being changed, which is allowed to overlap itself.
+async fn unclaimed(pool: &SqlitePool, path: &Path, except: Option<i64>) -> Result<(), ApiError> {
+    let existing: Vec<(i64, String)> = sqlx::query_as("SELECT id, path FROM libraries")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "checking the other libraries"))?;
+
+    for (id, other) in existing {
+        if Some(id) == except {
+            continue;
+        }
+
+        if overlaps(path, Path::new(&other)) {
+            return Err(ApiError::Conflict(
+                "That directory is inside another library, or holds one",
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Reads one back, for the handlers that answer with what they just wrote.

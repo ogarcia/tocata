@@ -7,6 +7,33 @@ mod album_key;
 mod tags;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod overlap_tests {
+    use super::overlaps;
+    use std::path::Path;
+
+    #[test]
+    fn a_library_inside_another_overlaps_it() {
+        assert!(overlaps(Path::new("/music"), Path::new("/music/rock")));
+        assert!(overlaps(Path::new("/music/rock"), Path::new("/music")));
+        assert!(overlaps(Path::new("/music"), Path::new("/music")));
+    }
+
+    /// Compared by components and not as text, which is the whole reason this is a
+    /// function: `/musicians` starts with the letters of `/music` and is not
+    /// inside it.
+    #[test]
+    fn a_name_that_merely_starts_the_same_does_not() {
+        assert!(!overlaps(Path::new("/music"), Path::new("/musicians")));
+        assert!(!overlaps(Path::new("/srv/music"), Path::new("/srv/music2")));
+    }
+
+    #[test]
+    fn unrelated_directories_do_not() {
+        assert!(!overlaps(Path::new("/srv/music"), Path::new("/mnt/vinyl")));
+    }
+}
 mod walker;
 
 use crate::db;
@@ -994,6 +1021,20 @@ fn epoch_to_iso8601(seconds: i64) -> String {
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// Whether two library roots are the same place or one inside the other.
+///
+/// Compared by path components rather than as text, so `/music` does not look
+/// like a parent of `/musicians`.
+///
+/// Two libraries that overlap have no meaning. Every file under the shared part
+/// belongs to both, so it is scanned twice and counted twice — measured: a
+/// directory registered twice this way turned 48 tracks into 96 and 4 albums into
+/// 8 — and there is no answer to which library it is in, which is the question
+/// every per-account permission is asked.
+pub fn overlaps(one: &Path, other: &Path) -> bool {
+    one.starts_with(other) || other.starts_with(one)
+}
+
 /// Brings the `libraries` table in line with what the environment declares.
 ///
 /// Paths that disappear from the configuration are disabled rather than
@@ -1003,7 +1044,34 @@ fn epoch_to_iso8601(seconds: i64) -> String {
 pub async fn sync_libraries(pool: &SqlitePool, paths: &[PathBuf]) -> Result<()> {
     let timestamp = db::now();
 
+    // What is registered already, to keep the environment from declaring a
+    // directory that sits inside one of them — or around one.
+    let mut roots: Vec<PathBuf> = sqlx::query_scalar::<_, String>("SELECT path FROM libraries")
+        .fetch_all(pool)
+        .await
+        .context("reading the libraries already registered")?
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+
     for path in paths {
+        // Refused rather than registered, and said out loud: the alternative is
+        // scanning the same files twice under two names and leaving somebody to
+        // work out why every album is duplicated.
+        if let Some(clash) = roots
+            .iter()
+            .find(|root| *root != path && overlaps(path, root))
+        {
+            warn!(
+                "not registering {}: it overlaps the library at {}",
+                path.display(),
+                clash.display()
+            );
+            continue;
+        }
+
+        roots.push(path.clone());
+
         let path = path.to_string_lossy();
         let name = Path::new(path.as_ref())
             .file_name()

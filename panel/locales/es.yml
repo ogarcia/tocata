@@ -93,7 +93,7 @@ libraries:
   disable_first: Desactívala antes de eliminarla
   holds: "%{tracks} pistas · %{missing} ausentes"
   bad_path: Esa ruta no es un directorio del servidor
-  already: Ese directorio ya es una biblioteca
+  already: "Ese directorio ya es una biblioteca, o está dentro de una"
 
 common:
   close: Cerrar
