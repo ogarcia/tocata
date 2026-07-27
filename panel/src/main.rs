@@ -11,6 +11,7 @@
 //! and this stops compiling, which is the whole reason the panel is in Rust.
 
 mod api;
+mod icon;
 mod layout;
 mod locale;
 mod login;

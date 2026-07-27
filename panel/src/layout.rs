@@ -17,6 +17,7 @@
 //! thing CSS cannot see, so it is a signal.
 
 use crate::api;
+use crate::icon::{Glyph, Icon};
 use crate::locale;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -31,6 +32,7 @@ use tocata::types::Identity;
 struct Section {
     path: &'static str,
     label: fn() -> String,
+    icon: Icon,
     /// Whether it is only worth drawing for somebody who administers the server.
     administration: bool,
 }
@@ -41,26 +43,31 @@ const SECTIONS: [Section; 5] = [
     Section {
         path: "/",
         label: || t!("nav.overview").to_string(),
+        icon: Icon::Overview,
         administration: false,
     },
     Section {
         path: "/libraries",
         label: || t!("nav.libraries").to_string(),
+        icon: Icon::Libraries,
         administration: true,
     },
     Section {
         path: "/accounts",
         label: || t!("nav.accounts").to_string(),
+        icon: Icon::Accounts,
         administration: true,
     },
     Section {
         path: "/settings",
         label: || t!("nav.settings").to_string(),
+        icon: Icon::Settings,
         administration: true,
     },
     Section {
         path: "/maintenance",
         label: || t!("nav.maintenance").to_string(),
+        icon: Icon::Maintenance,
         administration: true,
     },
 ];
@@ -88,6 +95,7 @@ pub fn Shell(identity: Identity, on_out: Callback<()>, children: Children) -> im
                                     exact=section.path == "/"
                                     on:click=move |_| fold.set(false)
                                 >
+                                    <Glyph icon=section.icon />
                                     {(section.label)()}
                                 </A>
                             }
@@ -109,7 +117,7 @@ pub fn Shell(identity: Identity, on_out: Callback<()>, children: Children) -> im
                     aria-expanded=move || folded_out.get().to_string()
                     on:click=move |_| fold.update(|out| *out = !*out)
                 >
-                    "☰"
+                    <Glyph icon=Icon::Menu />
                 </button>
                 <You identity on_out />
             </header>
@@ -164,10 +172,16 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                         }}
                     </div>
 
-                    <A href="/account">{t!("nav.account")}</A>
+                    <A href="/account">
+                        <Glyph icon=Icon::Account />
+                        {t!("nav.account")}
+                    </A>
 
                     <label class="menu-field">
-                        <span class="quiet">{t!("header.language")}</span>
+                        <span class="quiet">
+                            <Glyph icon=Icon::Language />
+                            {t!("header.language")}
+                        </span>
                         <Languages />
                     </label>
 
@@ -180,6 +194,7 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                             });
                         }
                     >
+                        <Glyph icon=Icon::LogOut />
                         {t!("header.log_out")}
                     </button>
                 </div>

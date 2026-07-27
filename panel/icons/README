@@ -1,0 +1,7 @@
+Icons from Tabler Icons — https://tabler.io/icons — by Paweł Kuna, under the MIT
+licence in LICENSE beside this file.
+
+Only the ones the panel uses are here, and each has had its metadata comment and
+its indentation taken out, since neither travels usefully down a wire. Nothing
+else about them was touched: they still stroke with currentColor, which is what
+lets an icon take the colour of the text beside it.
