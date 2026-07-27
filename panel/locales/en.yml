@@ -78,6 +78,7 @@ scan:
   gone: Gone missing
 
 libraries:
+  holds: "%{tracks} tracks · %{missing} missing"
   edit: Edit
   move_note: "Moving it takes effect at once and needs no scan: everything is stored relative to this directory."
   heading: Libraries
@@ -95,11 +96,83 @@ libraries:
   remove_sure: Remove it and everything scanned from it?
   remove_yes: Remove
   disable_first: Switch it off before removing it
-  holds: "%{tracks} tracks · %{missing} missing"
   bad_path: That path is not a directory on the server
   already: "That directory is already a library, is inside one, or holds one"
 
+accounts:
+  admin_short: Admin
+  sessions_short: "Sessions"
+  keys_short: "Keys"
+  remove: "Delete the account"
+  remove_note: "Takes the account and everything only it had: its sessions, its keys, its favourites, ratings, play counts, playlists and bookmarks."
+  remove_sure: "Delete it and everything of theirs?"
+  heading: Accounts
+  lead: Who can reach the collection.
+  add: Add an account
+  username: Username
+  password: Password
+  email: Email address
+  is_admin: Administers the server
+  no_email: No email address
+  all: All accounts
+  who: The account
+  new_password: New password
+  unchanged: Leave empty to keep it
+  password_note: Changing it closes their other panel sessions. API keys keep working.
+  scrobbling: Pass plays on to a scrobbling service
+  not_yourself: You cannot take away your own administrator rights
+  all_libraries: all
+  some: "%{count} libraries"
+  access: Access
+  sessions: "%{count} panel sessions open"
+  keys: "%{count} API keys"
+  close_all: Close them all
+  close_mine: Close them all, this one included
+  revoke_all: Revoke them all
+  cut_note: For cutting somebody off. Changing a password does not revoke keys, and a key is not a password.
+  mine_note: Closing them all logs you out here too.
+  closed: "%{count} sessions closed"
+  revoked: "%{count} keys revoked"
+  reach: Libraries
+  reach_all: Every library that is switched on. Untick one to restrict this account.
+  reach_some: Only the ones ticked. Tick them all to lift the restriction.
+  taken: That name is taken
+  invalid: Something in there is not valid
+  not_allowed: The server would not allow that
+
+keys:
+  heading: "API keys"
+  lead: "For clients that authenticate with a key instead of your password. Revoking one stops that client and leaves the others alone."
+  none: "No keys yet"
+  label: "What it is for"
+  label_default: "phone"
+  issue: "Make a key"
+  until: "Expires on"
+  until_note: "Left empty it never expires, which is what a music player wants: nothing can renew one for you."
+  forever: "never expires"
+  expires: "expires %{when}"
+  expired: "expired %{when}"
+  used: "last used %{when}"
+  unused: "never used"
+  revoke: "Revoke"
+  once: "Copy it now. It is not stored and will not be shown again."
+
+sessions:
+  heading: "Panel sessions"
+  lead: "Where you are logged in to this panel. Nothing here affects the clients that play your music."
+  this_one: "this one"
+  until: "until %{when}"
+  close: "Close"
+  log_out: "Log out"
+
 common:
+  # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
+  # and off as booleans, in keys and in values alike, so `no: No` becomes the key
+  # `false` holding the value `false` — which is what the panel then shows
+  # somebody, in a column where it looks like a word.
+  "yes": "Yes"
+  "no": "No"
+  saved: Saved
   close: Close
   refused: The server would not do that
   save: Save

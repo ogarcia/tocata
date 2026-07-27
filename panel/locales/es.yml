@@ -74,6 +74,7 @@ scan:
   gone: Desaparecidas
 
 libraries:
+  holds: "%{tracks} pistas · %{missing} ausentes"
   edit: Editar
   move_note: "Moverla surte efecto al instante y no necesita escaneo: todo se guarda relativo a este directorio."
   heading: Bibliotecas
@@ -91,11 +92,83 @@ libraries:
   remove_sure: ¿Eliminarla y con ella todo lo escaneado?
   remove_yes: Eliminar
   disable_first: Desactívala antes de eliminarla
-  holds: "%{tracks} pistas · %{missing} ausentes"
   bad_path: Esa ruta no es un directorio del servidor
   already: "Ese directorio ya es una biblioteca, está dentro o es padre de una"
 
+accounts:
+  admin_short: Admin
+  sessions_short: "Sesiones"
+  keys_short: "Claves"
+  remove: "Eliminar la cuenta"
+  remove_note: "Se lleva la cuenta y todo lo que solo era suyo: sus sesiones, sus claves, sus favoritos, valoraciones, reproducciones, listas y marcadores."
+  remove_sure: "¿Eliminarla con todo lo suyo?"
+  heading: Cuentas
+  lead: Quién puede llegar a la colección.
+  add: Añadir cuenta
+  username: Usuario
+  password: Contraseña
+  email: Correo electrónico
+  is_admin: Administra el servidor
+  no_email: Sin correo electrónico
+  all: Todas las cuentas
+  who: La cuenta
+  new_password: Contraseña nueva
+  unchanged: Vacío para dejarla como está
+  password_note: Cambiarla cierra sus otras sesiones del panel. Las claves de API siguen valiendo.
+  scrobbling: Enviar las reproducciones a un servicio de scrobbling
+  not_yourself: No puedes quitarte a ti mismo la administración
+  all_libraries: todas
+  some: "%{count} bibliotecas"
+  access: Acceso
+  sessions: "%{count} sesiones del panel abiertas"
+  keys: "%{count} claves de API"
+  close_all: Cerrarlas todas
+  close_mine: Cerrarlas todas, incluida esta
+  revoke_all: Revocarlas todas
+  cut_note: Para cortarle el acceso. Cambiar la contraseña no revoca las claves, y una clave no es la contraseña.
+  mine_note: Cerrarlas todas te saca también de aquí.
+  closed: "%{count} sesiones cerradas"
+  revoked: "%{count} claves revocadas"
+  reach: Bibliotecas
+  reach_all: Todas las bibliotecas activas. Desmarca una para restringir esta cuenta.
+  reach_some: Solo las marcadas. Márcalas todas para levantar la restricción.
+  taken: Ese nombre ya está en uso
+  invalid: Algo de lo introducido no es válido
+  not_allowed: El servidor no lo permite
+
+keys:
+  heading: "Claves de API"
+  lead: "Para los clientes que se autentican con una clave en lugar de tu contraseña. Revocar una detiene ese cliente y deja los demás en paz."
+  none: "Todavía no hay claves"
+  label: "Para qué es"
+  label_default: "móvil"
+  issue: "Crear clave"
+  until: "Caduca el"
+  until_note: "Vacío no caduca nunca, que es lo que quiere un reproductor: nada puede renovarla por ti."
+  forever: "no caduca"
+  expires: "caduca %{when}"
+  expired: "caducó %{when}"
+  used: "usada %{when}"
+  unused: "sin usar"
+  revoke: "Revocar"
+  once: "Cópiala ahora. No se guarda y no se mostrará otra vez."
+
+sessions:
+  heading: "Sesiones del panel"
+  lead: "Dónde tienes sesión abierta en este panel. Nada de esto afecta a los clientes que reproducen tu música."
+  this_one: "esta"
+  until: "hasta %{when}"
+  close: "Cerrar"
+  log_out: "Salir"
+
 common:
+  # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
+  # and off as booleans, in keys and in values alike, so `no: No` becomes the key
+  # `false` holding the value `false` — which is what the panel then shows
+  # somebody, in a column where it looks like a word.
+  "yes": "Sí"
+  "no": "No"
+  saved: Guardado
   close: Cerrar
   refused: El servidor no lo permitió
   save: Guardar

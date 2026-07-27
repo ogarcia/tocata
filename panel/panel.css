@@ -50,7 +50,12 @@ a { color: var(--accent); }
  * only one of them and that is easier to read than a line number. */
 .shell {
   display: grid;
-  grid-template-columns: var(--side) 1fr;
+  /* minmax(0, 1fr) and not 1fr: a plain 1fr will not shrink below the width of
+   * what is inside it, so anything wide — a table, a long path — stretches the
+   * column and takes the whole page sideways with it. The overflow rule on the
+   * box around the table can only work if the column is allowed to be narrower
+   * than its contents. */
+  grid-template-columns: var(--side) minmax(0, 1fr);
   grid-template-rows: var(--head) 1fr;
   grid-template-areas:
     "side head"
@@ -184,7 +189,11 @@ a { color: var(--accent); }
   .scanning .icon, .working .icon { animation: none; }
 }
 
-.body { grid-area: body; padding: 1.5rem; }
+.body {
+  grid-area: body;
+  min-width: 0;
+  padding: 1.5rem;
+}
 
 /* --- the folding menu ---------------------------------------------------- */
 
@@ -193,7 +202,7 @@ a { color: var(--accent); }
 
 @media (max-width: 45rem) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "head" "body";
   }
 
@@ -817,3 +826,99 @@ table { border-collapse: collapse; }
 }
 
 .sheet .row { margin-top: 1rem; }
+
+/* --- accounts ------------------------------------------------------------ */
+
+/* Short, uniform values in columns, which is what a table is for: reading down
+ * one of them to compare, rather than reading each card to find the same field
+ * again. */
+.listing { width: 100%; }
+
+.listing th, .listing td {
+  padding: 0.55rem 1rem 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.listing th {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--quiet);
+}
+
+.listing tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.listing .figure { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* The link that names the row, with its icon on the same line. */
+.named {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.named:hover { text-decoration: underline; }
+
+/* An address can be long and is the one column here that may be cut. */
+.ellipsis {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Wide content sideways inside its own box, never the whole page. */
+.scrolls { overflow-x: auto; }
+
+.grow { flex: 1; min-width: 0; }
+
+/* Back to the list, above the heading, small enough not to compete with it. */
+.back { margin-bottom: 0.5rem; font-size: 0.9rem; }
+
+/* One pane that spans both columns of the grid, for what does not pair with
+ * anything. */
+.pane.wide { grid-column: 1 / -1; margin-top: 0.75rem; }
+
+/* A label and a control on one line, as many as there are. */
+.lines { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.line button { margin: 0; }
+
+/* The box before its words, both clickable, and the cursor saying so. */
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.checkbox input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+/* A form inside a pane: fields stacked, gap doing the spacing. */
+.stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* Said after something worked. Not an error and not silence. */
+.note {
+  margin-top: 0.75rem;
+  color: var(--accent);
+}

@@ -87,6 +87,12 @@ pub struct Login {
     pub current: bool,
 }
 
+/// How many keys were revoked, so the panel can say something true afterwards.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Revoked {
+    pub revoked: u64,
+}
+
 /// How many were closed, so the panel can say something true afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Closed {

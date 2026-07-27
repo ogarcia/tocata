@@ -22,6 +22,9 @@ mod theme;
 // Compiles the translations in. `fallback` is what a key missing from a
 // translation falls back to, so a half translated language shows English rather
 // than the name of the key.
+//
+// It reads the files without telling cargo, which is what build.rs is there to
+// fix: without it, editing a translation rebuilds nothing.
 rust_i18n::i18n!("locales", fallback = "en");
 
 use leptos::prelude::*;
@@ -118,10 +121,17 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                             }
                         }
                     />
+                    // The same screen as one account under administration: the
+                    // API already draws the line between yours and anybody's.
                     <Route
                         path=path!("/account")
-                        view=move || {
-                            view! { <pages::Unbuilt heading=t!("nav.account").to_string() /> }
+                        view={
+                            let who = who.clone();
+                            move || {
+                                view! {
+                                    <pages::accounts::Detail who=who.clone() on_expired=forget />
+                                }
+                            }
                         }
                     />
 
@@ -142,7 +152,30 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     <Route
                         path=path!("/accounts")
                         view=move || {
-                            view! { <Restricted admin heading=t!("nav.accounts").to_string() /> }
+                            if admin {
+                                view! { <pages::accounts::Accounts on_expired=forget /> }.into_any()
+                            } else {
+                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                            }
+                        }
+                    />
+                    <Route
+                        path=path!("/accounts/:username")
+                        view={
+                            let who = who.clone();
+                            move || {
+                                if admin {
+                                    view! {
+                                        <pages::accounts::Detail
+                                            who=who.clone()
+                                            on_expired=forget
+                                        />
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                }
+                            }
                         }
                     />
                     <Route
@@ -177,4 +210,89 @@ fn main() {
     console_error_panic_hook::set_once();
     locale::settle();
     leptos::mount::mount_to_body(Panel);
+}
+
+#[cfg(test)]
+mod tests {
+    use rust_i18n::t;
+
+    /// Every key the code asks for, in both languages, resolving to something
+    /// other than its own name.
+    ///
+    /// The check that exists because of `no`: YAML reads it as a boolean, so an
+    /// unquoted `no:` becomes the key `false` and `t!("common.no")` quietly
+    /// returns nothing useful. Comparing the answer against the key is what
+    /// catches that, and it would have caught it before anybody saw "false" in a
+    /// table.
+    #[test]
+    fn every_key_resolves_in_every_language() {
+        let keys = collect_keys();
+        assert!(
+            keys.len() > 100,
+            "the keys are read from the source, so a parse that finds none would pass everything"
+        );
+
+        for locale in ["en", "es"] {
+            rust_i18n::set_locale(locale);
+
+            for key in &keys {
+                let key = key.as_str();
+                let said = t!(key);
+                assert_ne!(
+                    said, key,
+                    "{key} does not resolve in {locale}: rust-i18n hands back the key when it \
+                     cannot find one"
+                );
+                assert!(!said.is_empty(), "{key} resolves to nothing in {locale}");
+
+                // The check that `no` needed and the one above missed. YAML reads
+                // yes, no, on and off as booleans in values too, so an unquoted
+                // `no: No` resolves to the string "false" — which is not the key,
+                // so comparing against the key said nothing was wrong, and what
+                // ended up on screen was the word "false".
+                assert!(
+                    !matches!(said.as_ref(), "true" | "false"),
+                    "{key} resolves to {said:?} in {locale}: YAML read the value as a boolean, \
+                     which is what unquoted yes, no, on and off do"
+                );
+            }
+        }
+    }
+
+    /// Read from the source rather than listed here, so a key added tomorrow is
+    /// checked without anybody remembering to add it.
+    fn collect_keys() -> Vec<String> {
+        let mut keys = Vec::new();
+
+        for source in [
+            include_str!("main.rs"),
+            include_str!("layout.rs"),
+            include_str!("login.rs"),
+            include_str!("pages/mod.rs"),
+            include_str!("pages/home.rs"),
+            include_str!("pages/libraries.rs"),
+            include_str!("pages/accounts.rs"),
+        ] {
+            let mut rest = source;
+
+            while let Some(at) = rest.find("t!(") {
+                rest = &rest[at + 3..];
+                let trimmed = rest.trim_start();
+
+                if let Some(key) = trimmed
+                    .strip_prefix('"')
+                    .and_then(|quoted| quoted.split('"').next())
+                    // Only what looks like one of ours, so the pattern in this
+                    // very function does not count itself.
+                    .filter(|key| key.contains('.') && !key.contains(' '))
+                {
+                    keys.push(key.to_string());
+                }
+            }
+        }
+
+        keys.sort();
+        keys.dedup();
+        keys
+    }
 }

@@ -25,7 +25,7 @@
 
 use super::error::ApiError;
 use super::session::Panel;
-use crate::types::{ErrorBody, IssuedKey, Key, KeyChanges, NewKey};
+use crate::types::{ErrorBody, IssuedKey, Key, KeyChanges, NewKey, Revoked};
 use crate::{auth, db};
 use axum::Json;
 use axum::extract::{Path, State};
@@ -277,6 +277,44 @@ async fn load(pool: &SqlitePool, id: i64) -> Result<Json<Key>, ApiError> {
     .map_err(|e| ApiError::internal(e, "loading an API key"))?;
 
     Ok(Json(Key::from_row(row, &db::now())))
+}
+
+/// Revoke every API key
+///
+/// For cutting an account off rather than tidying up: somebody has lost the phone
+/// their key is on, or has left, and every client holding one has to stop working
+/// at once. Changing the password does not do this — a key is not the password,
+/// which is the whole point of having keys.
+///
+/// Yours, or anybody's if you administer the server.
+#[utoipa::path(
+    delete,
+    path = "/users/{username}/keys",
+    tag = "keys",
+    params(("username" = String, Path, description = "Whose keys")),
+    responses(
+        (status = 200, description = "How many were revoked", body = Revoked),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Somebody else's keys", body = ErrorBody),
+        (status = 404, description = "No such account", body = ErrorBody),
+    )
+)]
+pub async fn revoke_all(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+) -> Result<Json<Revoked>, ApiError> {
+    let user_id = owner(&pool, &panel, &username).await?;
+
+    let deleted = sqlx::query("DELETE FROM api_keys WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "revoking every API key"))?;
+
+    Ok(Json(Revoked {
+        revoked: deleted.rows_affected(),
+    }))
 }
 
 /// Revoke an API key

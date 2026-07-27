@@ -10,7 +10,10 @@
 use gloo_net::http::{Request, RequestBuilder};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tocata::types::{Credentials, Identity, Library, LibraryChanges, NewLibrary, Stats};
+use tocata::types::{
+    Account, AccountChanges, Closed, Credentials, Identity, Key, Library, LibraryAccess,
+    LibraryChanges, NewAccount, NewKey, NewLibrary, Revoked, Stats,
+};
 use web_sys::RequestCredentials;
 
 /// Relative, because the panel is served by the server it talks to. Nothing to
@@ -58,6 +61,12 @@ fn post<T: Serialize>(path: &str, body: &T) -> Result<Request, Failure> {
 /// A PATCH, for the calls that change part of something.
 fn patch<T: Serialize>(path: &str, body: &T) -> Result<Request, Failure> {
     with_body(Request::patch(&url(path)), body)
+}
+
+/// A PUT, for the one call that replaces a whole set rather than changing part
+/// of one.
+fn put<T: Serialize>(path: &str, body: &T) -> Result<Request, Failure> {
+    with_body(Request::put(&url(path)), body)
 }
 
 fn with_body<T: Serialize>(request: RequestBuilder, body: &T) -> Result<Request, Failure> {
@@ -161,12 +170,83 @@ pub async fn change_library(id: i64, changes: LibraryChanges) -> Result<Library,
 /// Removes one, and with it everything scanned from it. The server refuses while
 /// the library is still enabled, which arrives here as a `Refused`.
 pub async fn remove_library(id: i64) -> Result<(), Failure> {
-    match delete(&format!("/libraries/{id}"))?.send().await {
+    plain(delete(&format!("/libraries/{id}"))?).await
+}
+
+/// Sends a request whose answer carries nothing worth reading, and maps the ways
+/// it can go wrong the same way everything else does.
+async fn plain(request: Request) -> Result<(), Failure> {
+    match request.send().await {
         Ok(response) if response.ok() => Ok(()),
         Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
         Ok(response) => Err(refused(response).await),
         Err(_) => Err(Failure::Unreachable),
     }
+}
+
+/// Every account. Only an administrator may ask.
+pub async fn accounts() -> Result<Vec<Account>, Failure> {
+    read(get("/users")?).await
+}
+
+/// One account. Yours, or anybody's if you administer the server.
+pub async fn account(username: &str) -> Result<Account, Failure> {
+    read(get(&format!("/users/{username}"))?).await
+}
+
+pub async fn add_account(new: NewAccount) -> Result<Account, Failure> {
+    read(post("/users", &new)?).await
+}
+
+pub async fn change_account(username: &str, changes: AccountChanges) -> Result<Account, Failure> {
+    read(patch(&format!("/users/{username}"), &changes)?).await
+}
+
+pub async fn remove_account(username: &str) -> Result<(), Failure> {
+    plain(delete(&format!("/users/{username}"))?).await
+}
+
+/// Which libraries an account may see. An empty list means no restriction, which
+/// is not the same as seeing nothing.
+pub async fn restrict(username: &str, libraries: Vec<i64>) -> Result<Account, Failure> {
+    read(put(
+        &format!("/users/{username}/libraries"),
+        &LibraryAccess { libraries },
+    )?)
+    .await
+}
+
+/// The keys an account holds, without the keys themselves.
+pub async fn keys(username: &str) -> Result<Vec<Key>, Failure> {
+    read(get(&format!("/users/{username}/keys"))?).await
+}
+
+/// Issues one. This is the only time the key itself can be read.
+pub async fn issue_key(username: &str, new: NewKey) -> Result<tocata::types::IssuedKey, Failure> {
+    read(post(&format!("/users/{username}/keys"), &new)?).await
+}
+
+pub async fn revoke_key(username: &str, id: i64) -> Result<(), Failure> {
+    plain(delete(&format!("/users/{username}/keys/{id}"))?).await
+}
+
+/// Cuts an account off from every client holding a key.
+pub async fn revoke_keys(username: &str) -> Result<Revoked, Failure> {
+    read(delete(&format!("/users/{username}/keys"))?).await
+}
+
+/// The panel logins an account has open.
+pub async fn sessions(username: &str) -> Result<Vec<tocata::types::Login>, Failure> {
+    read(get(&format!("/users/{username}/sessions"))?).await
+}
+
+pub async fn close_session(username: &str, id: i64) -> Result<(), Failure> {
+    plain(delete(&format!("/users/{username}/sessions/{id}"))?).await
+}
+
+/// Closes all of them, this one included when the account is yours.
+pub async fn close_sessions(username: &str) -> Result<Closed, Failure> {
+    read(delete(&format!("/users/{username}/sessions"))?).await
 }
 
 /// Asks the running scan to give up. What it had written is thrown away by the

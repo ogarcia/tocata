@@ -10,6 +10,7 @@
 //! server is doing, so it shows up on the screen you are already looking at and
 //! goes away when there is nothing to report.
 
+pub mod accounts;
 pub mod home;
 pub mod libraries;
 
