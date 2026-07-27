@@ -9,6 +9,7 @@ app:
   name: Tocata
 
 nav:
+  scan: Scan
   overview: Overview
   libraries: Libraries
   accounts: Accounts
@@ -31,6 +32,24 @@ header:
   administrator: administrator
   log_out: Log out
   language: Language
+
+scan:
+  heading: Scan
+  running: Scanning
+  idle: Not running
+  cancelled: Cancelled
+  never: Never scanned
+  start: Scan
+  start_full: Read everything again
+  cancel: Cancel
+  refused: The server would not do that
+  folders: Folders
+  tracks: Tracks
+  unchanged: Unchanged
+  failed: Unreadable
+  gone: Gone missing
+  started: Started
+  finished: Finished
 
 overview:
   heading: Overview

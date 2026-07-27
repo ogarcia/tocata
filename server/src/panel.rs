@@ -21,6 +21,9 @@ fn content_type(path: &str) -> &'static str {
         Some("css") => "text/css; charset=utf-8",
         Some("js") => "text/javascript; charset=utf-8",
         Some("wasm") => "application/wasm",
+        // A favicon served as a stream of bytes is a favicon the browser does
+        // not draw.
+        Some("svg") => "image/svg+xml",
         _ => "application/octet-stream",
     }
 }

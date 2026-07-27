@@ -64,6 +64,7 @@ a { color: var(--accent); }
   height: var(--head);
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   padding: 0 1rem;
   font-weight: 600;
   font-size: 1.1rem;
@@ -99,8 +100,35 @@ a { color: var(--accent); }
   padding: 0 1rem;
 }
 
-/* Pushes the button to the right without a wrapper to hold it there. */
-.head .you { margin-left: auto; }
+/* Pushes what follows to the right without a wrapper to hold it there. Whichever
+ * comes first takes the gap, so it works with or without the scan badge. */
+.head .scanning, .head .you:first-of-type { margin-left: auto; }
+
+/* Only there while something is running, so it never sits saying nothing. */
+.scanning {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+/* Turns while the scan turns. Anybody who asked not to be moved gets a still
+ * icon and the same information. */
+.scanning .icon, .working .icon { animation: turn 1.4s linear infinite; }
+
+@keyframes turn {
+  to { transform: rotate(1turn); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scanning .icon, .working .icon { animation: none; }
+}
 
 .body { grid-area: body; padding: 1.5rem; }
 
@@ -212,6 +240,14 @@ button:disabled { opacity: 0.6; cursor: default; }
   place-items: center;
 }
 
+/* Invisible, and only there while the menu is. It sits under the menu and over
+ * the page, so it catches every click except the ones meant for the menu itself. */
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+}
+
 /* Hangs off the button rather than sitting in the flow, so opening it moves
  * nothing else on the page. */
 .menu {
@@ -297,6 +333,35 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 
 .icon svg { width: 100%; height: 100%; }
+
+.state { margin: 0 0 1rem; }
+
+.working {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent);
+}
+
+/* Buttons in a row rather than stacked the way a form stacks them. */
+.row { display: flex; gap: 0.5rem; margin-top: 1.25rem; }
+.row button { margin: 0; }
+
+/* The one that does more than the obvious thing should not look like the obvious
+ * thing. */
+.second {
+  background: transparent;
+  color: inherit;
+  border-color: var(--line);
+  font-weight: normal;
+}
+
+/* A path is long, arbitrary and not worth breaking the layout over. */
+.path {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
 
 .quiet { color: var(--quiet); }
 .failure { color: var(--alarm); }

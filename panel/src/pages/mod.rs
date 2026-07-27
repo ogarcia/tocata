@@ -8,6 +8,7 @@
 //! — the scan next, because it is the one that needs the event stream.
 
 pub mod overview;
+pub mod scan;
 
 use leptos::prelude::*;
 use rust_i18n::t;

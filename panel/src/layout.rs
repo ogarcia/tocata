@@ -23,7 +23,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 use rust_i18n::t;
-use tocata::types::Identity;
+use tocata::types::{Identity, Status};
 
 /// A place to go, and what to call it.
 ///
@@ -39,11 +39,17 @@ struct Section {
 
 /// What the collection is made of. Anything that belongs to the person rather
 /// than to the server lives in the menu behind the button instead.
-const SECTIONS: [Section; 5] = [
+const SECTIONS: [Section; 6] = [
     Section {
         path: "/",
         label: || t!("nav.overview").to_string(),
         icon: Icon::Overview,
+        administration: false,
+    },
+    Section {
+        path: "/scan",
+        label: || t!("nav.scan").to_string(),
+        icon: Icon::Scan,
         administration: false,
     },
     Section {
@@ -73,14 +79,22 @@ const SECTIONS: [Section; 5] = [
 ];
 
 #[component]
-pub fn Shell(identity: Identity, on_out: Callback<()>, children: Children) -> impl IntoView {
+pub fn Shell(
+    identity: Identity,
+    on_out: Callback<()>,
+    scan: ReadSignal<Option<Status>>,
+    children: Children,
+) -> impl IntoView {
     let admin = identity.admin;
     let (folded_out, fold) = signal(false);
 
     view! {
         <div class="shell">
             <aside class="side" class:out=move || folded_out.get()>
-                <div class="brand">{t!("app.name")}</div>
+                <div class="brand">
+                    <Glyph icon=Icon::Logo />
+                    {t!("app.name")}
+                </div>
                 <nav>
                     {SECTIONS
                         .iter()
@@ -119,6 +133,8 @@ pub fn Shell(identity: Identity, on_out: Callback<()>, children: Children) -> im
                 >
                     <Glyph icon=Icon::Menu />
                 </button>
+
+                <Scanning scan />
                 <You identity on_out />
             </header>
 
@@ -127,11 +143,36 @@ pub fn Shell(identity: Identity, on_out: Callback<()>, children: Children) -> im
     }
 }
 
+/// Says that a scan is running, from wherever in the panel you happen to be.
+///
+/// A scan takes minutes and people go and do something else while it runs. If the
+/// only place that said so were its own screen, they would have to keep going
+/// back to look; the stream is already open, so the header can say it for free.
+///
+/// Silent when nothing is running: a permanent badge saying "idle" is furniture.
+#[component]
+fn Scanning(scan: ReadSignal<Option<Status>>) -> impl IntoView {
+    view! {
+        <Show when=move || scan.get().is_some_and(|status| status.scanning)>
+            <A href="/scan" attr:class="scanning" attr:title=t!("scan.running")>
+                <Glyph icon=Icon::Scan />
+                <span class="counted">
+                    {move || scan.get().map(|status| status.tracks).unwrap_or_default()}
+                </span>
+            </A>
+        </Show>
+    }
+}
+
 /// The round button, and what it opens.
 ///
-/// It closes when the focus leaves it, which is what a click anywhere else does.
-/// No listener on the document, and no way for it to be left open behind a
-/// screen that has already changed.
+/// Closing it was `focusout` on the container, which reads well and does not
+/// work: the order is mousedown, then focusout, then click, so the menu went away
+/// before the click could land on anything in it. Nothing inside was clickable.
+///
+/// It closes the way the folded sections do instead — a sheet behind the menu
+/// catches anything aimed elsewhere — and every entry in it closes it on the way
+/// out, since choosing one is finishing with it.
 #[component]
 fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
     let (open, set_open) = signal(false);
@@ -149,7 +190,7 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
     let admin = identity.admin;
 
     view! {
-        <div class="you" on:focusout=move |_| set_open.set(false)>
+        <div class="you">
             <button
                 class="avatar"
                 title=name.clone()
@@ -160,6 +201,10 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
             </button>
 
             <Show when=move || open.get()>
+                // Behind the menu, over everything else: a click inside reaches
+                // what it was aimed at, and a click anywhere else lands here.
+                <div class="veil" on:click=move |_| set_open.set(false)></div>
+
                 <div class="menu">
                     <div class="menu-who">
                         <span class="quiet">{t!("header.you")}</span>
@@ -172,7 +217,7 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                         }}
                     </div>
 
-                    <A href="/account">
+                    <A href="/account" on:click=move |_| set_open.set(false)>
                         <Glyph icon=Icon::Account />
                         {t!("nav.account")}
                     </A>
@@ -188,6 +233,7 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                     <button
                         class="menu-item"
                         on:click=move |_| {
+                            set_open.set(false);
                             spawn_local(async move {
                                 api::log_out().await;
                                 on_out.run(());

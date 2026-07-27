@@ -5,6 +5,7 @@ app:
   name: Tocata
 
 nav:
+  scan: Escaneo
   overview: Resumen
   libraries: Bibliotecas
   accounts: Cuentas
@@ -27,6 +28,24 @@ header:
   administrator: administración
   log_out: Salir
   language: Idioma
+
+scan:
+  heading: Escaneo
+  running: Escaneando
+  idle: Detenido
+  cancelled: Cancelado
+  never: Nunca escaneado
+  start: Escanear
+  start_full: Releer todo
+  cancel: Cancelar
+  refused: El servidor no lo permitió
+  folders: Carpetas
+  tracks: Pistas
+  unchanged: Sin cambios
+  failed: Ilegibles
+  gone: Desaparecidas
+  started: Empezó
+  finished: Terminó
 
 overview:
   heading: Resumen

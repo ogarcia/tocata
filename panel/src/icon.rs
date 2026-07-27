@@ -18,7 +18,9 @@ use leptos::prelude::*;
 /// swapping the drawing is one line and touches nothing that uses it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
+    Logo,
     Overview,
+    Scan,
     Libraries,
     Accounts,
     Settings,
@@ -33,7 +35,9 @@ impl Icon {
     /// The file itself, read at compile time.
     fn svg(self) -> &'static str {
         match self {
+            Self::Logo => include_str!("../icons/logo.svg"),
             Self::Overview => include_str!("../icons/overview.svg"),
+            Self::Scan => include_str!("../icons/scan.svg"),
             Self::Libraries => include_str!("../icons/libraries.svg"),
             Self::Accounts => include_str!("../icons/accounts.svg"),
             Self::Settings => include_str!("../icons/settings.svg"),

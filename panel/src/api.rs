@@ -17,6 +17,10 @@ use web_sys::RequestCredentials;
 /// configure and nothing to get wrong across deployments.
 const BASE: &str = "/api/v1";
 
+/// Where the event stream lives. Public because `EventSource` opens it itself
+/// rather than going through anything here.
+pub const EVENTS: &str = "/api/v1/events";
+
 /// What went wrong, in the terms a screen cares about.
 ///
 /// The distinction that matters is between "your session is gone" — which sends
@@ -104,4 +108,35 @@ pub async fn log_out() {
 
 pub async fn stats() -> Result<Stats, Failure> {
     read(get("/stats")?).await
+}
+
+/// Starts one. `full` reads every file again instead of trusting size and
+/// modification time.
+pub async fn start_scan(full: bool) -> Result<(), Failure> {
+    let path = if full { "/scan?full=true" } else { "/scan" };
+
+    // Nothing worth reading comes back: what happens next arrives on the stream.
+    match Request::post(&url(path))
+        .credentials(RequestCredentials::SameOrigin)
+        .build()
+        .map_err(|_| Failure::Unreachable)?
+        .send()
+        .await
+    {
+        Ok(response) if response.ok() => Ok(()),
+        Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
+        Ok(response) => Err(Failure::Refused(response.status().to_string())),
+        Err(_) => Err(Failure::Unreachable),
+    }
+}
+
+/// Asks the running scan to give up. What it had written is thrown away by the
+/// server, so this is not a pause.
+pub async fn cancel_scan() -> Result<(), Failure> {
+    match delete("/scan")?.send().await {
+        Ok(response) if response.ok() => Ok(()),
+        Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
+        Ok(response) => Err(Failure::Refused(response.status().to_string())),
+        Err(_) => Err(Failure::Unreachable),
+    }
 }

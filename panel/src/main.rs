@@ -11,6 +11,7 @@
 //! and this stops compiling, which is the whole reason the panel is in Rust.
 
 mod api;
+mod events;
 mod icon;
 mod layout;
 mod locale;
@@ -84,15 +85,24 @@ fn Panel() -> impl IntoView {
 fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     let admin = identity.admin;
 
+    // One stream for the whole panel, opened here and read in two places: the
+    // header, which says a scan is running, and the screen that shows it in
+    // full. Two connections would be two of everything for the same news.
+    let scan = events::scan_status();
+
     view! {
         <Router>
-            <layout::Shell identity on_out=forget>
+            <layout::Shell identity on_out=forget scan>
                 <Routes fallback=move || {
                     view! { <pages::Unbuilt heading=t!("nav.overview").to_string() /> }
                 }>
                     <Route
                         path=path!("/")
                         view=move || view! { <pages::overview::Overview on_expired=forget /> }
+                    />
+                    <Route
+                        path=path!("/scan")
+                        view=move || view! { <pages::scan::Scan status=scan admin /> }
                     />
                     <Route
                         path=path!("/account")

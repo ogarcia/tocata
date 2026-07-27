@@ -2994,8 +2994,11 @@ dependencies = [
  "leptos",
  "leptos_router",
  "rust-i18n",
+ "send_wrapper",
  "serde",
+ "serde_json",
  "tocata",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
 ]
