@@ -97,7 +97,7 @@ libraries:
   disable_first: Switch it off before removing it
   holds: "%{tracks} tracks · %{missing} missing"
   bad_path: That path is not a directory on the server
-  already: "That directory is already a library, or sits inside one"
+  already: "That directory is already a library, is inside one, or holds one"
 
 common:
   close: Close
