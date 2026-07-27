@@ -154,8 +154,10 @@ jobs:
       - name: Start it and ask it something
         run: |
           docker run --detach --name tocata --publish 4224:4224 tocata:ci
+          # Waiting on the health check rather than on /rest, which answers 200
+          # even when it is refusing the request, and so cannot say no.
           for _ in $(seq 1 30); do
-            curl -sf -o /dev/null http://127.0.0.1:4224/rest/ping && break
+            curl -sf -o /dev/null http://127.0.0.1:4224/api/health && break
             sleep 1
           done
           docker logs tocata > log.txt 2>&1

@@ -112,9 +112,10 @@ ENV TOCATA_DATA_DIR=/data \
 # where the state lives is the operator's decision to make and to name.
 EXPOSE 4224
 
-# No HEALTHCHECK either: ping needs credentials, and putting a password in the
-# image to check on itself is worse than not checking. The native /api will be
-# the place for one.
+# No HEALTHCHECK either, though GET /api/health is what one would ask. How
+# often to ask, how long to wait and what a failure should set in motion belong
+# to whoever runs the container; baking one set of answers in decides them for
+# every deployment from here.
 
 USER tocata
 ENTRYPOINT ["/usr/local/bin/tocata"]

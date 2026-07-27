@@ -12,9 +12,14 @@
 //! The version is in the path because the panel and the server are released
 //! together but not necessarily deployed together, and because a stable name is
 //! only stable if there is somewhere to put the next one.
+//!
+//! Two things sit outside the version: the reference, and the health check.
+//! Neither has a contract that can evolve, so numbering them would only promise
+//! a second one that is never coming.
 
 mod error;
 mod events;
+mod health;
 mod keys;
 mod libraries;
 mod purge;
@@ -66,6 +71,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         license(name = "GPL-3.0-or-later", identifier = "GPL-3.0-or-later"),
     ),
     tags(
+        (name = "health", description = "Whether the server can serve"),
         (name = "session", description = "Logging in and out of the panel"),
         (name = "scan", description = "Watching and steering a scan of the libraries"),
         (name = "events", description = "The stream the panel keeps open"),
@@ -80,6 +86,9 @@ struct Reference;
 
 pub fn router(state: AppState) -> Router {
     let (router, reference) = OpenApiRouter::with_openapi(Reference::openapi())
+        // Not nested, so this one declares its whole path rather than a path
+        // relative to a version it does not belong to.
+        .routes(routes!(health::health))
         .nest("/api/v1", v1())
         .split_for_parts();
 
