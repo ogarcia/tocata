@@ -293,6 +293,13 @@ CREATE TABLE users (
 -- Revocable per client, which is what makes it possible to hash the password
 -- instead of encrypting it: the legacy token scheme needs the plaintext, an
 -- API key does not.
+--
+-- No expiry column, and that is the decision rather than an omission. Sessions
+-- below run out after thirty days because a browser has somebody in front of it
+-- who can log in again; a key is held by a music player that has no way to renew
+-- one, since OpenSubsonic has no reauthentication of any kind. A key that died
+-- on a date would strand the client with nothing it could do about it. So a key
+-- ends when it is revoked, or with the account it belongs to.
 CREATE TABLE api_keys (
     id           INTEGER PRIMARY KEY,
     user_id      INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,

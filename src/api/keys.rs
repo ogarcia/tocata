@@ -10,6 +10,12 @@
 //! A key is shown once, when it is made. What is stored is a SHA-256 of it, for
 //! the same reason a password is stored hashed: recognising a key never needs the
 //! plaintext, so there is no reason for the database to hold one.
+//!
+//! A key does not expire. It is held by a music player, and OpenSubsonic gives a
+//! player no way to renew anything, so an expiry date would only mean the music
+//! stopping one day with nothing the client could do. Revoking is the way one
+//! ends, which is the trade the whole mechanism is for: a password changes and
+//! every client is locked out at once, a key is withdrawn and only that one is.
 
 use super::error::{ApiError, ErrorBody};
 use super::session::Panel;
@@ -125,6 +131,9 @@ pub async fn list(
 ///
 /// Makes a key and returns it. This is the only time it is readable: what the
 /// database keeps is a hash, so a key that gets lost is replaced, not recovered.
+///
+/// The key does not expire. It stops working when it is revoked, or when the
+/// account it belongs to is deleted.
 #[utoipa::path(
     post,
     path = "/users/{username}/keys",
