@@ -22,7 +22,7 @@
 
 use super::error::{ApiError, ErrorBody};
 use super::session::{Administrator, Panel};
-use crate::{auth, db};
+use crate::{auth, db, session};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -263,6 +263,10 @@ pub async fn create(
 ///
 /// Your own, or anybody's if you administer the server. Renaming is a rename:
 /// sessions, keys and everything the account owns follow it.
+///
+/// Changing the password closes the account's other panel sessions, keeping only
+/// the one that asked. API keys are left alone, since revoking one of those is
+/// its own deliberate act.
 #[utoipa::path(
     patch,
     path = "/users/{username}",
@@ -357,7 +361,29 @@ pub async fn change(
         Err(e) => return Err(ApiError::internal(e, "changing an account")),
     }
 
-    Ok(Json(load(&pool, new_name.unwrap_or(&username)).await?))
+    let name_now = new_name.unwrap_or(&username);
+
+    // A new password that left the old logins working would not be a new
+    // password: the reason for changing one is almost always that somebody else
+    // might have the old one, and a browser they left open never sends it again.
+    //
+    // The session doing the asking is spared, since it has just proved who it is.
+    // When an administrator changes somebody else's password that session belongs
+    // to a different account, so it spares nothing and every login of theirs
+    // goes, which is the same rule arriving at the right answer twice.
+    if hash.is_some() {
+        let user_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
+            .bind(name_now)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| ApiError::internal(e, "looking up an account"))?;
+
+        session::destroy_all(&pool, user_id, Some(panel.id))
+            .await
+            .map_err(|e| ApiError::internal(e, "ending sessions after a password change"))?;
+    }
+
+    Ok(Json(load(&pool, name_now).await?))
 }
 
 /// Delete an account
@@ -499,6 +525,7 @@ async fn load(pool: &SqlitePool, username: &str) -> Result<Account, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::user::User;
 
     /// The session count is the one figure here that compares timestamps, and it
     /// compares them as text.
@@ -547,5 +574,199 @@ mod tests {
         let account = load(&pool, "someone").await.unwrap();
         assert_eq!(account.sessions, 1, "only the one that has not run out");
         assert_eq!(account.keys, 0);
+    }
+
+    /// An account with three logins open, and a way to ask how many are left.
+    async fn logged_in_thrice(admin: bool) -> (SqlitePool, i64, Vec<i64>) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let timestamp = db::now();
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', ?, ?, ?, ?) RETURNING id",
+        )
+        .bind(auth::hash_password("before").unwrap())
+        .bind(i64::from(admin))
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        for _ in 0..3 {
+            session::create(&pool, user_id).await.unwrap();
+        }
+
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        (pool, user_id, ids)
+    }
+
+    fn panel_of(id: i64, user_id: i64, username: &str, admin: bool) -> Panel {
+        Panel {
+            id,
+            user: User {
+                id: user_id,
+                username: username.to_string(),
+                is_admin: admin,
+            },
+            expires_at: "2999-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn nothing() -> AccountChanges {
+        AccountChanges {
+            username: None,
+            password: None,
+            email: None,
+            admin: None,
+            scrobbling: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_password_closes_the_other_sessions() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+        let mine = ids[0];
+
+        let Json(_) = change(
+            panel_of(mine, user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                password: Some("after".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("the change goes through");
+
+        let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(left, vec![mine], "only the one that asked survives");
+    }
+
+    /// The account is renamed and given a new password in the same call, so the
+    /// sessions have to be found by something the rename did not move.
+    #[tokio::test]
+    async fn a_rename_alongside_it_does_not_lose_the_sessions() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let Json(account) = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                username: Some("anna".to_string()),
+                password: Some("after".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("the change goes through");
+
+        // Without this the test would pass just as well on a rename that never
+        // happened, and prove nothing about finding the sessions afterwards.
+        assert_eq!(account.username, "anna");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
+    /// An administrator resetting somebody's password spares nothing of theirs,
+    /// because the session being spared is not one of the account's at all.
+    #[tokio::test]
+    async fn a_reset_by_somebody_else_closes_all_of_them() {
+        let (pool, user_id, _) = logged_in_thrice(false).await;
+
+        let timestamp = db::now();
+        let admin_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('boss', 'x', 1, ?, ?) RETURNING id",
+        )
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        session::create(&pool, admin_id).await.unwrap();
+        let admin_session: i64 =
+            sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ? LIMIT 1")
+                .bind(admin_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        let Json(_) = change(
+            panel_of(admin_session, admin_id, "boss", true),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                password: Some("after".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("the change goes through");
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0,
+            "every login of theirs is gone"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions WHERE user_id = ?")
+                .bind(admin_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1,
+            "the administrator stays logged in"
+        );
+    }
+
+    /// Changing anything else has no business logging anybody out.
+    #[tokio::test]
+    async fn changing_an_email_leaves_them_alone() {
+        let (pool, user_id, _) = logged_in_thrice(false).await;
+
+        let Json(_) = change(
+            panel_of(1, user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                email: Some("ana@example.org".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("the change goes through");
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            3
+        );
     }
 }

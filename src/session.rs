@@ -27,8 +27,12 @@ const LIFETIME_DAYS: i64 = 30;
 /// reads more than once a minute.
 const LAST_SEEN_RESOLUTION_MINUTES: i64 = 5;
 
-/// A resolved session: who it belongs to, and until when.
+/// A resolved session: which one it is, who it belongs to, and until when.
 pub struct Session {
+    /// Its row, which is how a session can be pointed at without the token that
+    /// opens it: to say "this one is the one you are using", or to spare it when
+    /// the rest are being closed.
+    pub id: i64,
     pub user: User,
     pub expires_at: String,
 }
@@ -99,6 +103,7 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> Result<Option<Session>> 
     }
 
     Ok(Some(Session {
+        id,
         user: User {
             id: user_id,
             username,
@@ -119,7 +124,122 @@ pub async fn destroy(pool: &SqlitePool, token: &str) -> Result<()> {
     Ok(())
 }
 
+/// Ends every session an account has, except optionally the one asking.
+///
+/// Sparing the caller's own is what makes this usable while changing a password:
+/// somebody who just proved who they are should not be thrown out along with
+/// whoever they are throwing out. Pass `None` and nothing is spared.
+pub async fn destroy_all(pool: &SqlitePool, user_id: i64, except: Option<i64>) -> Result<u64> {
+    // `?` never matches a row when the value is NULL, which is exactly the
+    // "spare nothing" case, so one statement covers both.
+    let done = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?")
+        .bind(user_id)
+        .bind(except)
+        .execute(pool)
+        .await
+        .context("ending an account's sessions")?;
+
+    Ok(done.rows_affected())
+}
+
 /// Seconds a freshly issued session is good for, for the cookie's `Max-Age`.
 pub fn lifetime_seconds() -> i64 {
     Duration::days(LIFETIME_DAYS).num_seconds()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two accounts with two sessions each, so that "all of them" can be told
+    /// apart from "all of this one's".
+    async fn two_users_logged_in_twice() -> (SqlitePool, i64, i64) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let timestamp = db::now();
+        let mut ids = Vec::new();
+
+        for name in ["ana", "bob"] {
+            let user_id: i64 = sqlx::query_scalar(
+                "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+                 VALUES (?, 'x', 0, ?, ?) RETURNING id",
+            )
+            .bind(name)
+            .bind(&timestamp)
+            .bind(&timestamp)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            for _ in 0..2 {
+                create(&pool, user_id).await.unwrap();
+            }
+
+            ids.push(user_id);
+        }
+
+        (pool, ids[0], ids[1])
+    }
+
+    async fn count(pool: &SqlitePool, user_id: i64) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// `IS NOT` rather than `!=` is the whole trick, and the difference only
+    /// shows with NULL: `id != NULL` is never true, so a plain comparison would
+    /// spare every row instead of none and this would quietly close nothing.
+    #[tokio::test]
+    async fn sparing_nothing_closes_everything() {
+        let (pool, ana, bob) = two_users_logged_in_twice().await;
+
+        let closed = destroy_all(&pool, ana, None).await.unwrap();
+
+        assert_eq!(closed, 2);
+        assert_eq!(count(&pool, ana).await, 0);
+        assert_eq!(count(&pool, bob).await, 2, "nobody else was touched");
+    }
+
+    #[tokio::test]
+    async fn one_session_can_be_spared() {
+        let (pool, ana, _) = two_users_logged_in_twice().await;
+
+        let keep: i64 = sqlx::query_scalar("SELECT min(id) FROM sessions WHERE user_id = ?")
+            .bind(ana)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let closed = destroy_all(&pool, ana, Some(keep)).await.unwrap();
+
+        assert_eq!(closed, 1);
+        let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
+            .bind(ana)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, vec![keep]);
+    }
+
+    /// Sparing a session of somebody else's is not sparing one of theirs, which
+    /// is what makes one rule serve both a self service change and an
+    /// administrator changing a password for somebody.
+    #[tokio::test]
+    async fn sparing_a_stranger_spares_nothing_here() {
+        let (pool, ana, bob) = two_users_logged_in_twice().await;
+
+        let bobs: i64 = sqlx::query_scalar("SELECT min(id) FROM sessions WHERE user_id = ?")
+            .bind(bob)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(destroy_all(&pool, ana, Some(bobs)).await.unwrap(), 2);
+        assert_eq!(count(&pool, ana).await, 0);
+        assert_eq!(count(&pool, bob).await, 2);
+    }
 }

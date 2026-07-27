@@ -29,6 +29,9 @@ const COOKIE_PATH: &str = "/api";
 /// Asking for this in a handler is what makes the handler private: there is no
 /// way to write one that forgets to check, because the check is the argument.
 pub struct Panel {
+    /// Which session this is, so a handler can tell it apart from the others the
+    /// same account has open.
+    pub id: i64,
     pub user: User,
     /// When this session runs out, so a handler can pass it on without asking
     /// the database a second time.
@@ -48,6 +51,7 @@ where
 
         match session::resolve(&pool, &token).await {
             Ok(Some(session)) => Ok(Self {
+                id: session.id,
                 user: session.user,
                 expires_at: session.expires_at,
             }),
