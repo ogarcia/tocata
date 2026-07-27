@@ -1,172 +1,150 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
-//! A skeleton of the panel, built to be measured rather than used.
+//! Tocata's administration panel.
 //!
-//! Two screens, chosen because between them they exercise everything the real
-//! panel would do against `/api/v1`: a form that posts credentials and gets a
-//! cookie back, and a view that reads JSON behind that cookie and draws it.
+//! A client of `/api/v1` and nothing else. It holds no state the server does not
+//! already hold, which is what keeps a reload from being a way to lose anything.
 //!
-//! The shapes come from the server itself, with everything that needs a database
-//! or a socket switched off by a feature. Rename a field there and this stops
-//! compiling, which is the entire reason the panel is written in Rust.
+//! The shapes it exchanges come from the server's own crate, with everything that
+//! needs a database or a socket switched off by a feature. Rename a field there
+//! and this stops compiling, which is the whole reason the panel is in Rust.
+
+mod api;
+mod layout;
+mod locale;
+mod login;
+mod pages;
+
+// Compiles the translations in. `fallback` is what a key missing from a
+// translation falls back to, so a half translated language shows English rather
+// than the name of the key.
+rust_i18n::i18n!("locales", fallback = "en");
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use tocata::types::{Credentials, Identity, Stats};
+use leptos_router::components::{Route, Router, Routes};
+use leptos_router::path;
+use rust_i18n::t;
+use tocata::types::Identity;
 
-/// Everything is relative, since the panel is served by the server it talks to.
-const API: &str = "/api/v1";
-
-/// The cookie is `HttpOnly`, so the panel cannot read it and does not try. What
-/// it does is ask who it is; a 401 means the form goes up.
-async fn whoami() -> Option<Identity> {
-    gloo_net::http::Request::get(&format!("{API}/session"))
-        .credentials(web_sys::RequestCredentials::SameOrigin)
-        .send()
-        .await
-        .ok()
-        .filter(|response| response.ok())?
-        .json()
-        .await
-        .ok()
-}
-
-async fn log_in(username: String, password: String) -> Result<Identity, String> {
-    let response = gloo_net::http::Request::post(&format!("{API}/session"))
-        .credentials(web_sys::RequestCredentials::SameOrigin)
-        .json(&Credentials { username, password })
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.ok() {
-        return Err("Wrong username or password".to_string());
-    }
-
-    response.json().await.map_err(|e| e.to_string())
-}
-
-async fn stats() -> Result<Stats, String> {
-    gloo_net::http::Request::get(&format!("{API}/stats"))
-        .credentials(web_sys::RequestCredentials::SameOrigin)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[component]
-fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
-    let (username, set_username) = signal(String::new());
-    let (password, set_password) = signal(String::new());
-    let (failure, set_failure) = signal(Option::<String>::None);
-    let (waiting, set_waiting) = signal(false);
-
-    let submit = move |event: web_sys::SubmitEvent| {
-        event.prevent_default();
-        set_waiting.set(true);
-        set_failure.set(None);
-
-        let (user, pass) = (username.get(), password.get());
-
-        spawn_local(async move {
-            match log_in(user, pass).await {
-                Ok(identity) => on_in.run(identity),
-                Err(why) => set_failure.set(Some(why)),
-            }
-            set_waiting.set(false);
-        });
-    };
-
-    view! {
-        <form on:submit=submit>
-            <h1>"Tocata"</h1>
-            <input
-                placeholder="Username"
-                autofocus
-                prop:value=username
-                on:input:target=move |e| set_username.set(e.target().value())
-            />
-            <input
-                type="password"
-                placeholder="Password"
-                prop:value=password
-                on:input:target=move |e| set_password.set(e.target().value())
-            />
-            <button type="submit" disabled=waiting>
-                {move || if waiting.get() { "…" } else { "Log in" }}
-            </button>
-            {move || failure.get().map(|why| view! { <p class="failure">{why}</p> })}
-        </form>
-    }
-}
-
-#[component]
-fn Dashboard(identity: Identity) -> impl IntoView {
-    let figures = LocalResource::new(stats);
-
-    view! {
-        <h1>"Tocata"</h1>
-        <p>
-            {identity.username.clone()}
-            {if identity.admin { " (administrator)" } else { "" }}
-        </p>
-        <Suspense fallback=|| view! { <p>"Counting…"</p> }>
-            {move || Suspend::new(async move {
-                match figures.await {
-                    Ok(s) => view! {
-                        <table>
-                            <tr><td>"Version"</td><td>{s.version}</td></tr>
-                            <tr><td>"Artists"</td><td>{s.artists}</td></tr>
-                            <tr><td>"Albums"</td><td>{s.albums}</td></tr>
-                            <tr><td>"Tracks"</td><td>{s.tracks}</td></tr>
-                            <tr><td>"Missing"</td><td>{s.missing}</td></tr>
-                            <tr><td>"Accounts"</td><td>{s.users}</td></tr>
-                            <tr><td>"Libraries"</td><td>{s.libraries}</td></tr>
-                            <tr><td>"Bytes"</td><td>{s.total_size}</td></tr>
-                        </table>
-                    }.into_any(),
-                    Err(why) => view! { <p class="failure">{why}</p> }.into_any(),
-                }
-            })}
-        </Suspense>
-    }
+/// Who is logged in, or nobody, or not asked yet.
+///
+/// The third state matters: without it the form flashes up for a moment on every
+/// reload before the answer to "who am I" arrives, which looks like being logged
+/// out and is not.
+#[derive(Clone, PartialEq, Eq)]
+enum Who {
+    Asking,
+    Nobody,
+    Somebody(Identity),
 }
 
 #[component]
 fn Panel() -> impl IntoView {
-    let (identity, set_identity) = signal(Option::<Identity>::None);
-    let (asked, set_asked) = signal(false);
+    let (who, set_who) = signal(Who::Asking);
 
-    // One question on load, so a reload with a live cookie lands on the
-    // dashboard instead of asking for a password that is not needed.
+    // One question on load. A live cookie lands straight on the panel; anything
+    // else puts the form up.
     spawn_local(async move {
-        set_identity.set(whoami().await);
-        set_asked.set(true);
+        set_who.set(match api::whoami().await {
+            Ok(identity) => Who::Somebody(identity),
+            Err(_) => Who::Nobody,
+        });
     });
 
+    let forget = Callback::new(move |()| set_who.set(Who::Nobody));
+
     view! {
-        <main>
-            {move || {
-                if !asked.get() {
-                    return view! { <p>"…"</p> }.into_any();
+        {move || match who.get() {
+            Who::Asking => {
+                view! {
+                    <main class="entry">
+                        <p class="quiet">{t!("common.loading")}</p>
+                    </main>
                 }
-                match identity.get() {
-                    Some(identity) => view! { <Dashboard identity /> }.into_any(),
-                    None => view! {
-                        <LogIn on_in=Callback::new(move |who| set_identity.set(Some(who))) />
-                    }.into_any(),
+                    .into_any()
+            }
+            Who::Nobody => {
+                view! {
+                    <login::LogIn on_in=Callback::new(move |identity| {
+                        set_who.set(Who::Somebody(identity))
+                    }) />
                 }
-            }}
-        </main>
+                    .into_any()
+            }
+            Who::Somebody(identity) => view! { <Inside identity forget /> }.into_any(),
+        }}
+    }
+}
+
+/// The panel proper, once there is somebody to show it to.
+#[component]
+fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
+    let admin = identity.admin;
+
+    view! {
+        <Router>
+            <layout::Shell identity on_out=forget>
+                <Routes fallback=move || {
+                    view! { <pages::Unbuilt heading=t!("nav.overview").to_string() /> }
+                }>
+                    <Route
+                        path=path!("/")
+                        view=move || view! { <pages::overview::Overview on_expired=forget /> }
+                    />
+                    <Route
+                        path=path!("/account")
+                        view=move || {
+                            view! { <pages::Unbuilt heading=t!("nav.account").to_string() /> }
+                        }
+                    />
+
+                    // The administration sections. The menu does not offer these
+                    // to anybody else and the server refuses them regardless, so
+                    // what is left to handle here is a URL typed by hand.
+                    <Route
+                        path=path!("/libraries")
+                        view=move || {
+                            view! { <Restricted admin heading=t!("nav.libraries").to_string() /> }
+                        }
+                    />
+                    <Route
+                        path=path!("/accounts")
+                        view=move || {
+                            view! { <Restricted admin heading=t!("nav.accounts").to_string() /> }
+                        }
+                    />
+                    <Route
+                        path=path!("/settings")
+                        view=move || {
+                            view! { <Restricted admin heading=t!("nav.settings").to_string() /> }
+                        }
+                    />
+                    <Route
+                        path=path!("/maintenance")
+                        view=move || {
+                            view! { <Restricted admin heading=t!("nav.maintenance").to_string() /> }
+                        }
+                    />
+                </Routes>
+            </layout::Shell>
+        </Router>
+    }
+}
+
+/// Keeps the rights check in one place rather than repeated at every route.
+#[component]
+fn Restricted(admin: bool, heading: String) -> impl IntoView {
+    if admin {
+        view! { <pages::Unbuilt heading /> }.into_any()
+    } else {
+        view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
     }
 }
 
 fn main() {
     console_error_panic_hook::set_once();
+    locale::settle();
     leptos::mount::mount_to_body(Panel);
 }

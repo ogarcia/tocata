@@ -1,0 +1,53 @@
+# The base language. Every key exists here first, and a translation missing
+# anywhere else falls back to what this file says.
+#
+# One file per language rather than one file holding every language, because that
+# is the shape translation tools expect to be handed.
+_version: 1
+
+app:
+  name: Tocata
+
+nav:
+  overview: Overview
+  libraries: Libraries
+  accounts: Accounts
+  settings: Settings
+  maintenance: Maintenance
+  account: My account
+  menu: Menu
+
+login:
+  heading: Log in
+  username: Username
+  password: Password
+  submit: Log in
+  working: Working…
+  failed: Wrong username or password
+  unreachable: The server did not answer
+
+header:
+  you: Signed in as
+  administrator: administrator
+  log_out: Log out
+  language: Language
+
+overview:
+  heading: Overview
+  version: Version
+  artists: Artists
+  albums: Albums
+  tracks: Tracks
+  missing: Missing
+  genres: Genres
+  playlists: Playlists
+  accounts: Accounts
+  libraries: Libraries
+  size: Size of the collection
+  duration: Length of the collection
+  database: Size of the database
+
+common:
+  loading: Loading…
+  not_yet: Not built yet
+  retry: Try again

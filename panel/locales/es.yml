@@ -1,0 +1,49 @@
+# Español. Las claves que falten aquí caen a en.yml.
+_version: 1
+
+app:
+  name: Tocata
+
+nav:
+  overview: Resumen
+  libraries: Bibliotecas
+  accounts: Cuentas
+  settings: Ajustes
+  maintenance: Mantenimiento
+  account: Mi cuenta
+  menu: Menú
+
+login:
+  heading: Entrar
+  username: Usuario
+  password: Contraseña
+  submit: Entrar
+  working: Un momento…
+  failed: Usuario o contraseña incorrectos
+  unreachable: El servidor no respondió
+
+header:
+  you: Sesión de
+  administrator: administración
+  log_out: Salir
+  language: Idioma
+
+overview:
+  heading: Resumen
+  version: Versión
+  artists: Artistas
+  albums: Álbumes
+  tracks: Pistas
+  missing: Ausentes
+  genres: Géneros
+  playlists: Listas
+  accounts: Cuentas
+  libraries: Bibliotecas
+  size: Tamaño de la colección
+  duration: Duración de la colección
+  database: Tamaño de la base de datos
+
+common:
+  loading: Cargando…
+  not_yet: Todavía sin construir
+  retry: Reintentar

@@ -17,6 +17,9 @@
 //! measuring said it costs 105 bytes of the compressed bundle. That is not worth
 //! a `cfg_attr` on every field.
 //!
+//! Every one of them compares, because a panel that can tell whether a value
+//! changed is a panel that can decide not to repaint.
+//!
 //! What is not here: query parameters, and anything with a lifetime. Query
 //! parameters belong to how a call is addressed rather than to what it carries,
 //! and a borrowed string cannot be deserialised into, so text that used to be
@@ -26,7 +29,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
 
 /// What a failed call returns.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ErrorBody {
     /// Stable identifier for the kind of failure. What a client should branch on.
     #[schema(example = "wrongCredentials")]
@@ -41,14 +44,14 @@ pub struct ErrorBody {
 /// No version, no counts, no scan state. This is the only call that answers
 /// without a session, so what it discloses to a stranger is the whole of what it
 /// discloses.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Health {
     #[schema(example = "ok")]
     pub status: String,
 }
 
 /// What a login asks for.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Credentials {
     #[schema(example = "admin")]
     pub username: String,
@@ -56,7 +59,7 @@ pub struct Credentials {
 }
 
 /// Who is logged in.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Identity {
     #[schema(example = "admin")]
@@ -71,7 +74,7 @@ pub struct Identity {
 }
 
 /// A session as the panel can talk about it, which is to say without the token.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Login {
     pub id: i64,
@@ -85,13 +88,13 @@ pub struct Login {
 }
 
 /// How many were closed, so the panel can say something true afterwards.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Closed {
     pub closed: u64,
 }
 
 /// How a scan is going, or how the last one went.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     /// Whether one is running now. Everything else describes that run while it
@@ -120,7 +123,7 @@ pub struct Status {
 }
 
 /// A library and how much of it there is.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Library {
     pub id: i64,
@@ -142,7 +145,7 @@ pub struct Library {
 }
 
 /// What it takes to add one.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NewLibrary {
     /// Absolute path to a directory that already exists.
     #[schema(example = "/srv/music")]
@@ -154,7 +157,7 @@ pub struct NewLibrary {
 }
 
 /// What may be changed about one. Anything left out is left alone.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct LibraryChanges {
     #[schema(example = "vinyl rips")]
     pub name: Option<String>,
@@ -162,7 +165,7 @@ pub struct LibraryChanges {
 }
 
 /// An account, as somebody entitled to see it may.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     #[schema(example = "admin")]
@@ -185,7 +188,7 @@ pub struct Account {
 }
 
 /// What it takes to create an account.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NewAccount {
     #[schema(example = "oscar")]
     pub username: String,
@@ -198,7 +201,7 @@ pub struct NewAccount {
 }
 
 /// What may be changed. Anything left out is left alone.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AccountChanges {
     /// A new name for the account. Nothing else has to move with it.
     #[schema(example = "oscar")]
@@ -211,7 +214,7 @@ pub struct AccountChanges {
 }
 
 /// Which libraries an account is restricted to.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct LibraryAccess {
     /// Identifiers of the libraries this account may see. An empty list removes
     /// the restriction, which is not the same as seeing nothing: an account with
@@ -220,7 +223,7 @@ pub struct LibraryAccess {
 }
 
 /// A key as it can be talked about afterwards, which is to say without the key.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Key {
     pub id: i64,
@@ -241,7 +244,7 @@ pub struct Key {
 }
 
 /// A key at the one moment it can be read.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuedKey {
     pub id: i64,
@@ -256,7 +259,7 @@ pub struct IssuedKey {
 }
 
 /// What it takes to issue one.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NewKey {
     /// A name for it. Defaults to something unhelpful on purpose, so that whoever
@@ -269,7 +272,7 @@ pub struct NewKey {
 }
 
 /// What may be changed about a key once it exists.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyChanges {
     #[schema(example = "phone")]
@@ -300,7 +303,7 @@ where
 }
 
 /// The settings, whole. Small enough that there is no reason to fetch pieces.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// Words skipped when deciding which letter a name files under, so that
@@ -311,7 +314,7 @@ pub struct Settings {
 }
 
 /// What may be changed. Anything left out is left alone.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsChanges {
     /// The replacement list. An empty list is a valid answer: it means no word
@@ -321,7 +324,7 @@ pub struct SettingsChanges {
 }
 
 /// The dashboard, more or less.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
     /// Version of the server answering.
@@ -347,7 +350,7 @@ pub struct Stats {
 }
 
 /// What a purge would take, in the terms that matter.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Loss {
     /// Tracks marked absent, which is what would be deleted.
@@ -366,7 +369,7 @@ pub struct Loss {
 }
 
 /// What a purge actually took.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Removed {
     pub tracks: i64,

@@ -13,9 +13,11 @@ authors.workspace = true
 console_error_panic_hook = "0.1"
 gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
 leptos = { version = "0.8", features = ["csr"] }
+leptos_router = "0.8"
+rust-i18n = "4"
 serde.workspace = true
 # Only for the shapes on the wire; everything that needs a database or a socket
 # stays behind the feature this switches off.
 tocata = { path = "../server", default-features = false }
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["RequestCredentials", "SubmitEvent"] }
+web-sys = { version = "0.3", features = ["Navigator", "RequestCredentials", "Storage", "SubmitEvent", "Window"] }
