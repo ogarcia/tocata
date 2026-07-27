@@ -16,6 +16,19 @@ pub fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+/// A moment written by somebody else, in the shape the schema stores, or `None`
+/// if it is not a moment at all.
+///
+/// Normalising to UTC is the whole job. Timestamps here are compared as text, so
+/// `2026-08-26T11:00:00+02:00` would sort as though it were nine in the morning
+/// UTC rather than the same instant as `09:00:00Z`, and a date would take effect
+/// two hours late or early depending on which way the offset went.
+pub fn timestamp_from(given: &str) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(given)
+        .ok()
+        .map(|moment| moment.to_utc().to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+
 /// A moment given in milliseconds since the epoch, in the shape the schema
 /// stores. Clients hand these over when scrobbling plays they cached offline.
 pub fn from_epoch_millis(millis: i64) -> String {
@@ -69,4 +82,46 @@ pub async fn connect(path: &Path) -> Result<SqlitePool> {
         .context("applying database migrations")?;
 
     Ok(pool)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reason this function exists rather than the string being stored as
+    /// given: text comparison is what decides whether a moment has passed, so an
+    /// offset left in place would be read as though it were UTC and the moment
+    /// would land hours away from the one that was meant.
+    #[test]
+    fn an_offset_becomes_the_same_instant_in_utc() {
+        assert_eq!(
+            timestamp_from("2026-08-26T11:00:00+02:00").unwrap(),
+            "2026-08-26T09:00:00Z"
+        );
+    }
+
+    #[test]
+    fn what_is_already_utc_is_left_where_it_is() {
+        assert_eq!(
+            timestamp_from("2026-08-26T09:00:00Z").unwrap(),
+            "2026-08-26T09:00:00Z"
+        );
+    }
+
+    /// Sub-second precision is dropped rather than rejected: the schema keeps
+    /// seconds, and refusing a moment for being too precise helps nobody.
+    #[test]
+    fn fractions_of_a_second_are_dropped() {
+        assert_eq!(
+            timestamp_from("2026-08-26T09:00:00.123456Z").unwrap(),
+            "2026-08-26T09:00:00Z"
+        );
+    }
+
+    #[test]
+    fn what_is_not_a_moment_is_refused() {
+        for given in ["", "tomorrow", "2026-08-26", "2026-13-01T00:00:00Z"] {
+            assert!(timestamp_from(given).is_none(), "{given} is not a moment");
+        }
+    }
 }

@@ -294,18 +294,24 @@ CREATE TABLE users (
 -- instead of encrypting it: the legacy token scheme needs the plaintext, an
 -- API key does not.
 --
--- No expiry column, and that is the decision rather than an omission. Sessions
--- below run out after thirty days because a browser has somebody in front of it
--- who can log in again; a key is held by a music player that has no way to renew
--- one, since OpenSubsonic has no reauthentication of any kind. A key that died
--- on a date would strand the client with nothing it could do about it. So a key
--- ends when it is revoked, or with the account it belongs to.
+-- Expiry is opt in, which is why the column is nullable and null is the default.
+-- A key is held by a music player, and OpenSubsonic gives a player no way to
+-- renew anything, so a key that expires stops the music on a date nothing
+-- announced. That is a fine thing to accept deliberately — a key for trying a
+-- client out, or one lent to somebody — and a poor thing to be handed.
+--
+-- An expired key is kept. It cannot authenticate, but the row stays until it is
+-- revoked, so the date can be pushed out and the same key start working again
+-- rather than every client having to be set up afresh.
 CREATE TABLE api_keys (
     id           INTEGER PRIMARY KEY,
     user_id      INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     key_hash     TEXT    NOT NULL UNIQUE,
     label        TEXT    NOT NULL,
     created_at   TEXT    NOT NULL,
+    -- Null means it never expires. Stored in the same shape as every other
+    -- timestamp here, because it is compared as text against one of them.
+    expires_at   TEXT,
     last_used_at TEXT
 );
 

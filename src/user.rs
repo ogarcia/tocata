@@ -72,13 +72,18 @@ pub async fn authenticate_password(
 async fn lookup_api_key(pool: &SqlitePool, key: &str) -> Result<Option<(i64, User)>> {
     let key_hash = auth::hash_secret(key);
 
+    // An expired key stays in the table so its date can be pushed out later, so
+    // it has to be turned away here rather than by not being there. The
+    // comparison is against a bound timestamp and not SQLite's own
+    // `datetime('now')`, which writes a space where the schema writes a T.
     let row: Option<(i64, i64, String, bool)> = sqlx::query_as(
         "SELECT k.id, u.id, u.username, u.is_admin
            FROM api_keys k
            JOIN users u ON u.id = k.user_id
-          WHERE k.key_hash = ?",
+          WHERE k.key_hash = ? AND (k.expires_at IS NULL OR k.expires_at > ?)",
     )
     .bind(&key_hash)
+    .bind(now())
     .fetch_optional(pool)
     .await
     .context("looking up API key")?;
@@ -230,6 +235,114 @@ mod tests {
         }
 
         pool
+    }
+
+    /// Moves a key's expiry, or clears it with `None`.
+    async fn expire_at(pool: &SqlitePool, key: &str, when: Option<&str>) {
+        sqlx::query("UPDATE api_keys SET expires_at = ? WHERE key_hash = ?")
+            .bind(when)
+            .bind(auth::hash_secret(key))
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    /// Midnight of today, rather than a date years ago.
+    ///
+    /// Against SQLite's own `datetime('now')` — `2026-07-27 09:00:00` where the
+    /// schema writes `2026-07-27T09:00:00Z` — the two agree until the separator
+    /// and `'T' > ' '`, so a key that ran out this morning would still let a
+    /// request through. A distant date differs early enough to compare correctly
+    /// either way, which is why it would prove nothing.
+    fn earlier_today() -> String {
+        format!("{}T00:00:00Z", &now()[..10])
+    }
+
+    #[tokio::test]
+    async fn a_key_with_no_expiry_keeps_working() {
+        let pool = two_users_with_keys().await;
+
+        assert!(
+            authenticate_api_key(&pool, "ana's key")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_key_that_ran_out_today_is_turned_away() {
+        let pool = two_users_with_keys().await;
+        expire_at(&pool, "ana's key", Some(&earlier_today())).await;
+
+        assert!(
+            authenticate_api_key(&pool, "ana's key")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            authenticate_password_or_api_key(&pool, "ana", "ana's key")
+                .await
+                .unwrap()
+                .is_none(),
+            "and by the other door as well"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_key_with_an_expiry_still_ahead_works() {
+        let pool = two_users_with_keys().await;
+        expire_at(&pool, "ana's key", Some("2999-01-01T00:00:00Z")).await;
+
+        assert!(
+            authenticate_api_key(&pool, "ana's key")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    /// The point of keeping an expired key rather than sweeping it: the same
+    /// secret works again once the date moves, so nothing has to be set up anew.
+    #[tokio::test]
+    async fn pushing_the_date_out_brings_the_same_key_back() {
+        let pool = two_users_with_keys().await;
+        expire_at(&pool, "ana's key", Some(&earlier_today())).await;
+
+        expire_at(&pool, "ana's key", Some("2999-01-01T00:00:00Z")).await;
+
+        assert!(
+            authenticate_api_key(&pool, "ana's key")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_key_is_not_gone_from_the_table() {
+        let pool = two_users_with_keys().await;
+        expire_at(&pool, "ana's key", Some(&earlier_today())).await;
+
+        let _ = authenticate_api_key(&pool, "ana's key").await.unwrap();
+
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM api_keys WHERE key_hash = ?")
+            .bind(auth::hash_secret("ana's key"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn an_expired_key_records_no_use() {
+        let pool = two_users_with_keys().await;
+        expire_at(&pool, "ana's key", Some(&earlier_today())).await;
+
+        let _ = authenticate_api_key(&pool, "ana's key").await.unwrap();
+
+        assert!(last_used(&pool, "ana's key").await.is_none());
     }
 
     async fn last_used(pool: &SqlitePool, key: &str) -> Option<String> {
