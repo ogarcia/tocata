@@ -53,6 +53,9 @@ struct AuthParams {
 #[derive(Debug, PartialEq, Eq)]
 enum Credentials {
     ApiKey(String),
+    /// What arrived in `p`, which is a password or an api key pasted in its
+    /// place. Telling them apart is left to the check itself, because the
+    /// client that sent it could not tell them apart either.
     Password {
         username: String,
         password: String,
@@ -144,7 +147,7 @@ where
                 .await
                 .map(|user| user.ok_or(ApiError::InvalidApiKey)),
             Credentials::Password { username, password } => {
-                user::authenticate_password(pool, &username, &password)
+                user::authenticate_password_or_api_key(pool, &username, &password)
                     .await
                     .map(|user| user.ok_or(ApiError::WrongCredentials))
             }
