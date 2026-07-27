@@ -267,7 +267,14 @@ async fn a_moved_file_keeps_its_identity_and_user_data() {
     assert_eq!(rows.len(), 1, "the move must not create a second row");
     assert_eq!(rows[0].0, track_id, "same row");
     assert_eq!(rows[0].1, public_id, "same identifier for the client");
-    assert_eq!(rows[0].2, moved.to_string_lossy());
+    // Relative to the library root, which is the whole point of storing it that
+    // way: the row says where the file is inside the library and not which
+    // directory the library happened to be in.
+    assert_eq!(rows[0].2, "Right Folder/Album/01 song.wav");
+    assert!(
+        !rows[0].2.starts_with('/'),
+        "a stored path that is absolute would tie the row to this machine"
+    );
     assert_eq!(rows[0].3, None, "not missing any more");
 
     let (plays, rating): (i64, i64) =
@@ -695,4 +702,58 @@ async fn the_environment_re_enables_what_it_names() {
             .unwrap();
 
     assert!(enabled, "naming it in the variable turns it back on");
+}
+
+/// Moving a library is one row, and nothing else has to be touched.
+///
+/// This is what relative paths are for. Stored absolute, every track would name
+/// the old directory and only a rescan could reconcile them one file at a time;
+/// stored relative, the root is named once and changing it is the whole move.
+#[tokio::test]
+async fn moving_a_library_needs_no_rescan() {
+    let root = std::env::temp_dir().join("tocata-scan-relocated");
+    let elsewhere = std::env::temp_dir().join("tocata-scan-relocated-new");
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&elsewhere);
+
+    write_wav(&root.join("Artist/Album/01 song.wav"));
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    let stored: String = sqlx::query_scalar("SELECT path FROM tracks")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, "Artist/Album/01 song.wav");
+
+    // The whole move: the directory on disk, and one column.
+    fs::rename(&root, &elsewhere).unwrap();
+    sqlx::query("UPDATE libraries SET path = ? WHERE id = ?")
+        .bind(elsewhere.to_string_lossy().as_ref())
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // No scan in between: the file is findable at once, because where it is has
+    // always been "inside the library" and only the library moved.
+    let composed: String = sqlx::query_scalar(
+        "SELECT l.path || '/' || t.path FROM tracks t JOIN libraries l ON l.id = t.library_id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        composed,
+        elsewhere.join("Artist/Album/01 song.wav").to_string_lossy()
+    );
+    assert!(
+        std::path::Path::new(&composed).exists(),
+        "the composed path has to be the file that is actually there"
+    );
+
+    fs::remove_dir_all(&elsewhere).unwrap();
 }

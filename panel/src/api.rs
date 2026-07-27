@@ -10,7 +10,7 @@
 use gloo_net::http::{Request, RequestBuilder};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tocata::types::{Credentials, Identity, Stats};
+use tocata::types::{Credentials, Identity, Library, LibraryChanges, NewLibrary, Stats};
 use web_sys::RequestCredentials;
 
 /// Relative, because the panel is served by the server it talks to. Nothing to
@@ -52,7 +52,16 @@ fn delete(path: &str) -> Result<Request, Failure> {
 
 /// A POST with a body, which is the only reason a request here carries one.
 fn post<T: Serialize>(path: &str, body: &T) -> Result<Request, Failure> {
-    Request::post(&url(path))
+    with_body(Request::post(&url(path)), body)
+}
+
+/// A PATCH, for the calls that change part of something.
+fn patch<T: Serialize>(path: &str, body: &T) -> Result<Request, Failure> {
+    with_body(Request::patch(&url(path)), body)
+}
+
+fn with_body<T: Serialize>(request: RequestBuilder, body: &T) -> Result<Request, Failure> {
+    request
         .credentials(RequestCredentials::SameOrigin)
         .json(body)
         .map_err(|_| Failure::Unreachable)
@@ -76,17 +85,20 @@ async fn read<T: DeserializeOwned>(request: Request) -> Result<T, Failure> {
     match response.status() {
         200..=299 => response.json().await.map_err(|_| Failure::Unreachable),
         401 => Err(Failure::Unauthenticated),
-        _ => {
-            // The server sends a stable code and an English message. The code is
-            // what we keep: the panel says it in the reader's own language.
-            let code = response
-                .json::<tocata::types::ErrorBody>()
-                .await
-                .map(|body| body.code)
-                .unwrap_or_else(|_| "unknown".to_string());
-            Err(Failure::Refused(code))
-        }
+        _ => Err(refused(response).await),
     }
+}
+
+/// The server sends a stable code and an English message. The code is what we
+/// keep: the panel says it in the reader's own language.
+async fn refused(response: gloo_net::http::Response) -> Failure {
+    let code = response
+        .json::<tocata::types::ErrorBody>()
+        .await
+        .map(|body| body.code)
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    Failure::Refused(code)
 }
 
 /// Who the cookie belongs to, if it belongs to anybody.
@@ -126,6 +138,33 @@ pub async fn start_scan(full: bool) -> Result<(), Failure> {
         Ok(response) if response.ok() => Ok(()),
         Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
         Ok(response) => Err(Failure::Refused(response.status().to_string())),
+        Err(_) => Err(Failure::Unreachable),
+    }
+}
+
+/// Every library, in the order the server lists them.
+pub async fn libraries() -> Result<Vec<Library>, Failure> {
+    read(get("/libraries")?).await
+}
+
+/// Adds one. The path has to exist on the server, which is the one thing this
+/// cannot check from here.
+pub async fn add_library(path: String, name: Option<String>) -> Result<Library, Failure> {
+    read(post("/libraries", &NewLibrary { path, name })?).await
+}
+
+/// Renames one, switches it on or off, or both.
+pub async fn change_library(id: i64, changes: LibraryChanges) -> Result<Library, Failure> {
+    read(patch(&format!("/libraries/{id}"), &changes)?).await
+}
+
+/// Removes one, and with it everything scanned from it. The server refuses while
+/// the library is still enabled, which arrives here as a `Refused`.
+pub async fn remove_library(id: i64) -> Result<(), Failure> {
+    match delete(&format!("/libraries/{id}"))?.send().await {
+        Ok(response) if response.ok() => Ok(()),
+        Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
+        Ok(response) => Err(refused(response).await),
         Err(_) => Err(Failure::Unreachable),
     }
 }

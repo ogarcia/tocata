@@ -95,20 +95,8 @@ pub async fn add(
     State(pool): State<SqlitePool>,
     Json(new): Json<NewLibrary>,
 ) -> Result<(StatusCode, Json<Library>), ApiError> {
-    let path = Path::new(new.path.trim());
-
-    // Absolute because a relative path is resolved against a working directory
-    // the caller cannot see. Whoever sets the environment variable knows where
-    // the process starts; whoever calls this does not.
-    if !path.is_absolute() {
-        return Err(ApiError::Invalid("The path must be absolute"));
-    }
-
-    match tokio::fs::metadata(path).await {
-        Ok(metadata) if metadata.is_dir() => {}
-        Ok(_) => return Err(ApiError::Invalid("That path is not a directory")),
-        Err(_) => return Err(ApiError::Invalid("That path cannot be read")),
-    }
+    let checked = usable(new.path.trim()).await?;
+    let path = Path::new(&checked);
 
     let name = new
         .name
@@ -147,6 +135,16 @@ pub async fn add(
 
 /// Change a library
 ///
+/// Its name, where it reads from, or whether it is switched on.
+///
+/// Moving one takes effect at once and needs no scan. Every track and folder is
+/// stored relative to the library's directory, so the directory is named in one
+/// row and this is that row: the files are found at their new place on the next
+/// request, with their ratings, play counts and playlists untouched.
+///
+/// What it does not do is check that the music is there. A path that exists and
+/// holds something else will serve nothing until a scan sorts it out.
+///
 /// Renames it, or turns it on and off. Disabling keeps scans out of it and drops
 /// it from the folder list, without touching a single row, which makes it the
 /// reversible way to take a library out of service.
@@ -162,6 +160,7 @@ pub async fn add(
         (status = 401, description = "No valid session", body = ErrorBody),
         (status = 403, description = "Not an administrator", body = ErrorBody),
         (status = 404, description = "No such library", body = ErrorBody),
+        (status = 409, description = "Another library already reads from that directory", body = ErrorBody),
     )
 )]
 pub async fn change(
@@ -176,8 +175,13 @@ pub async fn change(
         .map(str::trim)
         .filter(|name| !name.is_empty());
 
-    if name.is_none() && changes.enabled.is_none() {
-        return Err(ApiError::Invalid("Give a name or an enabled flag"));
+    let moved = match changes.path.as_deref().map(str::trim) {
+        Some(path) if !path.is_empty() => Some(usable(path).await?),
+        _ => None,
+    };
+
+    if name.is_none() && moved.is_none() && changes.enabled.is_none() {
+        return Err(ApiError::Invalid("Give a name, a path or an enabled flag"));
     }
 
     // Coalesce rather than assembling the statement: sqlx will not take SQL built
@@ -186,17 +190,26 @@ pub async fn change(
     let changed = sqlx::query(
         "UPDATE libraries
             SET name = coalesce(?, name),
+                path = coalesce(?, path),
                 enabled = coalesce(?, enabled),
                 updated_at = ?
           WHERE id = ?",
     )
     .bind(name)
+    .bind(moved.as_deref())
     .bind(changes.enabled.map(i64::from))
     .bind(db::now())
     .bind(id)
     .execute(&pool)
-    .await
-    .map_err(|e| ApiError::internal(e, "changing a library"))?;
+    .await;
+
+    let changed = match changed {
+        Ok(changed) => changed,
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            return Err(ApiError::Conflict("That directory is already a library"));
+        }
+        Err(e) => return Err(ApiError::internal(e, "changing a library")),
+    };
 
     if changed.rows_affected() == 0 {
         return Err(ApiError::NotFound);
@@ -253,6 +266,24 @@ pub async fn remove(
         .map_err(|e| ApiError::internal(e, "removing a library"))?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Checks a path is somewhere music could be read from, and hands it back
+/// trimmed.
+///
+/// Absolute because a relative path is resolved against a working directory the
+/// caller cannot see: whoever sets the environment variable knows where the
+/// process starts, and whoever calls this does not.
+async fn usable(path: &str) -> Result<String, ApiError> {
+    if !Path::new(path).is_absolute() {
+        return Err(ApiError::Invalid("The path must be absolute"));
+    }
+
+    match tokio::fs::metadata(path).await {
+        Ok(metadata) if metadata.is_dir() => Ok(path.to_string()),
+        Ok(_) => Err(ApiError::Invalid("That path is not a directory")),
+        Err(_) => Err(ApiError::Invalid("That path cannot be read")),
+    }
 }
 
 /// Reads one back, for the handlers that answer with what they just wrote.

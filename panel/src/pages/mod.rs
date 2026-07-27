@@ -11,6 +11,7 @@
 //! goes away when there is nothing to report.
 
 pub mod home;
+pub mod libraries;
 
 use leptos::prelude::*;
 use rust_i18n::t;

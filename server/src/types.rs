@@ -161,6 +161,11 @@ pub struct NewLibrary {
 pub struct LibraryChanges {
     #[schema(example = "vinyl rips")]
     pub name: Option<String>,
+    /// Where the music is now. Moving a library does not lose anything: the next
+    /// scan finds each file at its new path and matches it against the row that
+    /// went missing, so ratings, play counts and playlists stay where they were.
+    #[schema(example = "/srv/music")]
+    pub path: Option<String>,
     pub enabled: Option<bool>,
 }
 

@@ -59,6 +59,8 @@ CREATE INDEX artworks_hash_idx ON artworks (content_hash);
 -- no need to sort by path length as a proxy for depth.
 -- Marked, never deleted, for the same reason as tracks: deleting a folder
 -- cascades into its tracks and takes the user's data with them.
+-- `path` is relative to the library's root, for the reason spelled out over
+-- `tracks` below.
 CREATE TABLE folders (
     id            INTEGER PRIMARY KEY,
     public_id     TEXT    NOT NULL UNIQUE,
@@ -143,6 +145,15 @@ CREATE TABLE album_discs (
 -- with its public_id and all its user data intact. No hashing: reading every
 -- byte of a library to catch a case that size and mtime already catch is not
 -- a trade worth making.
+--
+-- `path` is relative to the library's own directory, and so is folders.path
+-- above. Absolute, every row would name the place the library happened to be,
+-- and moving it — a different mount point, a new disk, /music instead of
+-- /srv/music — would leave every one of them wrong, to be reconciled one file
+-- at a time by that heuristic above. Relative, the root is named once, in one
+-- row of `libraries`, and moving a library is changing that one row. The
+-- reconciliation stays for what it is actually for: a file moved within its
+-- library.
 CREATE TABLE tracks (
     id               INTEGER PRIMARY KEY,
     public_id        TEXT    NOT NULL UNIQUE,

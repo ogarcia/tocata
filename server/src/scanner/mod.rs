@@ -158,6 +158,10 @@ async fn scan_library(
 
     // What is already recorded, so the reader can skip files that have not
     // changed without asking the database once per file.
+    //
+    // Joined back onto the root on the way in: the rows are relative, and every
+    // path the walker produces is absolute. Composing here rather than
+    // relativising a million times in the loop below.
     let known: HashMap<PathBuf, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT path, file_modified_at, file_size FROM tracks WHERE library_id = ?",
     )
@@ -166,7 +170,7 @@ async fn scan_library(
     .await
     .context("loading the tracks already recorded")?
     .into_iter()
-    .map(|(path, modified, size)| (PathBuf::from(path), (modified, size)))
+    .map(|(path, modified, size)| (root.join(path), (modified, size)))
     .collect();
 
     let (tx, mut rx) = mpsc::channel(CHANNEL_DEPTH);
@@ -223,7 +227,7 @@ async fn scan_library(
         }
     });
 
-    let mut state = State::new(library_id, scan);
+    let mut state = State::new(library_id, root.to_path_buf(), scan);
     let mut outcome = Outcome::default();
     let mut tx_db = pool
         .begin()
@@ -306,6 +310,9 @@ async fn scan_library(
 /// exists yet.
 struct State {
     library_id: i64,
+    /// The library's own directory. Every path written from here down is relative
+    /// to it.
+    root: PathBuf,
     scan: i64,
     folders: HashMap<PathBuf, i64>,
     artists: HashMap<String, i64>,
@@ -318,9 +325,10 @@ struct State {
 }
 
 impl State {
-    fn new(library_id: i64, scan: i64) -> Self {
+    fn new(library_id: i64, root: PathBuf, scan: i64) -> Self {
         Self {
             library_id,
+            root,
             scan,
             folders: HashMap::new(),
             artists: HashMap::new(),
@@ -329,6 +337,23 @@ impl State {
             genres: HashMap::new(),
             timestamp: db::now(),
         }
+    }
+
+    /// A path as the database holds it: relative to the library's own root.
+    ///
+    /// Storing them absolute is what made moving a library expensive — every row
+    /// would have named the old place, and only a rescan could reconcile them.
+    /// Relative, the root is named once, in one row, and moving a library is
+    /// changing that one row.
+    ///
+    /// Everything above this line works in absolute paths, because that is what
+    /// reading a file needs. The conversion belongs here, at the edge where paths
+    /// stop being places on a disk and become rows.
+    fn relative(&self, path: &Path) -> String {
+        path.strip_prefix(&self.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string()
     }
 
     async fn insert_folder(
@@ -362,7 +387,7 @@ impl State {
         .bind(self.library_id)
         .bind(parent_id)
         .bind(&name)
-        .bind(path.to_string_lossy().as_ref())
+        .bind(self.relative(path))
         .bind(modified.map(epoch_to_iso8601))
         .bind(self.scan)
         .fetch_one(&mut **tx)
@@ -441,7 +466,7 @@ impl State {
         .bind(self.library_id)
         .bind(folder_id)
         .bind(album_id)
-        .bind(path.to_string_lossy().as_ref())
+        .bind(self.relative(path))
         .bind(size as i64)
         .bind(epoch_to_iso8601(modified))
         .bind(content_type(extension))
@@ -489,7 +514,7 @@ impl State {
         )
         .bind(self.scan)
         .bind(self.library_id)
-        .bind(path.to_string_lossy().as_ref())
+        .bind(self.relative(path))
         .execute(&mut **tx)
         .await
         .with_context(|| format!("marking {} as seen", path.display()))?;
@@ -572,7 +597,7 @@ impl State {
         if let Some(id) = candidate {
             debug!("{} is a file that moved; keeping its row", path.display());
             sqlx::query("UPDATE tracks SET path = ? WHERE id = ?")
-                .bind(path.to_string_lossy().as_ref())
+                .bind(self.relative(path))
                 .bind(id)
                 .execute(&mut **tx)
                 .await

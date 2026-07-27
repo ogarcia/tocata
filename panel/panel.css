@@ -257,7 +257,12 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   outline-offset: 1px;
 }
 
+/* Inline flex so an icon and its label sit on one baseline. Buttons were being
+ * laid out as text, which left every icon riding a little high. */
 button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   cursor: pointer;
   background: var(--accent);
   border-color: transparent;
@@ -628,3 +633,140 @@ table { border-collapse: collapse; }
 
 .figures th { color: var(--quiet); }
 .figures td { font-variant-numeric: tabular-nums; }
+
+/* A heading with the one action that belongs to the whole screen, which is not
+ * part of any of the things listed below it. */
+.titled {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.titled h1, .titled .lead { margin: 0; }
+.titled button { margin: 0; }
+
+/* --- libraries ----------------------------------------------------------- */
+
+/* Cards and not a table: the widest thing here is an absolute path, and a column
+ * that has to hold one either wraps badly or shoves everything else off the
+ * side. */
+.cards {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.card {
+  padding: 1rem 1.1rem;
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+/* A switched off library keeps everything it had and shows none of it as
+ * current, so it reads as set aside rather than as broken. */
+.card.off { opacity: 0.7; }
+
+.card header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.35rem;
+}
+
+.card h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.card .path {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.card .counts { margin: 0; font-size: 0.9rem; }
+
+.badge.muted {
+  margin: 0;
+  background: color-mix(in srgb, var(--quiet) 18%, transparent);
+  color: var(--quiet);
+}
+
+.renaming {
+  display: flex;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.renaming input { flex: 1; min-width: 0; }
+.renaming button { margin: 0; }
+
+/* Wraps rather than overflowing: there are five things here at the widest and a
+ * card is only as wide as the screen. */
+.row.wrap { flex-wrap: wrap; align-items: center; }
+
+.small {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.85rem;
+}
+
+/* The one action that cannot be undone looks like it. */
+.danger {
+  background: var(--alarm);
+  border-color: transparent;
+  color: #fff;
+}
+
+.second.danger {
+  background: transparent;
+  color: var(--alarm);
+  border-color: color-mix(in srgb, var(--alarm) 45%, transparent);
+}
+
+/* Asked in place, on the card holding what is about to go, rather than in a box
+ * in the middle of the screen that would cover it. */
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.confirm > span { font-size: 0.9rem; }
+
+/* Beside a form field or an action, saying what it wants or why it is not
+ * offered. */
+.hint { font-size: 0.85rem; }
+
+
+/* --- the dialogue -------------------------------------------------------- */
+
+/* A real `dialog`: Escape closes it, the focus stays inside and the page behind
+ * it goes inert, none of which is written anywhere here. */
+.sheet {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 8px 40px light-dark(rgb(0 0 0 / 22%), rgb(0 0 0 / 60%));
+}
+
+.sheet::backdrop { background: rgb(0 0 0 / 45%); }
+
+.sheet h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+
+.sheet form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sheet .row { margin-top: 1rem; }
+.sheet .hint { margin: 0; }

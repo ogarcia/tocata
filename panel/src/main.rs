@@ -131,7 +131,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     <Route
                         path=path!("/libraries")
                         view=move || {
-                            view! { <Restricted admin heading=t!("nav.libraries").to_string() /> }
+                            if admin {
+                                view! { <pages::libraries::Libraries on_expired=forget /> }
+                                    .into_any()
+                            } else {
+                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                            }
                         }
                     />
                     <Route

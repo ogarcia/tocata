@@ -77,6 +77,31 @@ scan:
   failed: Unreadable
   gone: Gone missing
 
+libraries:
+  edit: Edit
+  move_note: "Moving it takes effect at once and needs no scan: everything is stored relative to this directory."
+  heading: Libraries
+  lead: The directories the music is read from.
+  add: Add a library
+  path: Path
+  path_note: An absolute path to a directory on the server
+  name: Name
+  name_default: The name of the directory
+  none: No libraries yet
+  disabled: disabled
+  enable: Switch on
+  disable: Switch off
+  remove: Remove
+  remove_sure: Remove it and everything scanned from it?
+  remove_yes: Remove
+  disable_first: Switch it off before removing it
+  holds: "%{tracks} tracks · %{missing} missing"
+  bad_path: That path is not a directory on the server
+  already: That directory is already a library
+
 common:
+  refused: The server would not do that
+  save: Save
+  cancel: Cancel
   loading: Loading…
   not_yet: Not built yet

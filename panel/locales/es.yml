@@ -73,6 +73,31 @@ scan:
   failed: Ilegibles
   gone: Desaparecidas
 
+libraries:
+  edit: Editar
+  move_note: "Moverla surte efecto al instante y no necesita escaneo: todo se guarda relativo a este directorio."
+  heading: Bibliotecas
+  lead: Los directorios de los que se lee la música.
+  add: Añadir biblioteca
+  path: Ruta
+  path_note: Una ruta absoluta a un directorio del servidor
+  name: Nombre
+  name_default: El nombre del directorio
+  none: Todavía no hay bibliotecas
+  disabled: desactivada
+  enable: Activar
+  disable: Desactivar
+  remove: Eliminar
+  remove_sure: ¿Eliminarla y con ella todo lo escaneado?
+  remove_yes: Eliminar
+  disable_first: Desactívala antes de eliminarla
+  holds: "%{tracks} pistas · %{missing} ausentes"
+  bad_path: Esa ruta no es un directorio del servidor
+  already: Ese directorio ya es una biblioteca
+
 common:
+  refused: El servidor no lo permitió
+  save: Guardar
+  cancel: Cancelar
   loading: Cargando…
   not_yet: Todavía sin construir

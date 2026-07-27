@@ -104,23 +104,25 @@ async fn locate(
     .await
     .map_err(Refused::Database)?;
 
-    let Some((path, content_type, library_root)) = row else {
+    let Some((relative, content_type, library_root)) = row else {
         return Ok(None);
     };
 
-    let path = PathBuf::from(path);
     let library_root = PathBuf::from(library_root);
+    let path = library_root.join(&relative);
 
     // Defence in depth, and a deliberate exception to not writing guards for
     // conditions that cannot arise today.
     //
-    // Nothing user supplied reaches this path: it comes from the scanner, which
-    // walks real directory entries and skips symlinks. But this is the one
-    // place in the program that opens an arbitrary file from disk and hands it
-    // to whoever asked, so the cost of being wrong is serving /etc/passwd while
-    // the cost of the check is comparing two prefixes. That asymmetry is what
-    // justifies it: the day somebody adds a way to register a track by hand, or
-    // decides to follow symlinks, this is already here.
+    // What the database holds is relative to the root, so the only way out of the
+    // library is a stored path that climbs with `..`. Nothing user supplied gets
+    // there: it comes from the scanner, which walks real directory entries and
+    // skips symlinks. But this is the one place in the program that opens an
+    // arbitrary file from disk and hands it to whoever asked, so the cost of
+    // being wrong is serving /etc/passwd while the cost of the check is comparing
+    // two prefixes. That asymmetry is what justifies it: the day somebody adds a
+    // way to register a track by hand, or decides to follow symlinks, this is
+    // already here.
     if !is_inside(&path, &library_root) {
         warn!(
             "refusing {}: it resolves outside its library root {}",
@@ -367,10 +369,14 @@ async fn extract_cover(
     // album, shared by everybody, so its contents must not depend on who asked
     // first. Whether this album may be seen at all was settled before we got
     // here, when its identifier was resolved.
+    // Composed here rather than stored composed: what the row holds is relative
+    // to the library, so its root comes along.
     let paths: Vec<String> = sqlx::query_scalar(
-        "SELECT path FROM tracks
-          WHERE album_id = ? AND missing_since IS NULL
-          ORDER BY disc_number, track_number
+        "SELECT l.path || '/' || t.path
+           FROM tracks t
+           JOIN libraries l ON l.id = t.library_id
+          WHERE t.album_id = ? AND t.missing_since IS NULL
+          ORDER BY t.disc_number, t.track_number
           LIMIT 20",
     )
     .bind(album_id)
@@ -588,11 +594,12 @@ pub async fn get_lyrics(
 ) -> Response {
     let found: Result<Option<(String, String, Option<String>)>, _> = sqlx::query_as(concat!(
         visible_libraries!(),
-        "SELECT t.path, t.title,
+        "SELECT l.path || '/' || t.path, t.title,
                 (SELECT ar.name FROM track_artists ta
                    JOIN artists ar ON ar.id = ta.artist_id
                   WHERE ta.track_id = t.id ORDER BY ta.position LIMIT 1)
            FROM tracks t
+           JOIN libraries l ON l.id = t.library_id
           WHERE t.missing_since IS NULL
             AND t.library_id IN (SELECT id FROM visible_libraries)
             AND (? IS NULL OR t.title = ?)
@@ -650,8 +657,11 @@ pub async fn get_lyrics_by_song_id(
 ) -> Response {
     let found: Result<Option<String>, _> = sqlx::query_scalar(concat!(
         visible_libraries!(),
-        "SELECT path FROM tracks WHERE public_id = ? AND missing_since IS NULL
-        AND library_id IN (SELECT id FROM visible_libraries)"
+        "SELECT l.path || '/' || t.path
+           FROM tracks t
+           JOIN libraries l ON l.id = t.library_id
+          WHERE t.public_id = ? AND t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM visible_libraries)"
     ))
     .bind(auth.user.id)
     .bind(&query.id)
