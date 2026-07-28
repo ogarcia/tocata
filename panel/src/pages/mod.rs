@@ -24,11 +24,50 @@ use leptos::prelude::*;
 use rust_i18n::t;
 
 /// A section that exists in the menu and nowhere else yet.
+///
+/// Said twice on purpose: once as the lead, where every screen says what it is, and
+/// once in the space the screen would have filled. The empty band is what keeps it
+/// from reading as a screen that failed to load.
 #[component]
 pub fn Unbuilt(heading: String) -> impl IntoView {
     view! {
-        <h1>{heading}</h1>
-        <p class="quiet">{t!("common.not_yet")}</p>
+        <header class="titled">
+            <div>
+                <h1>{heading}</h1>
+                <p class="quiet lead">{t!("common.not_yet")}</p>
+            </div>
+        </header>
+
+        <p class="nothing">{t!("common.nothing_here")}</p>
+    }
+}
+
+/// How long ago a moment was, said the way somebody would say it.
+///
+/// Relative rather than absolute wherever the point is recency: "2 h ago" is what
+/// somebody wants to know about the last scan, and it fits a column where
+/// "28/07/2026, 20:08:27" does not — it was that timestamp, wrapping onto a second
+/// line, that made a library's row look like it had the date underneath the rest
+/// rather than beside it.
+///
+/// Abbreviated on purpose: "3 min" needs no plural, and rust-i18n has no
+/// pluralisation to lean on even if it did.
+pub fn since(iso: &str) -> String {
+    let then = js_sys::Date::parse(iso);
+    if then.is_nan() {
+        return iso.to_string();
+    }
+
+    let seconds = ((js_sys::Date::now() - then) / 1000.0).max(0.0);
+
+    if seconds < 60.0 {
+        t!("home.moments").to_string()
+    } else if seconds < 3600.0 {
+        t!("home.minutes", count = (seconds / 60.0).floor()).to_string()
+    } else if seconds < 86_400.0 {
+        t!("home.hours", count = (seconds / 3600.0).floor()).to_string()
+    } else {
+        t!("home.days", count = (seconds / 86_400.0).floor()).to_string()
     }
 }
 

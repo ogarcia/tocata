@@ -19,7 +19,6 @@ use leptos::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Logo,
-    Home,
     Scan,
     Chevron,
     Songs,
@@ -28,20 +27,9 @@ pub enum Icon {
     Genres,
     Add,
     Remove,
-    Rename,
-    Folder,
-    On,
-    Off,
-    Close,
     More,
     Rotate,
-    Libraries,
-    Accounts,
-    Settings,
-    Maintenance,
     Account,
-    Key,
-    Preferences,
     Menu,
     LogOut,
 }
@@ -51,7 +39,6 @@ impl Icon {
     fn svg(self) -> &'static str {
         match self {
             Self::Logo => include_str!("../icons/logo.svg"),
-            Self::Home => include_str!("../icons/home.svg"),
             Self::Scan => include_str!("../icons/scan.svg"),
             Self::Chevron => include_str!("../icons/chevron.svg"),
             Self::Songs => include_str!("../icons/songs.svg"),
@@ -60,25 +47,10 @@ impl Icon {
             Self::Genres => include_str!("../icons/genres.svg"),
             Self::Add => include_str!("../icons/add.svg"),
             Self::Remove => include_str!("../icons/remove.svg"),
-            Self::Rename => include_str!("../icons/rename.svg"),
-            Self::Folder => include_str!("../icons/folder.svg"),
-            // Books and books crossed out: a library is a shelf, and what the
-            // button does to it reads without a word.
-            Self::On => include_str!("../icons/on.svg"),
-            Self::Off => include_str!("../icons/off.svg"),
-            Self::Close => include_str!("../icons/close.svg"),
             Self::More => include_str!("../icons/more.svg"),
             // The same two arrows as a scan: both mean "go round again".
             Self::Rotate => include_str!("../icons/scan.svg"),
-            Self::Libraries => include_str!("../icons/libraries.svg"),
-            Self::Accounts => include_str!("../icons/accounts.svg"),
-            Self::Settings => include_str!("../icons/settings.svg"),
-            Self::Maintenance => include_str!("../icons/maintenance.svg"),
             Self::Account => include_str!("../icons/account.svg"),
-            Self::Key => include_str!("../icons/key.svg"),
-            // Sliders. The preferences are more than how it looks, so a moon
-            // would be naming one of them and standing for all three.
-            Self::Preferences => include_str!("../icons/adjustments.svg"),
             Self::Menu => include_str!("../icons/menu.svg"),
             Self::LogOut => include_str!("../icons/logout.svg"),
         }

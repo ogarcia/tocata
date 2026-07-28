@@ -12,13 +12,17 @@ nav:
   profile: "Profile"
   access: "Access"
   preferences: "Preferences"
-  home: Home
-  administration: Administration
+  home: Overview
+  collection: Collection
+  tracks: Tracks
+  albums: Albums
+  artists: Artists
+  genres: Genres
+  server: The server
   libraries: Libraries
   accounts: Accounts
   settings: Settings
   maintenance: Maintenance
-  account: My account
   menu: Menu
 
 login:
@@ -30,19 +34,21 @@ login:
   unreachable: The server did not answer
 
 header:
-  you: Signed in as
   administrator: administrator
+  listener: listener
   log_out: Log out
 
 looks:
-  heading: Appearance
   auto: Automatic
   light: Light
   dark: Dark
 
 home:
   greeting: Hello, %{name}
-  lead: What there is, and how the server is doing.
+  scanned: Scanned %{when}. Nothing running.
+  while_scanning: A scan is running. Its detail is in the sidebar.
+  never_scanned: Never scanned. Nothing running.
+  last_scan_when: Last scan · %{when}
   songs: Songs
   albums: Albums
   artists: Artists
@@ -57,13 +63,14 @@ home:
   last_scan: Last scan
   libraries: Libraries
   accounts: Accounts
+  keys: API keys
   database: Database
   process: The process
   processor: Processor
   memory: Memory
   cores: of %{count} cores
   of_total: of %{total}
-  moments: moments ago
+  moments: just now
   minutes: "%{count} min ago"
   hours: "%{count} h ago"
   days: "%{count} d ago"
@@ -78,17 +85,22 @@ scan:
   never: Never scanned
   cancelled: Cancelled
   cancel: Cancel
-  seen: "%{tracks} tracks · %{folders} folders"
   folders: Folders
+  added: Added
   unchanged: Unchanged
   failed: Unreadable
   gone: Gone missing
 
 libraries:
-  holds: "%{tracks} tracks · %{missing} missing"
+  lead_sheet: A directory on the server. Nothing is read until you scan.
+  remove_this: "Remove \"%{name}\"?"
+  remove_note: The library goes, and everything scanned from its directory. It cannot be undone.
+  heading: Libraries
+  missing: "%{count} missing"
+  on: "On"
+  off: "Off"
   edit: Edit
   move_note: "Moving it takes effect at once and needs no scan: everything is stored relative to this directory."
-  heading: Libraries
   lead: The directories the music is read from.
   add: Add a library
   path: Path
@@ -96,24 +108,18 @@ libraries:
   name: Name
   name_default: The name of the directory
   none: No libraries yet
-  disabled: disabled
   enable: Switch on
   disable: Switch off
   remove: Remove
-  remove_sure: Remove it and everything scanned from it?
   remove_yes: Remove
   disable_first: Switch it off before removing it
   bad_path: That path is not a directory on the server
   already: "That directory is already a library, is inside one, or holds one"
 
 accounts:
-  confirm_with_password: "Confirm the changes with your current password"
-  password_note_mine: "Changing it closes your other panel sessions. Your API keys keep working."
-  repeat_password: "Repeat the new password"
-  mismatch: "The two passwords are not the same"
+  add_lead: "They can sign in straight away. Which libraries they may reach is set afterwards, if it needs setting."
+  heading: Accounts
   wrong_password: "That is not your current password"
-  listening: "Listening"
-  listening_note: "What the server does with what you play."
   sessions_note: "Logs them out of the panel in every browser."
   keys_note: "Changing a password does not revoke these."
   all_libraries: all
@@ -124,7 +130,6 @@ accounts:
   remove: "Delete the account"
   remove_note: "Takes the account and everything only it had: its sessions, its keys, its favourites, ratings, play counts, playlists and bookmarks."
   remove_sure: "Delete it and everything of theirs?"
-  heading: Accounts
   lead: Who can reach the collection.
   add: Add an account
   username: Username
@@ -142,7 +147,6 @@ accounts:
   sessions: "%{count} panel sessions open"
   keys: "%{count} API keys"
   close_all: Close them all
-  close_mine: Close them all, this one included
   revoke_all: Revoke them all
   closed: "%{count} sessions closed"
   revoked: "%{count} keys revoked"
@@ -154,12 +158,14 @@ accounts:
   not_allowed: The server would not allow that
 
 keys:
+  issue_lead: "For a client that signs in with a key instead of with your password."
+  never: "never"
+  heading: "API keys"
   revoke_sure: "Revoke every one of them?"
   made: "Your new key"
   last_use: "Last used"
   actions: "Actions"
   rotate: "Rotate"
-  heading: "API keys"
   lead: "For clients that authenticate with a key instead of your password. Revoking one stops that client and leaves the others alone."
   none: "No keys yet"
   label: "What it is for"
@@ -174,13 +180,47 @@ keys:
   once: "Copy it now. It is not stored and will not be shown again."
 
 sessions:
+  heading: "Panel sessions"
   last_seen: "Last seen"
   expires: "Expires"
-  heading: "Panel sessions"
   lead: "Where you are logged in to this panel. Nothing here affects the clients that play your music."
   this_one: "this one"
   close: "Close"
   log_out: "Log out"
+
+# Your own account. Deliberately not sharing a word with `accounts`, which is
+# the administrator's vocabulary: the same field means a different thing when it
+# is somebody else's, and one of the two changing is not the other changing.
+profile:
+  where_signed_in: "Where you are signed in"
+  panel_sessions: "Panel sessions"
+  api_keys: "API keys"
+  reach: "Libraries you reach"
+  reach_all: "All"
+  reach_some: "%{some} of %{all}"
+  this_session: "This session since"
+  manage_access: "Manage keys and sessions"
+  lately: "Lately"
+  key_used: "Key \"%{name}\" used"
+  key_never_used: "No key used yet"
+  password_changed: "Password changed"
+  close_mine: Close them all, this one included
+  confirm_with_password: "Confirm the changes with your current password"
+  email: Email address
+  listening: "Listening"
+  mismatch: "The two passwords are not the same"
+  new_password: New password
+  profile_lead: "Who you are on this server."
+  repeat_password: "Repeat the new password"
+  revoke_all: Revoke them all
+  role: "Role"
+  save_changes: "Save the changes"
+  scrobbling: Pass plays on to a scrobbling service
+  scrobbling_on: "Pass my plays on"
+  scrobbling_why: "Passes what you play to the service configured on the server."
+  unchanged: Leave empty to keep it
+  username: Username
+  you: "You"
 
 access:
   lead: "The keys clients hold and the logins you have open here."
@@ -188,7 +228,6 @@ access:
 prefs:
   lead: "How the panel looks and speaks to you. Kept with your account, so it follows you to another browser."
   theme: "Theme"
-  theme_note: "Automatic follows what this machine asks for."
   accent: "Accent colour"
   language: "Language"
   language_auto: "Automatic"
@@ -204,6 +243,8 @@ accent:
   plum: "Plum"
 
 common:
+  copy: Copy
+  copied: Copied
   done: Done
   # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
   # and off as booleans, in keys and in values alike, so `no: No` becomes the key
@@ -212,9 +253,10 @@ common:
   "yes": "Yes"
   "no": "No"
   saved: Saved
-  close: Close
   refused: The server would not do that
   save: Save
   cancel: Cancel
+  keep: Keep it
   loading: Loading…
   not_yet: Not built yet
+  nothing_here: This section has a place in the panel and nothing in it yet.

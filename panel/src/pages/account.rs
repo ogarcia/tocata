@@ -14,6 +14,14 @@
 //! and one screen trying to be both was a screen where half of what was offered was
 //! offered to the wrong person.
 //!
+//! Which goes for the words as well, and that is the harder half to keep: these
+//! screens speak out of `profile`, `access` and `prefs`, and never out of `accounts`.
+//! The same field is a different sentence when it is somebody else's — "Papel: lo
+//! decide otro administrador" is true of yours and false of theirs, because on their
+//! screen the administrator deciding it is the person reading — so a key shared
+//! between the two is a key that can only ever be right on one side of it. Where the
+//! label really is the same word, it is written twice on purpose.
+//!
 //! An administrator opening their own account from the list lands here too, because
 //! there is no version of this that is administration.
 
@@ -26,6 +34,7 @@ use crate::theme::{self, Theme};
 use leptos::html::Dialog;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 use rust_i18n::t;
 use tocata::types::{Account, AccountChanges, Identity, PreferenceChanges};
 use wasm_bindgen::JsCast;
@@ -86,24 +95,34 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     });
 
     view! {
+        // The screen is called what it is, and the name and the address are two of
+        // the things on it. They used to be the title and the lead, which left the
+        // fields below repeating them and nothing saying which screen this was.
+        <header class="titled">
+            <div>
+                <h1>{t!("nav.profile")}</h1>
+                <p class="quiet lead">{t!("profile.profile_lead")}</p>
+            </div>
+        </header>
+
         {move || match account.get() {
             None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
             Some(account) => {
                 view! {
-                    <div class="titled">
-                        <div>
-                            <h1>{account.username.clone()}</h1>
-                            <p class="quiet lead">
-                                {account
-                                    .email
-                                    .clone()
-                                    .unwrap_or_else(|| t!("accounts.no_email").to_string())}
-                            </p>
+                    // Two, and neither is a column of a grid: on a wide screen the
+                    // form alone left a band of nothing beside it, and the rail is
+                    // what fills it with the thing somebody came here to check.
+                    <div class="two">
+                        // Two forms, each with its own save, so what holds them is a
+                        // plain box: nesting one form in another is not a thing HTML
+                        // does.
+                        <div class="forms">
+                            <Yourself account=account.clone() save />
+                            <Listening account=account.clone() save />
                         </div>
-                    </div>
 
-                    <Credentials account=account.clone() save />
-                    <Listening account save />
+                        <Rail account on_expired />
+                    </div>
                 }
                     .into_any()
             }
@@ -114,13 +133,180 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     }
 }
 
-/// The three that are worth being careful about, and the password that guards them.
+/// What brings somebody to this screen, beside the form that changes it: where you
+/// are signed in, and with what.
+///
+/// Informational, all of it. Nothing here is editable and nothing repeats what the
+/// form already says — the counts and the dates are the parts of the account the form
+/// has no field for, and the two things that can be acted on are behind one link to
+/// the screen that owns them.
+///
+/// Three calls rather than one. The account carries the counts; the sessions say when
+/// this one started; the keys say when a client last used one. None of the three is
+/// worth a round trip on its own and all three are cheap, so they go out together and
+/// each fills its own lines as it lands.
+#[component]
+fn Rail(account: Account, on_expired: Callback<()>) -> impl IntoView {
+    let (since, set_since) = signal(Option::<String>::None);
+    let (used, set_used) = signal(Option::<(String, String)>::None);
+    let (all, set_all) = signal(Option::<usize>::None);
+
+    let me = StoredValue::new(account.username.clone());
+
+    spawn_local(async move {
+        // Whichever of them is this one. The server marks it, because only the server
+        // knows which token arrived.
+        if let Ok(logins) = api::sessions(&me.get_value()).await {
+            set_since.set(
+                logins
+                    .into_iter()
+                    .find(|one| one.current)
+                    .map(|one| one.created_at),
+            );
+        }
+    });
+
+    spawn_local(async move {
+        match api::keys(&me.get_value()).await {
+            // The most recent use across every key, and which key that was. A key
+            // nobody has used yet has no date, so it cannot be the answer.
+            Ok(keys) => {
+                set_used.set(
+                    keys.into_iter()
+                        .filter_map(|key| key.last_used_at.map(|at| (key.label, at)))
+                        .max_by(|(_, left), (_, right)| left.cmp(right)),
+                );
+            }
+            Err(Failure::Unauthenticated) => on_expired.run(()),
+            Err(_) => {}
+        }
+    });
+
+    spawn_local(async move {
+        // Only to say "two of three" rather than "two". Anybody with a session may
+        // read the list, and what this takes from it is its length.
+        if let Ok(libraries) = api::libraries().await {
+            set_all.set(Some(libraries.len()));
+        }
+    });
+
+    let reach = {
+        let mine = account.libraries.len();
+
+        move || match (mine, all.get()) {
+            // No restriction at all is every library there is, whatever there is.
+            (0, _) => t!("profile.reach_all").to_string(),
+            (some, Some(all)) => t!("profile.reach_some", some = some, all = all).to_string(),
+            (some, None) => some.to_string(),
+        }
+    };
+
+    view! {
+        <aside class="rail">
+            <h2 class="part">{t!("profile.where_signed_in")}</h2>
+            <dl class="facts">
+                <Fact label=t!("profile.panel_sessions").to_string()>
+                    {account.sessions.to_string()}
+                </Fact>
+                <Fact label=t!("profile.api_keys").to_string()>{account.keys.to_string()}</Fact>
+                <Fact label=t!("profile.reach").to_string()>{move || reach()}</Fact>
+                <Fact label=t!("profile.this_session").to_string()>
+                    {move || since.get().map(|at| when(&at)).unwrap_or_else(|| MISSING.to_string())}
+                </Fact>
+            </dl>
+
+            <p class="onward">
+                <A href="/account/access">{t!("profile.manage_access")}</A>
+            </p>
+
+            // Two lines, not three. The third said when you signed in, which is the
+            // row above it said twice — and the honest replacement, when you were
+            // last here before now, is not a thing the server can answer: a session
+            // is a row that expires and goes, and nothing writes down a login. It
+            // would take a column on the account to say it, so until there is one
+            // this heading covers what it can.
+            <h2 class="part">{t!("profile.lately")}</h2>
+            <ul class="facts">
+                <Lately label=Signal::derive(move || {
+                    match used.get() {
+                        Some((label, _)) => t!("profile.key_used", name = label).to_string(),
+                        None => t!("profile.key_never_used").to_string(),
+                    }
+                })>
+                    {move || {
+                        used.get().map(|(_, at)| when(&at)).unwrap_or_else(|| MISSING.to_string())
+                    }}
+                </Lately>
+                <Lately label=t!("profile.password_changed").to_string()>
+                    {when(&account.password_set_at)}
+                </Lately>
+            </ul>
+        </aside>
+    }
+}
+
+/// A name and a figure, on one line with a rule under it.
+#[component]
+fn Fact(label: String, children: Children) -> impl IntoView {
+    view! {
+        <div>
+            <dt>{label}</dt>
+            <dd>{children()}</dd>
+        </div>
+    }
+}
+
+/// Something that happened, and when. The label is a signal because one of the three
+/// names the key it is talking about, and which key that is arrives late.
+#[component]
+fn Lately(#[prop(into)] label: Signal<String>, children: Children) -> impl IntoView {
+    view! {
+        <li>
+            <span>{move || label.get()}</span>
+            <span>{children()}</span>
+        </li>
+    }
+}
+
+/// Stands in for a moment nothing has reported yet.
+const MISSING: &str = "—";
+
+/// A label, what it is for, and whatever sets it.
+///
+/// Two children exactly: the stylesheet gives the first the label column and the
+/// second the control, and lets the second drop under the first when the row runs
+/// out of width.
+#[component]
+fn Setting(
+    label: String,
+    #[prop(optional, into)] why: String,
+    /// The row that answers for all the others, said in the accent.
+    #[prop(optional)]
+    asked: bool,
+    children: Children,
+) -> impl IntoView {
+    view! {
+        <div class="setting" class:asked=asked>
+            <div>
+                <span>{label}</span>
+                {(!why.is_empty()).then(|| view! { <span class="why">{why}</span> })}
+            </div>
+            <div>{children()}</div>
+        </div>
+    }
+}
+
+/// Who you are, in one form.
+///
+/// One form and one save, not one per field: the current password confirms *any*
+/// change in here — the name and the address as much as the password — so splitting
+/// it into a save per row would be asking for the password once per row.
 ///
 /// A new password is asked for twice. Nothing can read one back — what is stored is
 /// a hash — so a typo in the only copy is not a mistake anybody could find later: it
 /// is an account whose password nobody knows, including its owner.
 #[component]
-fn Credentials(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
+fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
     let (username, set_username) = signal(account.username.clone());
     let (email, set_email) = signal(account.email.clone().unwrap_or_default());
     let (password, set_password) = signal(String::new());
@@ -159,104 +345,101 @@ fn Credentials(account: Account, save: Callback<AccountChanges>) -> impl IntoVie
         set_current.set(String::new());
     };
 
+    let admin = account.admin;
+
     view! {
-        <section class="pane wide">
-            <h2>{t!("accounts.who")}</h2>
+        <h2 class="part">{t!("profile.you")}</h2>
 
-            <form class="stacked" on:submit=submit>
-                // Who you are on one side and what you get in with on the other.
-                // Two columns rather than a single file of five boxes, which is a
-                // form as long as the screen for what is two short lists. They
-                // collapse into one when there is no room for two.
-                <div class="columns">
-                    <div class="column">
-                        <div class="field">
-                            <label for="name">{t!("accounts.username")}</label>
-                            <input
-                                id="name"
-                                required
-                                prop:value=username
-                                on:input:target=move |e| set_username.set(e.target().value())
-                            />
-                        </div>
+        <form on:submit=submit>
+            <div class="settings">
+                <Setting label=t!("profile.username").to_string()>
+                    <input
+                        required
+                        prop:value=username
+                        on:input:target=move |e| set_username.set(e.target().value())
+                    />
+                </Setting>
 
-                        <div class="field">
-                            <label for="mail">{t!("accounts.email")}</label>
-                            <input
-                                id="mail"
-                                type="email"
-                                prop:value=email
-                                on:input:target=move |e| set_email.set(e.target().value())
-                            />
-                        </div>
+                <Setting label=t!("profile.email").to_string()>
+                    <input
+                        type="email"
+                        prop:value=email
+                        on:input:target=move |e| set_email.set(e.target().value())
+                    />
+                </Setting>
+
+                // Text and not a field: whether you administer the server is not
+                // yours to set, and a disabled box would be a control that says it
+                // could be used.
+                <Setting label=t!("profile.role").to_string()>
+                    <span class="flat">
+                        {if admin {
+                            t!("header.administrator")
+                        } else {
+                            t!("header.listener")
+                        }}
+                    </span>
+                </Setting>
+
+                <Setting
+                    label=t!("profile.new_password").to_string()
+                    why=t!("profile.unchanged")
+                >
+                    <input
+                        type="password"
+                        autocomplete="new-password"
+                        prop:value=password
+                        on:input:target=move |e| set_password.set(e.target().value())
+                    />
+                </Setting>
+
+                // Written out rather than built from `Setting`, because its second
+                // line is the only one on this screen that changes: the warning goes
+                // where an explanation would have been, so a pair that does not match
+                // says so without the row changing height.
+                <div class="setting">
+                    <div>
+                        <span>{t!("profile.repeat_password")}</span>
+                        <Show when=mismatched>
+                            <span class="why alarm">{t!("profile.mismatch")}</span>
+                        </Show>
                     </div>
-
-                    <div class="column">
-                        <div class="field">
-                            <label for="pass">{t!("accounts.new_password")}</label>
-                            <input
-                                id="pass"
-                                type="password"
-                                autocomplete="new-password"
-                                placeholder=t!("accounts.unchanged")
-                                prop:value=password
-                                on:input:target=move |e| set_password.set(e.target().value())
-                            />
-                        </div>
-
-                        <div class="field">
-                            <label for="pass-again">{t!("accounts.repeat_password")}</label>
-                            <input
-                                id="pass-again"
-                                type="password"
-                                autocomplete="new-password"
-                                class:wrong=mismatched
-                                prop:value=again
-                                on:input:target=move |e| set_again.set(e.target().value())
-                            />
-                            // Under the second box rather than the first, so the
-                            // note about the pair does not push its other half down
-                            // the column and out of line with the address beside it.
-                            <Show
-                                when=mismatched
-                                fallback=move || {
-                                    view! {
-                                        <span class="hint quiet">
-                                            {t!("accounts.password_note_mine")}
-                                        </span>
-                                    }
-                                }
-                            >
-                                <span class="hint alarm">{t!("accounts.mismatch")}</span>
-                            </Show>
-                        </div>
+                    <div>
+                        <input
+                            type="password"
+                            autocomplete="new-password"
+                            class:wrong=mismatched
+                            prop:value=again
+                            on:input:target=move |e| set_again.set(e.target().value())
+                        />
                     </div>
                 </div>
 
-                // Last, and set apart: everything above is what is being asked for,
-                // and this is the asking answered. The label says what it is for, so
-                // there is nothing left for a note to explain.
-                <div class="field guarded">
-                    <label for="current">{t!("accounts.confirm_with_password")}</label>
+                // Last, and the only row said in the accent: everything above is
+                // what is being asked for, and this is the asking answered.
+                <Setting label=t!("profile.confirm_with_password").to_string() asked=true>
                     <input
-                        id="current"
                         type="password"
                         autocomplete="current-password"
                         prop:value=current
                         on:input:target=move |e| set_current.set(e.target().value())
                     />
-                </div>
+                </Setting>
+            </div>
 
-                <p class="row ends">
-                    // Nothing here can be saved without it, so the button says so by
-                    // being unavailable rather than by letting somebody press it and
-                    // reading a refusal.
-                    <button type="submit" disabled=move || current.get().is_empty() || mismatched()>
-                        {t!("common.save")}
-                    </button>
-                </p>
-            </form>
-        </section>
+            <div class="saving">
+                // Nothing here can be saved without that password, so the button
+                // says so by being unavailable rather than by letting somebody press
+                // it and reading a refusal.
+                <button
+                    type="submit"
+                    class="pill solid"
+                    disabled=move || current.get().is_empty() || mismatched()
+                >
+                    {t!("profile.save_changes")}
+                </button>
+            </div>
+        </form>
     }
 }
 
@@ -279,27 +462,32 @@ fn Listening(account: Account, save: Callback<AccountChanges>) -> impl IntoView 
     };
 
     view! {
-        <section class="pane wide">
-            <h2>{t!("accounts.listening")}</h2>
-            <p class="hint quiet">{t!("accounts.listening_note")}</p>
+        <h2 class="part">{t!("profile.listening")}</h2>
 
-            <form class="stacked" on:submit=submit>
-                <div class="checks">
+        <form on:submit=submit>
+            <div class="settings">
+                <Setting
+                    label=t!("profile.scrobbling").to_string()
+                    why=t!("profile.scrobbling_why")
+                >
                     <label class="checkbox">
                         <input
                             type="checkbox"
                             prop:checked=scrobbling
                             on:change:target=move |e| set_scrobbling.set(e.target().checked())
                         />
-                        {t!("accounts.scrobbling")}
+                        <span>{t!("profile.scrobbling_on")}</span>
                     </label>
-                </div>
+                </Setting>
+            </div>
 
-                <p class="row ends">
-                    <button type="submit">{t!("common.save")}</button>
-                </p>
-            </form>
-        </section>
+            // Its own, and with nothing to confirm: a preference is not an identity
+            // change, so the password that guards the block above has no business
+            // guarding this one.
+            <div class="saving">
+                <button type="submit" class="pill solid">{t!("common.save")}</button>
+            </div>
+        </form>
     }
 }
 
@@ -395,26 +583,29 @@ pub fn Preferences(on_expired: Callback<()>) -> impl IntoView {
     };
 
     view! {
-        <div class="titled">
+        <header class="titled">
             <div>
                 <h1>{t!("nav.preferences")}</h1>
                 <p class="quiet lead">{t!("prefs.lead")}</p>
             </div>
-        </div>
+        </header>
 
-        <section class="pane wide">
-            <h2>{t!("looks.heading")}</h2>
-
-            <div class="field">
-                <span class="label">{t!("prefs.theme")}</span>
-                <div class="choices">
+        // Three rows of what it is against how it is set, and no headings over
+        // them: three settings do not need to be grouped into sections of one, and
+        // the words on the left already say which is which.
+        <div class="settings">
+            <div class="setting">
+                <span>{t!("prefs.theme")}</span>
+                // Words rather than buttons. Three of them fit on a line, and a
+                // button apiece drew three boxes to say a thing the words say.
+                <div class="options">
                     {theme::AVAILABLE
                         .iter()
                         .map(|choice| {
                             let choice = *choice;
                             view! {
                                 <button
-                                    class="second"
+                                    class="option"
                                     class:chosen=move || theme.get() == choice
                                     aria-pressed=move || (theme.get() == choice).to_string()
                                     on:click=move |_| pick_theme(choice)
@@ -425,14 +616,21 @@ pub fn Preferences(on_expired: Callback<()>) -> impl IntoView {
                         })
                         .collect_view()}
                 </div>
-                <span class="hint quiet">{t!("prefs.theme_note")}</span>
             </div>
 
-            <div class="field">
-                <span class="label">{t!("prefs.accent")}</span>
+            <div class="setting">
+                <span>{t!("prefs.accent")}</span>
                 // The colour of each swatch is the same rule that colours the panel,
                 // applied to the button: the attribute redefines the variable for
                 // whatever carries it, so plum is plum here whatever is in force.
+                //
+                // Written without `attr:`, which is not optional here. On a
+                // component that prefix is what says "an attribute rather than a
+                // property of mine"; on a plain element the macro leaves it in the
+                // name, because anything with a hyphen in it is passed through
+                // untouched. The attribute came out called `attr:data-accent`, no
+                // selector matched it, and all six swatches inherited the accent in
+                // force — six circles of the same colour.
                 <div class="swatches">
                     {accent::AVAILABLE
                         .iter()
@@ -442,7 +640,7 @@ pub fn Preferences(on_expired: Callback<()>) -> impl IntoView {
                                 <button
                                     class="swatch"
                                     class:chosen=move || accent.get() == choice
-                                    attr:data-accent=choice
+                                    data-accent=choice
                                     title=accent_label(choice)
                                     aria-label=accent_label(choice)
                                     aria-pressed=move || (accent.get() == choice).to_string()
@@ -453,42 +651,41 @@ pub fn Preferences(on_expired: Callback<()>) -> impl IntoView {
                         .collect_view()}
                 </div>
             </div>
-        </section>
 
-        <section class="pane wide">
-            <h2>{t!("prefs.language")}</h2>
-
-            <div class="field">
+            <div class="setting">
                 <label for="locale">{t!("prefs.language")}</label>
-                <select
-                    id="locale"
-                    on:change:target=move |event| {
-                        let chosen = event.target().value();
-                        pick_locale((!chosen.is_empty()).then_some(chosen));
-                    }
-                >
-                    // Empty rather than absent, because "whatever the browser asks
-                    // for" is a choice somebody can come back to.
-                    <option value="" selected=move || !locale::chosen()>
-                        {t!("prefs.language_auto")}
-                    </option>
-                    {locale::AVAILABLE
-                        .iter()
-                        .map(|(code, name)| {
-                            view! {
-                                <option
-                                    value=*code
-                                    selected=locale::chosen() && *code == locale::current()
-                                >
-                                    {*name}
-                                </option>
-                            }
-                        })
-                        .collect_view()}
-                </select>
-                <span class="hint quiet">{t!("prefs.language_note")}</span>
+                <div>
+                    <select
+                        id="locale"
+                        class="narrow"
+                        on:change:target=move |event| {
+                            let chosen = event.target().value();
+                            pick_locale((!chosen.is_empty()).then_some(chosen));
+                        }
+                    >
+                        // Empty rather than absent, because "whatever the browser
+                        // asks for" is a choice somebody can come back to.
+                        <option value="" selected=move || !locale::chosen()>
+                            {t!("prefs.language_auto")}
+                        </option>
+                        {locale::AVAILABLE
+                            .iter()
+                            .map(|(code, name)| {
+                                view! {
+                                    <option
+                                        value=*code
+                                        selected=locale::chosen() && *code == locale::current()
+                                    >
+                                        {*name}
+                                    </option>
+                                }
+                            })
+                            .collect_view()}
+                    </select>
+                    <p class="hint quiet">{t!("prefs.language_note")}</p>
+                </div>
             </div>
-        </section>
+        </div>
 
         {move || failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })}
     }
@@ -606,21 +803,21 @@ fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
                 <span class="acts">
                     <Show when=move || several() && !cutting.get()>
                         <button
-                            class="second danger"
+                            class="pill risky"
                             disabled=busy
                             on:click=move |_| set_cutting.set(true)
                         >
-                            {t!("accounts.revoke_all")}
+                            {t!("profile.revoke_all")}
                         </button>
                     </Show>
                     <Show when=move || cutting.get()>
                         <span class="confirm">
                             <span>{t!("keys.revoke_sure")}</span>
-                            <button class="danger" disabled=busy on:click=revoke_all>
+                            <button class="pill solid undoing" disabled=busy on:click=revoke_all>
                                 {t!("keys.revoke")}
                             </button>
                             <button
-                                class="second"
+                                class="link"
                                 disabled=busy
                                 on:click=move |_| set_cutting.set(false)
                             >
@@ -628,7 +825,7 @@ fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
                             </button>
                         </span>
                     </Show>
-                    <button on:click=move |_| set_asking.set(true)>
+                    <button class="pill solid" on:click=move |_| set_asking.set(true)>
                         <Glyph icon=Icon::Add />
                         {t!("keys.issue")}
                     </button>
@@ -728,6 +925,28 @@ fn NewKeySheet(
     // closing it clears both.
     let secret = move || made.get().or_else(|| rotated.get());
 
+    let (copied, set_copied) = signal(false);
+
+    // Straight to the clipboard, because the alternative is somebody selecting a
+    // forty character string by hand at the one moment it can still be read. The
+    // word on the button changes and stays changed: there is nothing else to say
+    // afterwards, and a message that faded would be a message somebody missed.
+    //
+    // Nothing is said when it fails. The clipboard needs permission the browser may
+    // not give, and the key is right there to be selected — `user-select: all` means
+    // one press takes all of it.
+    let copy = move |_| {
+        let Some(key) = secret().map(|key| key.key) else {
+            return;
+        };
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+
+        let _ = window.navigator().clipboard().write_text(&key);
+        set_copied.set(true);
+    };
+
     let shut = move || {
         set_asking.set(false);
         set_rotated.set(None);
@@ -767,63 +986,57 @@ fn NewKeySheet(
 
     view! {
         <dialog node_ref=dialog class="sheet" on:close=move |_| shut()>
-            <header class="sheet-head">
-                <h2>
-                    {move || {
-                        if secret().is_some() { t!("keys.made") } else { t!("keys.issue") }
-                    }}
-                </h2>
-                <button
-                    type="button"
-                    class="close"
-                    title=t!("common.close")
-                    on:click=move |_| shut()
-                >
-                    <Glyph icon=Icon::Close />
-                </button>
-            </header>
-
             <Show
                 when=move || secret().is_some()
                 fallback=move || {
                     view! {
                         <form on:submit=submit>
-                            <div class="field">
-                                <label for="key-label">{t!("keys.label")}</label>
-                                <input
-                                    id="key-label"
-                                    placeholder=t!("keys.label_default")
-                                    prop:value=label
-                                    on:input:target=move |e| set_label.set(e.target().value())
-                                />
+                            <div class="sheet-body">
+                                <h2>{t!("keys.issue")}</h2>
+                                <p class="sheet-lead">{t!("keys.issue_lead")}</p>
+
+                                <div class="sheet-content">
+                                    <label>
+                                        <span>{t!("keys.label")}</span>
+                                        <input
+                                            placeholder=t!("keys.label_default")
+                                            autofocus
+                                            prop:value=label
+                                            on:input:target=move |e| {
+                                                set_label.set(e.target().value())
+                                            }
+                                        />
+                                    </label>
+
+                                    <label>
+                                        <span>{t!("keys.until")}</span>
+                                        // Dimmed while empty, because a date field
+                                        // shows dd/mm/yyyy whether or not anything
+                                        // has been typed, and in the ink of real text
+                                        // it reads as a value already chosen.
+                                        <input
+                                            type="date"
+                                            class:empty=move || expires.get().is_empty()
+                                            prop:value=expires
+                                            on:input:target=move |e| {
+                                                set_expires.set(e.target().value())
+                                            }
+                                        />
+                                        <span class="hint">{t!("keys.until_note")}</span>
+                                    </label>
+                                </div>
                             </div>
 
-                            <div class="field">
-                                <label for="key-expires">{t!("keys.until")}</label>
-                                // Dimmed while empty, because a date field shows
-                                // dd/mm/yyyy whether or not anything has been typed,
-                                // and in the ink of real text it reads as a value
-                                // already chosen.
-                                <input
-                                    id="key-expires"
-                                    type="date"
-                                    class:empty=move || expires.get().is_empty()
-                                    prop:value=expires
-                                    on:input:target=move |e| set_expires.set(e.target().value())
-                                />
-                                <span class="hint quiet">{t!("keys.until_note")}</span>
-                            </div>
-
-                            <p class="row ends">
+                            <div class="sheet-foot">
                                 <button
                                     type="button"
-                                    class="second"
+                                    class="away"
                                     disabled=waiting
                                     on:click=move |_| shut()
                                 >
                                     {t!("common.cancel")}
                                 </button>
-                                <button type="submit" disabled=waiting>
+                                <button type="submit" class="pill solid" disabled=waiting>
                                     {move || {
                                         if waiting.get() {
                                             t!("login.working")
@@ -832,7 +1045,7 @@ fn NewKeySheet(
                                         }
                                     }}
                                 </button>
-                            </p>
+                            </div>
 
                             {move || {
                                 failure
@@ -843,13 +1056,55 @@ fn NewKeySheet(
                     }
                 }
             >
-                <p>{t!("keys.once")}</p>
-                <div class="issued">
-                    <code>{move || secret().map(|key| key.key).unwrap_or_default()}</code>
+                // The one moment this will ever be readable, so it is the only thing
+                // in the panel on a surface of its own: a band tinted with the accent,
+                // the secret in it, and one press to take it away whole.
+                <div class="sheet-body">
+                    <h2>{t!("keys.made")}</h2>
+                    <p class="sheet-lead">{t!("keys.once")}</p>
+
+                    <div class="handover">
+                        <code>{move || secret().map(|key| key.key).unwrap_or_default()}</code>
+                        <button type="button" on:click=copy>
+                            {move || {
+                                if copied.get() { t!("common.copied") } else { t!("common.copy") }
+                            }}
+                        </button>
+                    </div>
+
+                    // What it is, now that it is made. Read from the answer rather
+                    // than from the form, so it says what was stored and not what was
+                    // asked for.
+                    <dl class="facts">
+                        <div>
+                            <dt>{t!("keys.label")}</dt>
+                            <dd>
+                                {move || {
+                                    secret()
+                                        .map(|key| key.label)
+                                        .unwrap_or_default()
+                                }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt>{t!("keys.until")}</dt>
+                            <dd>
+                                {move || {
+                                    secret()
+                                        .and_then(|key| key.expires_at)
+                                        .map(|at| crate::pages::when(&at))
+                                        .unwrap_or_else(|| t!("keys.never").to_string())
+                                }}
+                            </dd>
+                        </div>
+                    </dl>
                 </div>
-                <p class="row ends">
-                    <button on:click=move |_| shut()>{t!("common.done")}</button>
-                </p>
+
+                <div class="sheet-foot">
+                    <button type="button" class="pill solid" on:click=move |_| shut()>
+                        {t!("common.done")}
+                    </button>
+                </div>
             </Show>
         </dialog>
     }
@@ -1030,8 +1285,8 @@ fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
                     <p class="hint quiet">{t!("sessions.lead")}</p>
                 </div>
                 <Show when=several>
-                    <button class="second" disabled=busy on:click=close_all>
-                        {t!("accounts.close_mine")}
+                    <button class="pill risky" disabled=busy on:click=close_all>
+                        {t!("profile.close_mine")}
                     </button>
                 </Show>
             </div>
@@ -1073,7 +1328,7 @@ fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
                                                     <td class="quiet">{when(&login.expires_at)}</td>
                                                     <td class="figure">
                                                         <button
-                                                            class="second small"
+                                                            class="link"
                                                             disabled=busy
                                                             on:click=move |_| close((
                                                                 id,

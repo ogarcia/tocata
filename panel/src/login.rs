@@ -75,7 +75,7 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
                     />
                 </div>
 
-                <button type="submit" disabled=waiting>
+                <button type="submit" class="pill solid" disabled=waiting>
                     {move || {
                         if waiting.get() { t!("login.working") } else { t!("login.submit") }
                     }}

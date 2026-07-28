@@ -3,16 +3,20 @@
 
 //! Where you land.
 //!
-//! Four figures large enough to read from across the room, and below them the
-//! rest grouped by what it talks about rather than by how it is measured: the
-//! collection, the machine, and what the server is costing it.
+//! Four figures across the top, then what the collection is and what the server is,
+//! then what the process is costing, then what the last scan did. Everything on the
+//! same paper, divided by lines where there is a division to make.
+//!
+//! The two lists in the middle carry the same number of rows on purpose. They are
+//! read side by side, and one of them ending two rows above the other is the first
+//! thing the eye finds — which is the complaint this screen was redrawn to answer.
 //!
 //! Nothing appears twice. The four at the top are the four at the top, and the
-//! boxes below say what those do not.
+//! lists below say what those do not.
 //!
-//! Everything here is a figure read once except the last box, which is the only
-//! thing in the panel that moves on its own. It comes down the event stream rather
-//! than being asked for on a timer, so the page keeps no clock of its own.
+//! Everything here is read once except the process, which is the only thing in the
+//! panel that moves on its own. It comes down the event stream rather than being
+//! asked for on a timer, so the page keeps no clock.
 
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
@@ -33,13 +37,30 @@ pub fn Home(
     let name = identity.username.clone();
 
     view! {
-        <h1 class="greeting">{t!("home.greeting", name = name)}</h1>
-        <p class="quiet lead">{t!("home.lead")}</p>
+        <header class="titled">
+            <div>
+                // Your name and not the section's. The section is named in the
+                // column on the left, where it is also marked as the one you are
+                // on, and a screen whose title repeats its own menu entry spends
+                // its largest line saying where you already know you are.
+                <h1>{t!("home.greeting", name = name)}</h1>
+                <p class="quiet lead">
+                    <Lead scan />
+                </p>
+            </div>
+
+            // Starting one, and only while there is none to start. What a running
+            // scan is doing, and the way to stop it, are in the column on the left:
+            // one place for it rather than a button here and a panel there.
+            <Show when=move || admin && !running(scan)>
+                <StartScan />
+            </Show>
+        </header>
 
         <Suspense fallback=|| view! { <p class="quiet">{t!("common.loading")}</p> }>
             {move || Suspend::new(async move {
                 match figures.await {
-                    Ok(stats) => view! { <Boxes stats scan resources admin /> }.into_any(),
+                    Ok(stats) => view! { <Figures stats scan resources admin /> }.into_any(),
                     Err(Failure::Unauthenticated) => {
                         on_expired.run(());
                         ().into_any()
@@ -54,92 +75,115 @@ pub fn Home(
     }
 }
 
+fn running(scan: ReadSignal<Option<Status>>) -> bool {
+    scan.get().is_some_and(|status| status.scanning)
+}
+
+/// What the server is doing, in one line under the greeting.
+///
+/// The greeting says who is here and this says what is happening, which is the part
+/// worth reading again: whether a scan is running changes, and a name does not.
 #[component]
-fn Boxes(
+fn Lead(scan: ReadSignal<Option<Status>>) -> impl IntoView {
+    view! {
+        {move || match scan.get() {
+            None => t!("common.loading").to_string(),
+            Some(status) if status.scanning => t!("home.while_scanning").to_string(),
+            Some(status) if status.finished_at.is_none() => t!("home.never_scanned").to_string(),
+            Some(status) => t!("home.scanned", when = ago(&status)).to_string(),
+        }}
+    }
+}
+
+#[component]
+fn Figures(
     stats: Stats,
     scan: ReadSignal<Option<Status>>,
     resources: ReadSignal<Option<Resources>>,
     admin: bool,
 ) -> impl IntoView {
     view! {
-        <div class="tiles">
-            <Tile
-                figure=stats.tracks
-                label=t!("home.songs").to_string()
-                icon=Icon::Songs
-                shade="songs"
-            />
-            <Tile
-                figure=stats.albums
-                label=t!("home.albums").to_string()
-                icon=Icon::Albums
-                shade="albums"
-            />
-            <Tile
-                figure=stats.artists
-                label=t!("home.artists").to_string()
-                icon=Icon::Artists
-                shade="artists"
-            />
-            <Tile
-                figure=stats.genres
-                label=t!("home.genres").to_string()
-                icon=Icon::Genres
-                shade="genres"
-            />
+        <div class="counts">
+            <Count figure=stats.tracks label=t!("home.songs").to_string() icon=Icon::Songs />
+            <Count figure=stats.albums label=t!("home.albums").to_string() icon=Icon::Albums />
+            <Count figure=stats.artists label=t!("home.artists").to_string() icon=Icon::Artists />
+            <Count figure=stats.genres label=t!("home.genres").to_string() icon=Icon::Genres />
         </div>
 
         <div class="panes">
             <section class="pane">
                 <h2>{t!("home.collection")}</h2>
-                <dl>
-                    <dt>{t!("home.size")}</dt>
-                    <dd>{bytes(stats.total_size)}</dd>
-                    <dt>{t!("home.duration")}</dt>
-                    <dd>{length(stats.total_duration)}</dd>
-                    <dt>{t!("home.playlists")}</dt>
-                    <dd>{stats.playlists}</dd>
-                    <dt>{t!("home.missing")}</dt>
-                    <dd>{stats.missing}</dd>
+                <dl class="facts">
+                    <Row label=t!("home.size").to_string() value=bytes(stats.total_size) />
+                    <Row label=t!("home.duration").to_string() value=length(stats.total_duration) />
+                    <Row label=t!("home.playlists").to_string() value=thousands(stats.playlists) />
+                    <Row label=t!("home.missing").to_string() value=thousands(stats.missing) />
+                    <Row label=t!("home.libraries").to_string() value=thousands(stats.libraries) />
                 </dl>
             </section>
 
             <section class="pane">
                 <h2>{t!("home.server")}</h2>
-                <dl>
-                    <dt>{t!("home.version")}</dt>
-                    <dd>{stats.version}</dd>
-                    <dt>{t!("home.last_scan")}</dt>
-                    <dd>
-                        <LastScan scan />
-                    </dd>
-                    <dt>{t!("home.libraries")}</dt>
-                    <dd>{stats.libraries}</dd>
-                    <dt>{t!("home.accounts")}</dt>
-                    <dd>{stats.users}</dd>
-                    <dt>{t!("home.database")}</dt>
-                    <dd>{bytes(stats.database_size)}</dd>
+                <dl class="facts">
+                    <Row label=t!("home.version").to_string() value=stats.version />
+                    <Row label=t!("home.database").to_string() value=bytes(stats.database_size) />
+                    <Row label=t!("home.last_scan").to_string() value=when(scan) />
+                    <Row label=t!("home.accounts").to_string() value=thousands(stats.users) />
+                    <Row label=t!("home.keys").to_string() value=thousands(stats.keys) />
                 </dl>
             </section>
-
-            <Process resources />
         </div>
 
-        // Last, so starting a scan does not shove the figures down the page every
-        // time, and gone entirely when nothing is running.
-        <Running scan admin />
+        // Not for a listener. What the server costs the machine is the machine's
+        // business, and on somebody else's server it is not theirs.
+        <Show when=move || admin>
+            <Process resources />
+        </Show>
+
+        <LastScan scan />
+    }
+}
+
+/// One of the four: the figure large and light, and under it its name with a small
+/// glyph.
+///
+/// The glyph goes on the label line, at the size of the label and in its colour.
+/// Beside the number it would have to be a coloured disc to balance it, and four
+/// coloured discs beside four numbers are four things competing where four things
+/// are meant to be counted. Down here it is part of the word.
+#[component]
+fn Count(figure: i64, label: String, icon: Icon) -> impl IntoView {
+    view! {
+        <div class="count">
+            <span class="figure">{thousands(figure)}</span>
+            <span class="quiet named-figure">
+                <Glyph icon />
+                {label}
+            </span>
+        </div>
+    }
+}
+
+/// A name and a value, apart from each other on a line of their own.
+#[component]
+fn Row(label: String, value: String) -> impl IntoView {
+    view! {
+        <div>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+        </div>
     }
 }
 
 /// What the server is costing the machine it runs on, as it costs it.
 ///
-/// The figures arrive on their own every couple of seconds, so this is the one box
-/// here that is worth looking at twice. Until the first one arrives there is a dash
+/// The figures arrive on their own every couple of seconds, so this is the one
+/// thing here worth looking at twice. Until the first one arrives there is a dash
 /// rather than a zero: nothing has been measured yet, and a zero would be a claim.
 #[component]
 fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
     // Derived rather than read inside the markup so that a new reading changes the
-    // numbers and the length of the bars, and leaves the rest of the box alone.
+    // numbers and the length of the bars, and leaves the rest of the block alone.
     let cpu = Signal::derive(move || {
         resources
             .get()
@@ -175,11 +219,9 @@ fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
     });
 
     view! {
-        // Across the whole width, under the two boxes of figures. Two bars want the
-        // room, and what they measure is a different kind of thing from a count.
-        <section class="pane wide">
-            <h2>{t!("home.process")}</h2>
-            <div class="columns">
+        <section class="last-scan">
+            <h2 class="part">{t!("home.process")}</h2>
+            <div class="gauges">
                 <Gauge
                     label=t!("home.processor").to_string()
                     reading=cpu
@@ -197,16 +239,23 @@ fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
     }
 }
 
-/// One thing being measured: what it is, how much of it there is, and how much of
-/// the whole that amounts to.
+/// One thing being measured: what it is and what it is a share of on the left, the
+/// share across the middle, the figure on the right.
 ///
-/// A `meter` rather than a div of our own with a width. It is the element for
-/// exactly this, it comes out looking like a meter with no help from us, and what
-/// it means survives being read out loud.
+/// The bar is two elements with a width on the inner one, and not a `meter`. A
+/// `meter` is the element that means this and it was the first thing tried, but its
+/// track and its fill are vendor pseudo-elements that stop applying the moment
+/// `appearance: none` takes the native look away — which leaves a box the colour of
+/// the track and no fill in it, so the one thing the row exists to show is the one
+/// thing missing. Two spans cannot fail that way, and the width is data rather than
+/// styling, which is why it is the one inline style in the panel.
 ///
-/// Deliberately without `low` and `high`, which is what would turn the bar a
-/// warning colour near the top. A scan is supposed to use the machine it was told
-/// to scan with, and a server working hard is not a server in trouble.
+/// Hidden from anything that reads the page aloud. The figure beside it is the same
+/// number in words, and a bar that announced itself would say everything twice.
+///
+/// Deliberately no colour change near the top, which is what a `meter` with `low`
+/// and `high` would have given for free. A scan is supposed to use the machine it
+/// was told to scan with, and a server working hard is not a server in trouble.
 #[component]
 fn Gauge(
     label: String,
@@ -214,176 +263,155 @@ fn Gauge(
     fraction: Signal<Option<f64>>,
     note: Signal<String>,
 ) -> impl IntoView {
-    let named = label.clone();
-
     view! {
         <div class="gauge">
-            <p class="gauge-head">
+            <span class="gauge-head">
                 <span>{label}</span>
-                <span class="reading">{move || reading.get()}</span>
-            </p>
+                <Show when=move || !note.get().is_empty()>
+                    <span class="note">{move || note.get()}</span>
+                </Show>
+            </span>
 
-            // Nothing to draw without something to be a share of, which is the
-            // case when the machine will not say how much memory it has.
-            <Show when=move || fraction.get().is_some()>
-                <meter
-                    class="bar"
-                    min="0"
-                    max="1"
-                    value=move || fraction.get().unwrap_or_default()
-                    aria-label=named.clone()
-                >
-                    {move || reading.get()}
-                </meter>
+            // The middle column is filled either way, so the figure on the right
+            // stays where it is when there is nothing to draw — which is the case
+            // when the machine will not say how much memory it has.
+            <Show when=move || fraction.get().is_some() fallback=|| view! { <span></span> }>
+                <span class="track" aria-hidden="true">
+                    <span style=move || {
+                        // Clamped here as well as at the server, because a width
+                        // over a hundred per cent draws past the end of its track.
+                        let share = fraction.get().unwrap_or_default().clamp(0.0, 1.0);
+                        format!("width: {:.2}%", share * 100.0)
+                    } />
+                </span>
             </Show>
 
-            <Show when=move || !note.get().is_empty()>
-                <p class="quiet note">{move || note.get()}</p>
-            </Show>
+            <span class="reading">{move || reading.get()}</span>
         </div>
     }
 }
 
-/// When the last scan ended, with the rest of what it did behind it.
+/// What the last scan did, always: four figures on one line.
 ///
-/// A `details` rather than anything of ours: it opens, it closes, it works with a
-/// keyboard, and the browser wrote all of that already.
+/// This used to be a `details` in the server list, showing when the last scan ended
+/// and hiding the four numbers behind a click. A scan having finished is the normal
+/// state of a server, and four numbers fit on a line — so there was nothing to
+/// save by folding them, and a fold on the normal state is a fold nobody opens.
 #[component]
 fn LastScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
-    view! {
-        {move || match scan.get() {
-            None => view! { <span class="quiet">{t!("common.loading")}</span> }.into_any(),
-            Some(status) if status.scanning => {
-                view! { <span class="working-text">{t!("scan.running")}</span> }.into_any()
-            }
-            Some(status) if status.finished_at.is_none() => {
-                view! { <span class="quiet">{t!("scan.never")}</span> }.into_any()
-            }
-            Some(status) => {
-                view! {
-                    <details class="last-scan">
-                        <summary>{ago(&status)}</summary>
-                        <dl class="inner">
-                            <dt>{t!("scan.folders")}</dt>
-                            <dd>{thousands(status.folders as i64)}</dd>
-                            <dt>{t!("scan.unchanged")}</dt>
-                            <dd>{thousands(status.unchanged as i64)}</dd>
-                            <dt>{t!("scan.failed")}</dt>
-                            <dd>{thousands(status.failed as i64)}</dd>
-                            <dt>{t!("scan.gone")}</dt>
-                            <dd>{thousands(status.gone as i64)}</dd>
-                        </dl>
-                    </details>
-                }
-                    .into_any()
-            }
-        }}
-    }
-}
-
-/// The scan while it runs: where it has got to, how much it has seen, and the way
-/// to stop it.
-///
-/// Cancelling is here rather than in the header because stopping something should
-/// mean having looked at what is being stopped, and this is the only place that
-/// shows it.
-#[component]
-fn Running(scan: ReadSignal<Option<Status>>, admin: bool) -> impl IntoView {
-    let (asking, set_asking) = signal(false);
-
-    let cancel = move |_| {
-        set_asking.set(true);
-        spawn_local(async move {
-            let _ = api::cancel_scan().await;
-            set_asking.set(false);
-        });
-    };
+    let done = move || scan.get().filter(|status| status.finished_at.is_some());
 
     view! {
-        <Show when=move || scan.get().is_some_and(|status| status.scanning)>
-            <section class="pane running">
-                <h2 class="working">
-                    <Glyph icon=Icon::Scan />
-                    {t!("scan.running")}
+        <Show when=move || done().is_some()>
+            <section class="last-scan">
+                <h2 class="part">
+                    {move || {
+                        done()
+                            .map(|status| {
+                                t!("home.last_scan_when", when = ago(&status)).to_string()
+                            })
+                            .unwrap_or_default()
+                    }}
                 </h2>
 
-                {move || {
-                    scan.get()
-                        .map(|status| {
-                            view! {
-                                <p class="counts">
-                                    {t!("scan.seen", tracks = thousands(status.tracks as i64),
-                                        folders = thousands(status.folders as i64))}
-                                </p>
-                                // The one field that says something is happening
-                                // rather than how much has happened.
-                                {status
-                                    .path
-                                    .or(status.library)
-                                    .map(|where_| view! { <p class="path quiet">{where_}</p> })}
-                            }
-                        })
-                }}
-
-                <Show when=move || admin>
-                    <p class="row">
-                        <button class="second" disabled=asking on:click=cancel>
-                            {t!("scan.cancel")}
-                        </button>
-                    </p>
-                </Show>
+                <div class="figures">
+                    <Figure
+                        label=t!("scan.folders").to_string()
+                        figure=Signal::derive(move || counted(done(), |status| status.folders))
+                    />
+                    <Figure
+                        label=t!("scan.unchanged").to_string()
+                        figure=Signal::derive(move || counted(done(), |status| status.unchanged))
+                    />
+                    <Figure
+                        label=t!("scan.failed").to_string()
+                        figure=Signal::derive(move || counted(done(), |status| status.failed))
+                    />
+                    <Figure
+                        label=t!("scan.gone").to_string()
+                        figure=Signal::derive(move || counted(done(), |status| status.gone))
+                    />
+                </div>
             </section>
         </Show>
     }
 }
 
-/// One figure, its name, and a mark to tell it from the others at a glance.
-///
-/// The colour is the icon's alone: the figure stays the colour of text, because
-/// four differently coloured numbers would be four things competing rather than
-/// four things counted.
+fn counted(status: Option<Status>, of: fn(&Status) -> u64) -> String {
+    thousands(status.as_ref().map(of).unwrap_or_default() as i64)
+}
+
+/// One figure over its name.
 #[component]
-fn Tile(figure: i64, label: String, icon: Icon, shade: &'static str) -> impl IntoView {
+fn Figure(label: String, figure: Signal<String>) -> impl IntoView {
     view! {
-        <div class="tile">
-            <span class=format!("mark {shade}")>
-                <Glyph icon />
-            </span>
-            <span class="figure">{thousands(figure)}</span>
+        <div>
+            <span class="figure">{move || figure.get()}</span>
             <span class="quiet">{label}</span>
         </div>
     }
 }
 
-/// How long ago it ended, said the way somebody would say it.
+/// Starting a scan, from the screen that says what the last one did.
 ///
-/// Abbreviated on purpose: "3 min" needs no plural, and rust-i18n has no
-/// pluralisation to lean on even if it did.
-fn ago(status: &Status) -> String {
-    let Some(finished) = status.finished_at.as_deref() else {
-        return t!("scan.never").to_string();
+/// Two kinds, so it is a menu rather than a button: one of them reads every file
+/// again and takes as long as the collection is big, which is not something to set
+/// off by aiming badly. The chevron is what says so — a pill with a word on it and
+/// nothing else would promise one thing and do two.
+#[component]
+fn StartScan() -> impl IntoView {
+    let (open, set_open) = signal(false);
+
+    let start = move |full: bool| {
+        set_open.set(false);
+        spawn_local(async move {
+            let _ = api::start_scan(full).await;
+        });
     };
 
-    let then = js_sys::Date::parse(finished);
-    if then.is_nan() {
-        return finished.to_string();
+    view! {
+        <div class="dropdown">
+            <button
+                class="pill"
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| set_open.update(|shown| *shown = !*shown)
+            >
+                <Glyph icon=Icon::Scan />
+                {t!("scan.start")}
+                <span class="chevron">
+                    <Glyph icon=Icon::Chevron />
+                </span>
+            </button>
+
+            <Show when=move || open.get()>
+                <div class="veil" on:click=move |_| set_open.set(false)></div>
+                <div class="menu">
+                    // The note is inside the button rather than under it. Beside
+                    // it, it looked like something to click that did nothing when
+                    // clicked, and left a gap in the middle of the menu that
+                    // highlighted neither entry.
+                    <button class="menu-item explained" on:click=move |_| start(false)>
+                        <span>{t!("scan.quick")}</span>
+                        <span class="menu-note">{t!("scan.quick_note")}</span>
+                    </button>
+                    <button class="menu-item explained" on:click=move |_| start(true)>
+                        <span>{t!("scan.start_full")}</span>
+                        <span class="menu-note">{t!("scan.full_note")}</span>
+                    </button>
+                </div>
+            </Show>
+        </div>
     }
+}
 
-    let seconds = ((js_sys::Date::now() - then) / 1000.0).max(0.0);
-    let ago = if seconds < 60.0 {
-        t!("home.moments").to_string()
-    } else if seconds < 3600.0 {
-        t!("home.minutes", count = (seconds / 60.0).floor()).to_string()
-    } else if seconds < 86_400.0 {
-        t!("home.hours", count = (seconds / 3600.0).floor()).to_string()
-    } else {
-        t!("home.days", count = (seconds / 86_400.0).floor()).to_string()
-    };
-
-    if status.cancelled {
-        format!("{ago} · {}", t!("scan.cancelled"))
-    } else {
-        ago
+/// When the last scan ended, or what happened to it. Reads on the end of a
+/// sentence, which is where every caller puts it.
+fn when(scan: ReadSignal<Option<Status>>) -> String {
+    match scan.get() {
+        None => t!("common.loading").to_string(),
+        Some(status) if status.scanning => t!("scan.running").to_string(),
+        Some(status) if status.finished_at.is_none() => t!("scan.never").to_string(),
+        Some(status) => ago(&status),
     }
 }
 
@@ -399,6 +427,24 @@ const MISSING: &str = "—";
 /// its unit stay on the same line.
 fn percentage(share: f64) -> String {
     format!("{share:.1}\u{202f}%")
+}
+
+/// How long ago it ended, said the way somebody would say it.
+///
+/// Abbreviated on purpose: "3 min" needs no plural, and rust-i18n has no
+/// pluralisation to lean on even if it did.
+fn ago(status: &Status) -> String {
+    let Some(finished) = status.finished_at.as_deref() else {
+        return t!("scan.never").to_string();
+    };
+
+    let ago = super::since(finished);
+
+    if status.cancelled {
+        format!("{ago} · {}", t!("scan.cancelled"))
+    } else {
+        ago
+    }
 }
 
 /// Grouped with a space, which every language this speaks agrees on and no

@@ -56,7 +56,7 @@ pub fn Accounts(on_expired: Callback<()>) -> impl IntoView {
                 <h1>{t!("accounts.heading")}</h1>
                 <p class="quiet lead">{t!("accounts.lead")}</p>
             </div>
-            <button on:click=move |_| set_adding.set(true)>
+            <button class="pill solid" on:click=move |_| set_adding.set(true)>
                 <Glyph icon=Icon::Add />
                 {t!("accounts.add")}
             </button>
@@ -201,79 +201,70 @@ fn Adding(
 
     view! {
         <dialog node_ref=dialog class="sheet" on:close=move |_| set_adding.set(false)>
-            <header class="sheet-head">
-                <h2>{t!("accounts.add")}</h2>
-                <button
-                    type="button"
-                    class="close"
-                    title=t!("common.close")
-                    on:click=move |_| set_adding.set(false)
-                >
-                    <Glyph icon=Icon::Close />
-                </button>
-            </header>
-
             <form on:submit=submit>
-                <div class="field">
-                    <label for="username">{t!("accounts.username")}</label>
-                    <input
-                        id="username"
-                        autocomplete="off"
-                        required
-                        prop:value=username
-                        on:input:target=move |e| set_username.set(e.target().value())
-                    />
+                <div class="sheet-body">
+                    <h2>{t!("accounts.add")}</h2>
+                    <p class="sheet-lead">{t!("accounts.add_lead")}</p>
+
+                    <div class="sheet-content">
+                        <label>
+                            <span>{t!("accounts.username")}</span>
+                            <input
+                                autocomplete="off"
+                                autofocus
+                                required
+                                prop:value=username
+                                on:input:target=move |e| set_username.set(e.target().value())
+                            />
+                        </label>
+
+                        <label>
+                            <span>{t!("accounts.password")}</span>
+                            <input
+                                type="password"
+                                autocomplete="new-password"
+                                required
+                                prop:value=password
+                                on:input:target=move |e| set_password.set(e.target().value())
+                            />
+                        </label>
+
+                        <label>
+                            <span>{t!("accounts.email")}</span>
+                            <input
+                                type="email"
+                                autocomplete="off"
+                                prop:value=email
+                                on:input:target=move |e| set_email.set(e.target().value())
+                            />
+                        </label>
+
+                        <label class="checkbox">
+                            <input
+                                type="checkbox"
+                                prop:checked=admin
+                                on:change:target=move |e| set_admin.set(e.target().checked())
+                            />
+                            {t!("accounts.is_admin")}
+                        </label>
+                    </div>
                 </div>
 
-                <div class="field">
-                    <label for="new-password">{t!("accounts.password")}</label>
-                    <input
-                        id="new-password"
-                        type="password"
-                        autocomplete="new-password"
-                        required
-                        prop:value=password
-                        on:input:target=move |e| set_password.set(e.target().value())
-                    />
-                </div>
-
-                <div class="field">
-                    <label for="email">{t!("accounts.email")}</label>
-                    <input
-                        id="email"
-                        type="email"
-                        autocomplete="off"
-                        prop:value=email
-                        on:input:target=move |e| set_email.set(e.target().value())
-                    />
-                </div>
-
-                <div class="checks">
-                    <label class="checkbox">
-                        <input
-                            type="checkbox"
-                            prop:checked=admin
-                            on:change:target=move |e| set_admin.set(e.target().checked())
-                        />
-                        {t!("accounts.is_admin")}
-                    </label>
-                </div>
-
-                <p class="row ends">
+                <div class="sheet-foot">
                     <button
                         type="button"
-                        class="second"
+                        class="away"
                         disabled=waiting
                         on:click=move |_| set_adding.set(false)
                     >
                         {t!("common.cancel")}
                     </button>
-                    <button type="submit" disabled=waiting>
+                    <button type="submit" class="pill solid" disabled=waiting>
                         {move || {
                             if waiting.get() { t!("login.working") } else { t!("common.save") }
                         }}
                     </button>
-                </p>
+                </div>
 
                 {move || {
                     failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
@@ -567,7 +558,7 @@ fn Who(account: Account, admin: bool, save: Callback<AccountChanges>) -> impl In
                     </Show>
                 </div>
                 <p class="row ends">
-                    <button type="submit">{t!("common.save")}</button>
+                    <button type="submit" class="pill solid">{t!("common.save")}</button>
                 </p>
             </form>
         </section>
@@ -682,7 +673,7 @@ fn Access(
                 </span>
                 <span class="acts">
                     <Show when=move || { sessions > 0 }>
-                        <button class="second small" on:click=move |_| cut.run(Cut::Sessions)>
+                        <button class="pill risky" on:click=move |_| cut.run(Cut::Sessions)>
                             {t!("accounts.close_all")}
                         </button>
                     </Show>
@@ -694,7 +685,7 @@ fn Access(
                 </span>
                 <span class="acts">
                     <Show when=move || { keys > 0 }>
-                        <button class="second small" on:click=move |_| cut.run(Cut::Keys)>
+                        <button class="pill risky" on:click=move |_| cut.run(Cut::Keys)>
                             {t!("accounts.revoke_all")}
                         </button>
                     </Show>
@@ -746,7 +737,7 @@ fn Danger(username: String, on_expired: Callback<()>) -> impl IntoView {
                     fallback=move || {
                         view! {
                             <button
-                                class="second danger"
+                                class="pill risky"
                                 disabled=busy
                                 on:click=move |_| set_confirming.set(true)
                             >
@@ -758,11 +749,11 @@ fn Danger(username: String, on_expired: Callback<()>) -> impl IntoView {
                 >
                     <span class="confirm">
                         <span>{t!("accounts.remove_sure")}</span>
-                        <button class="danger" disabled=busy on:click=remove>
+                        <button class="pill solid undoing" disabled=busy on:click=remove>
                             {t!("accounts.remove")}
                         </button>
                         <button
-                            class="second"
+                            class="link"
                             disabled=busy
                             on:click=move |_| set_confirming.set(false)
                         >

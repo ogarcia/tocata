@@ -11,31 +11,46 @@
 :root {
   color-scheme: light dark;
 
-  --ink: light-dark(#1a1a1a, #e8e8e8);
-  --quiet: light-dark(#666, #999);
-  --paper: light-dark(#fff, #191919);
-  --raised: light-dark(#f6f6f6, #222);
-  --line: light-dark(#ddd, #333);
-  --alarm: light-dark(#c00, #ff6b6b);
+  --ink: light-dark(#1c1c1e, #ededee);
+  --quiet: light-dark(#77777f, #8f8f98);
+  --paper: light-dark(#fcfcfb, #101012);
+  --line: light-dark(#e6e5e2, #26262a);
+  --alarm: light-dark(#b3261e, #ff8a80);
 
   /* Two shades per accent, because one will not do: what reads on white is too
    * dark on black. `light-dark()` picks, the same way every other colour here is
    * picked, so there is no second set of rules for the dark panel. */
-  --accent-blue: light-dark(#0057b8, #6aa9e9);
+  --accent-blue: light-dark(#1f5eaa, #7fb0ec);
   --accent-teal: light-dark(#00706b, #4dc4bc);
-  --accent-green: light-dark(#2e7d32, #86ca8a);
+  --accent-green: light-dark(#2c6e56, #7fd0ae);
   --accent-amber: light-dark(#a15c00, #e8a33d);
   --accent-crimson: light-dark(#c2185b, #f07fa8);
   --accent-plum: light-dark(#6d28d9, #b79cf0);
 
-  --accent: var(--accent-blue);
+  /* What the panel is without anybody having chosen. `accent::DEFAULT` in the
+   * panel's own source names the same colour, and it has to: choosing that one
+   * takes the attribute off the root and leaves this line to answer. The two
+   * drifting apart is one colour that cannot be picked and another whose swatch
+   * does nothing. */
+  --accent: var(--accent-green);
 
-  --side: 14rem;
-  --head: 3.25rem;
+  --side: 240px;
 
   font-family: system-ui, sans-serif;
   font-size: 15px;
 }
+
+/* There is no `--raised`, and that is the whole of the look: nothing here is a
+ * card. What used to be a panel on a lighter background is now the page itself,
+ * divided by a 1px line where a division is meant and by whitespace where it is
+ * not. Two weights of border exist — 1px for every rule, 2px for the two things
+ * that measure rather than divide: the mark on the section you are in, and the
+ * track under a figure.
+ *
+ * Sizes are in pixels rather than in `rem`, because the root above is a fixed
+ * pixel size, which means a `rem` here was only ever a division by fifteen
+ * written out. The scale is a typographic one — 11.5, 12, 13, 14, 14.5, 15, 17,
+ * 20, 26, 28, 30, 34 — and it reads as such when it is written as such. */
 
 * { box-sizing: border-box; }
 
@@ -71,9 +86,11 @@ a { color: var(--accent); }
 
 /* --- the frame ----------------------------------------------------------- */
 
-/* Sections down the left, header across the top, screen in the corner that is
- * left. Named areas rather than counted columns, because the header has to span
- * only one of them and that is easier to read than a line number. */
+/* Two columns and nothing across the top. Everything that is permanently there —
+ * the name, where you can go, a scan while it runs, who you are — lives in the
+ * left column, and the right column is only ever the screen you asked for. The
+ * top bar this replaces held three things that each belong somewhere in that
+ * column, and holding them cost a strip of every screen. */
 .shell {
   display: grid;
   /* minmax(0, 1fr) and not 1fr: a plain 1fr will not shrink below the width of
@@ -82,179 +99,446 @@ a { color: var(--accent); }
    * box around the table can only work if the column is allowed to be narrower
    * than its contents. */
   grid-template-columns: var(--side) minmax(0, 1fr);
-  grid-template-rows: var(--head) 1fr;
-  grid-template-areas:
-    "side head"
-    "side body";
-  min-height: 100vh;
+  height: 100vh;
 }
 
-/* Header and sections share this background; the screen sits on --paper. The
- * change of colour is the division, so there is no border to draw. */
+/* One line divides the columns, and both sit on the same paper. `min-height: 0`
+ * so the navigation in the middle is what scrolls when there is too much of it,
+ * rather than the whole column growing and pushing the account block off the
+ * bottom of the window. */
 .side {
-  grid-area: side;
-  background: var(--raised);
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  padding: 26px 0 0;
+  border-right: 1px solid var(--line);
 }
 
 .brand {
-  height: var(--head);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0 1rem;
-  font-weight: 600;
-  font-size: 1.1rem;
+  gap: 9px;
+  padding: 0 26px 26px;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   color: inherit;
   text-decoration: none;
   flex: none;
 }
 
-/* Enough to say it can be pressed, and no more: it is the name of the thing, not
- * a button. */
-.brand:hover { color: var(--accent); }
+/* The one spot of colour in the column that is not a state. */
+.brand .icon { width: 19px; height: 19px; color: var(--accent); }
 
-/* Says which list of sections this is, for the account's own. Without it the
- * entries change under somebody and nothing accounts for it. */
+.side nav {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* A heading over a run of entries, at the width of the column so it lines up with
+ * them. The first one needs no room above it: the wordmark already left some. */
 .nav-title {
-  padding: 0.5rem 0.7rem 0.15rem;
-  font-size: 0.75rem;
+  margin: 22px 0 6px;
+  padding: 0 26px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--quiet);
 }
 
-.side nav { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem; }
+.nav-title:first-child { margin-top: 0; }
 
-/* Inset and rounded, so what lights up is a shape rather than the whole width of
- * the panel. */
+/* The whole width of the column, marked by a rule down its left edge rather than
+ * by a shape inside it. Quiet until it is where you are, which is the only state
+ * an entry has.
+ *
+ * The border is declared in full here and only its colour is changed below. The
+ * other way round — shorthand in one rule, `border-left-color` in another —
+ * leaves whichever rule loses the cascade painting a grey bar down entries you
+ * have merely visited. */
 .side nav a {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.7rem;
-  border-radius: 6px;
-  color: inherit;
+  display: block;
+  padding: 7px 26px;
+  border-left: 2px solid transparent;
+  color: var(--quiet);
+  font-size: 14.5px;
   text-decoration: none;
 }
 
-.side nav a:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.side nav a:hover { color: var(--ink); }
 
 /* `aria-current` and not a class: that is what the router sets, and the class
  * this waited for never existed, so nothing was ever marked. Which is also why
  * the attribute is the better hook — it cannot fall out of step with the router
  * without the page being wrong for a screen reader too. */
 .side nav a[aria-current="page"] {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
-  font-weight: 600;
+  border-left-color: var(--accent);
+  color: var(--ink);
 }
 
-/* Looks like an entry and behaves like a heading: same shape, but it opens
- * something instead of going somewhere. */
-.group {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  margin: 0;
-  padding: 0.5rem 0.7rem;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+/* Everything permanent that is not navigation, stacked against the bottom of the
+ * column and divided from what is above it. Each block draws its own top line, so
+ * the stack reads the same however many of them are there — and a scan strip that
+ * comes and goes does not take a border with it that belonged to its neighbour. */
+.side > .foot {
+  margin-top: auto;
+  flex: none;
 }
 
-.group:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-
-/* The last thing in the row, whatever the label's length. Pointing along the row
- * while folded and down into it once open, which is the direction the thing it
- * opens actually comes from. */
-.group .chevron { margin-left: auto; transition: transform 0.15s ease-out; }
-.group.open .chevron { transform: rotate(90deg); }
-
-/* Folded over the section you are in: the heading says what the hidden entry
- * would have said. */
-.group.current {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* Indented so the group reads as a heading over them rather than a sibling. */
-.grouped a { padding-left: 1.6rem; }
-
-.head {
-  grid-area: head;
-  background: var(--raised);
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0 1rem;
-}
-
-/* One wrapper takes the whole gap, so the buttons end up at the right hand end
- * whatever they are and however many. Pushing whichever came first was what left
- * them adrift on the left the moment the first one stopped being the first. */
-.tools {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
-}
-
-/* Only there while something is running, so it never sits saying nothing. */
-.scanning {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  text-decoration: none;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
-}
+.foot > * { border-top: 1px solid var(--line); }
 
 /* Turns while the scan turns. Anybody who asked not to be moved gets a still
  * icon and the same information. */
-.scanning .icon, .working .icon { animation: turn 1.4s linear infinite; }
+.working .icon { animation: turn 1.4s linear infinite; }
 
 @keyframes turn {
   to { transform: rotate(1turn); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .scanning .icon, .working .icon { animation: none; }
+  .working .icon { animation: none; }
 }
 
 .body {
-  grid-area: body;
   min-width: 0;
-  padding: 1.5rem;
+  overflow-y: auto;
+  padding: 44px 56px 60px;
 }
+
+/* Nothing is capped. A window is as wide as somebody made it, and a screen of
+ * figures that stops at a fixed measure leaves the rest of a wide one empty while
+ * the same tables scroll sideways on a narrow one. What holds a line of prose to a
+ * readable length is the column it is in, not a ceiling over the whole screen. */
+
+/* --- the page header ----------------------------------------------------- */
+
+/* The title and what it is, with the one action that belongs to the screen as a
+ * whole against the right. Aligned to the top rather than the middle: the action
+ * belongs beside the title, not beside the two lines' average. */
+.titled {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+/* The gap is the first thing to give on a narrow screen: what is on either side of
+ * it is a title and an action, and neither has any width to spare. */
+@media (max-width: 45rem) {
+  .titled {
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.titled .lead { margin: 0; }
+
+/* A section with a place in the panel and nothing in it yet. The band is what keeps
+ * it from reading as a screen that failed to load: an empty screen says nothing,
+ * and an empty screen with a line above and below it says the emptiness is on
+ * purpose. */
+.nothing {
+  padding: 40px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--quiet);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* --- facts ---------------------------------------------------------------- */
+
+/* A name against a value, with a hairline under each. The third place this appeared
+ * it had drifted: twenty pixels of gap on one screen and sixteen on another, eleven
+ * of padding here and nine there, and the same four declarations written out three
+ * times. One shape, and what each place changes about it is beside it.
+ *
+ * `dt`/`dd` or a `li` with two children — the element says which it is, so a list of
+ * pairs and a list of events need no class to tell them apart. */
+.facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts > * {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.facts dt { color: var(--quiet); }
+
+.facts dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An event and when it happened, which is the other way round: what is being read is
+ * the list of events, and the times are what each one turns out to have been. */
+.facts li > :last-child {
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --- settings ------------------------------------------------------------- */
+
+/* What a thing is on the left, how it is set on the right, one per row and a line
+ * between them. Every screen that is a list of choices is built out of these — the
+ * preferences, your own profile, the server's own settings — so the shape is
+ * defined once here and none of those screens invents its own.
+ *
+ * Capped, and this is the one place in the panel that is: a field that grows to
+ * nine hundred pixels promises nine hundred pixels of text. What is uncapped is a
+ * screen of figures, where the width is there to be used. */
+.settings { max-width: 760px; }
+
+/* Fluid by construction, with no width in a media query anywhere. The label asks for
+ * 200 pixels and the control for 300 of the remaining two thirds; when the row
+ * cannot give them both, `wrap` puts the control under its label by itself. A
+ * breakpoint would be a guess at when that happens, and the guess would be wrong for
+ * the language that writes "Confirma los cambios con tu contraseña actual".
+ *
+ * `baseline` and not `center`: a row whose control is two lines tall would otherwise
+ * pull its label into the middle of them, away from the first line it names. */
+.settings > .setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 32px;
+  padding: 22px 0;
+  border-top: 1px solid var(--line);
+}
+
+.settings > .setting > :first-child {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.settings > .setting > :last-child {
+  flex: 2 1 300px;
+  min-width: 0;
+  max-width: 420px;
+}
+
+/* The last one closes the run, so the set reads as a block rather than as rows
+ * hanging off the bottom of the screen. */
+.settings > .setting:last-child { border-bottom: 1px solid var(--line); }
+
+/* What the row is for, under what it is called. */
+.setting .why {
+  display: block;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+/* A value the account cannot set for itself: a role is given by somebody else, so it
+ * is text where the others have a field. */
+.setting .flat { color: var(--quiet); }
+
+/* Fields inside a run of settings look the way they look inside a dialogue: a line
+ * under the value rather than a box around it. The checkbox is excluded by what it
+ * is rather than by a class, since a box around a box is what the rule would draw.
+ */
+.settings input:not([type="checkbox"]), .settings select {
+  width: 100%;
+  padding: 6px 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.settings input:not([type="checkbox"]):focus-visible, .settings select:focus-visible {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+/* The row that answers for all the others. Its label and its line are the accent,
+ * which is the panel saying "this one is the condition" without a word of warning
+ * anywhere. */
+.setting.asked > :first-child > :first-child { color: var(--accent); }
+.setting.asked input { border-bottom-color: var(--accent); }
+
+/* What saves the block, against the right, outside the ruled area — it acts on the
+ * rows above rather than being one of them. */
+.saving {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 18px;
+}
+
+/* A second block on the same screen gets air over its heading. It always follows the
+ * thing that saved the block before it, which is what this leans on rather than a
+ * class saying "the later one". */
+.saving + .part { margin-top: 44px; }
+
+/* The form and the rail beside it, and neither of them a column of a grid: the two
+ * ask for widths and the row gives what it can. Below about nine hundred pixels of
+ * content the rail cannot have its 260 and wraps under the form on its own, which is
+ * one line of CSS where a breakpoint would have been a number guessed at.
+ *
+ * `flex-start` so the rail sits at the top of the form rather than being stretched
+ * down beside it. */
+.two {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 40px 56px;
+}
+
+.two > .forms { flex: 3 1 420px; min-width: 0; }
+
+/* Narrower than the form and capped, because everything in it is a short label and a
+ * shorter value. */
+.rail {
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: 320px;
+}
+
+/* Inside the pair the form's own columns tighten: it has less room than it had with
+ * the screen to itself, and a label column still asking for 200 would push every
+ * field into wrapping under it. */
+.two .settings {
+  max-width: none;
+}
+
+.two .settings > .setting {
+  padding: 18px 0;
+}
+
+.two .settings > .setting > :first-child { flex: 1 1 170px; }
+.two .settings > .setting > :last-child { flex: 2 1 260px; }
+
+/* A list of facts is a list of facts wherever it is: see `.facts`. What is left here
+ * is that the rail's lists are blocks of their own, closed at the top, and set a
+ * size down because a rail is narrower than a screen. */
+.rail .facts {
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.rail .part { margin-top: 32px; }
+.rail .part:first-child { margin-top: 0; }
+
+/* The way to the screen this one only summarises. */
+.rail .onward {
+  margin: 12px 0 0;
+  font-size: 14px;
+}
+
+/* No underline, pointed at or not. A link here is said with the accent, and the
+ * underline is what the browser draws when nobody has decided anything — the same
+ * reason the actions in a library's row lost theirs. */
+.rail .onward a { text-decoration: none; }
+
+/* On a phone. Sixteen pixels is not a taste: anything smaller and iOS zooms the page
+ * when the field takes focus, and a page that zooms on focus is a page that has to be
+ * pinched back afterwards. The rest is thumbs — every target at least 44 pixels — and
+ * the label always above its field, since there is no width for it to sit beside.
+ */
+@media (max-width: 40rem) {
+  .settings input:not([type="checkbox"]), .settings select {
+    padding: 9px 0;
+    font-size: 16px;
+  }
+
+  .settings > .setting { padding: 16px 0; }
+
+  .setting .checkbox, .saving .pill, .rail .onward a {
+    min-height: 44px;
+  }
+
+  .setting .checkbox { align-items: center; }
+  .saving .pill { padding: 0 20px; }
+
+  /* The rail follows the form in the order it is written, so there is nothing to
+   * reorder: what it needs is the air that the two columns gave it. */
+  .rail { margin-top: 8px; }
+}
+
+.setting label, .setting > span:first-child { color: inherit; font-size: inherit; }
+
+/* A row of words where exactly one is in force. It was a row of buttons: three
+ * boxes to say what three words say, and the boxes were the loudest thing on a
+ * screen whose whole job is three quiet choices. */
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  font-size: 14px;
+}
+
+.option {
+  margin: 0;
+  padding: 0 0 2px;
+  border: none;
+  color: var(--quiet);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.option:hover { color: var(--ink); }
+
+/* Underlined rather than filled, and in the accent — which on this screen is also
+ * a preview of the colour underneath it. */
+.option.chosen {
+  border-bottom: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+/* Wide enough for the longest language and no wider. A control that stretches to
+ * the width of the screen promises a value as long as the screen. */
+select.narrow { width: 200px; }
+
+.setting .hint { margin: 8px 0 0; }
 
 /* --- the folding menu ---------------------------------------------------- */
 
-/* Neither of these exists on a wide screen: there is nothing to fold. */
-.menu-button, .menu-shade { display: none; }
+/* None of these exists on a wide screen: the column is simply there, and there is
+ * nothing across the top to hold a way of opening it. */
+.bar, .menu-shade { display: none; }
 
 @media (max-width: 45rem) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "head" "body";
+    grid-template-rows: 56px minmax(0, 1fr);
   }
+
+  /* The way to the sections and the name of the thing. Nothing else: what used to
+   * sit on the right of a header is at the bottom of the column this opens, which
+   * is one place for it rather than two. */
+  .bar {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .bar .brand { padding: 0 16px 0 4px; }
 
   .side {
     position: fixed;
     inset: 0 auto 0 0;
     width: var(--side);
     z-index: 2;
+    background: var(--paper);
     transform: translateX(-100%);
     transition: transform 0.15s ease-out;
   }
@@ -269,16 +553,212 @@ a { color: var(--accent); }
     background: rgb(0 0 0 / 35%);
   }
 
+  /* 44px square, because a finger is not a pointer. */
   .menu-button {
-    display: block;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
     margin: 0;
-    padding: 0.2rem 0.4rem;
+    padding: 0;
+    border: none;
     background: transparent;
     color: inherit;
-    border: none;
-    font-size: 1.3rem;
-    line-height: 1;
   }
+
+  .body { padding: 18px; }
+
+  h1 { font-size: 26px; }
+}
+
+/* --- who you are, at the foot of the column ------------------------------ */
+
+/* The whole block opens the menu, so the target is the row rather than the small
+ * round thing at its left end. */
+.whoami {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 16px 26px;
+  border: none;
+  border-top: 1px solid var(--line);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Tinted with the accent for somebody who administers the server and with plain
+ * ink for somebody who does not. It is the one place the panel says which you are
+ * without spelling it out, and it says it in the same colour as everything else
+ * that is a state. */
+.whoami .avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+.whoami.plain-role .avatar {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--quiet);
+}
+
+/* Two lines that must not push the chevron off the end, whatever the name is. */
+.whoami .who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.whoami .who > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whoami .role { font-size: 12px; color: var(--quiet); }
+
+/* Pointing along the row rather than down: what it opens comes up from here. */
+.whoami .chevron {
+  margin-left: auto;
+  color: var(--quiet);
+  transform: rotate(-90deg);
+}
+
+/* Upward, because there is no room below: this is the last thing in the column.
+ * Inset from both edges rather than hung off one, so it reads as belonging to the
+ * block underneath it rather than to the window's edge. */
+.upward {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: calc(100% + 8px);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px light-dark(rgb(0 0 0 / 12%), rgb(0 0 0 / 35%));
+}
+
+.upward a, .upward .menu-item {
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+/* The one entry that is not a place to go. Its colour has to survive the rule
+ * above, which sets `inherit` for everything else in here. */
+.upward .leave { color: var(--alarm); }
+
+/* Between what you can go and see and the one thing that ends the session. */
+.upward hr {
+  height: 0;
+  margin: 6px 4px;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+/* --- a scan, while it lasts ---------------------------------------------- */
+
+/* In the flow of the column rather than floating over anything: a scan is
+ * something the server is doing, not something being said to you. */
+.strip {
+  display: flex;
+  flex-direction: column;
+  padding: 11px 26px 12px;
+}
+
+/* The only thing that toggles, and it is the row and not a chevron on the end of
+ * it. Being clickable is enough of an affordance for a line that is already the
+ * colour of a link. */
+.strip-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  margin: 0 0 7px;
+  padding: 0;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.strip-head .icon { width: 14px; height: 14px; }
+
+.strip-head .counted {
+  margin-left: auto;
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Opens by growing its own row from nothing, which animates where a height cannot:
+ * there is no number to animate to, because it depends on what is inside.
+ *
+ * No padding in here. Padding would survive the collapse and leave an eight pixel
+ * gap where the closed state should be nothing at all; everything inside is spaced
+ * by `gap` and by its own margins, which do collapse with it. */
+.strip-stats {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows 240ms ease-out;
+}
+
+.strip.open .strip-stats { grid-template-rows: 1fr; }
+
+.strip-stats > div {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip-stats { transition: none; }
+}
+
+/* Label against value, the way every other pair of figures in the panel is set. */
+.strip-stats .pair {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.strip-stats .pair > :last-child { font-variant-numeric: tabular-nums; }
+
+/* Outlined in the alarm colour rather than filled with it: it is the way out of
+ * something already running, not the point of the block. */
+.strip .stop {
+  margin: 3px 0 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--alarm) 45%, transparent);
+  border-radius: 6px;
+  color: var(--alarm);
+}
+
+/* What is being read right now, which is the one line here that says something is
+ * happening rather than how much has happened. Monospaced because it is a path,
+ * and clipped to one line because a path is as long as it likes. */
+.strip .where {
+  overflow: hidden;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--quiet);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- the login ----------------------------------------------------------- */
@@ -301,27 +781,8 @@ a { color: var(--accent); }
 
 /* --- the parts ----------------------------------------------------------- */
 
-label, .label { font-size: 0.85rem; color: var(--quiet); }
 
-/* Two lists of fields side by side, and one list when there is no room for two.
- * `auto-fit` with a floor rather than a media query: what decides is whether the
- * columns still fit, which is the actual question. */
-.columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: 1rem;
-}
-
-.column {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* A pane that is not a form still needs the air a form gives its fields. */
-.pane > .field + .field { margin-top: 1rem; }
-
-.pane > .field select { align-self: start; }
+label { font-size: 0.85rem; color: var(--quiet); }
 
 /* A label, its control and whatever explains it, as one thing. The gap inside is
  * small because they belong together; the gap between fields comes from the form
@@ -333,52 +794,34 @@ label, .label { font-size: 0.85rem; color: var(--quiet); }
   gap: 0.25rem;
 }
 
-/* A row of buttons where exactly one is in force, which is a radio group wearing
- * buttons: three words fit on a line and read at a glance, where a dropdown would
- * hide two of the three behind a click. Wraps rather than squeezes, since the
- * words are as long as the language makes them. */
-.choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.choices button { margin: 0; }
-
-/* The one in force, said in the accent — which on this screen is also a preview of
- * the colour underneath it. */
-.choices button.chosen {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-}
-
 .swatches {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.15rem 0;
+  gap: 12px;
 }
 
-/* A colour and nothing else. It carries its own `data-accent`, so the fill is the
- * same variable the panel paints with rather than a second copy of the palette. */
+/* A colour and nothing else — no outline of its own, which at this size read as a
+ * grey ring around every colour. It carries its own `data-accent`, so the fill is
+ * the same variable the panel paints with rather than a second copy of the
+ * palette. */
 .swatch {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 22px;
+  height: 22px;
+  margin: 0;
   padding: 0;
+  border: none;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
   background: var(--accent);
   cursor: pointer;
 }
 
-/* A ring outside the circle rather than a tick inside it: at this size a tick is
- * a smudge, and the ring leaves the colour whole. */
+/* A hairline ring outside the circle rather than a tick inside it: at this size a
+ * tick is a smudge, and the ring leaves the colour whole. One pixel, like every
+ * other line in the panel, and set off far enough to read as a ring rather than as
+ * a border. */
 .swatch.chosen {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-color: transparent;
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
 }
 
 /* A date field with nothing in it still shows dd/mm/yyyy, in the same ink as a
@@ -388,11 +831,12 @@ input[type="date"].empty { color: var(--quiet); }
 
 input, select, button {
   font: inherit;
+  font-size: 14px;
   color: inherit;
-  padding: 0.45rem 0.6rem;
+  padding: 7px 10px;
   border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--paper);
+  border-radius: 6px;
+  background: transparent;
 }
 
 input:focus-visible, select:focus-visible, button:focus-visible {
@@ -405,17 +849,16 @@ input:focus-visible, select:focus-visible, button:focus-visible {
  *
  * Centred, which only shows once a button is wider than its label — a whole
  * column of them at the width of the longest, for instance. */
+/* What every button shares and nothing more. It used to be filled with the accent
+ * here, as the default look of a button — which meant every button that was not that
+ * had to undo a background, a weight and a margin before saying what it was. Nothing
+ * is filled by default now: `.pill.solid` is, and it says so. */
 button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
   cursor: pointer;
-  background: var(--accent);
-  border-color: transparent;
-  color: #fff;
-  font-weight: 500;
-  margin-top: 0.5rem;
 }
 
 button:disabled { opacity: 0.6; cursor: default; }
@@ -424,25 +867,117 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 .dropdown { position: relative; }
 
-/* The header's own buttons: commands, not the point of the screen, so they do
- * not shout. */
-.plain {
-  display: flex;
+/* The one action that belongs to a whole screen, beside its title. Outlined and
+ * transparent rather than filled: it is the way to start the thing this screen is
+ * about, not a decision to be talked into.
+ *
+ * Rounded all the way, which is the one place a pill shape appears outside a badge.
+ * It says "an action" where a rectangle here would say "a field". */
+.pill {
+  display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 8px;
+  flex: none;
   margin: 0;
-  padding: 0.35rem 0.6rem;
+  padding: 8px 15px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
   background: transparent;
   color: inherit;
-  border-color: var(--line);
-  font-weight: normal;
+  font-size: 14px;
+  /* One line, whatever the window. A pill is a shape with a word in it, and a
+   * shape with a word broken across two lines is not that shape any more: it grows
+   * downwards, its round ends stop matching its height, and it stops looking like
+   * something to press. What gives instead is the title beside it, which is prose
+   * and wraps for a living. */
+  white-space: nowrap;
 }
 
-.plain .chevron { opacity: 0.6; }
+.pill:hover { border-color: var(--accent); color: var(--accent); }
 
-/* A label worth the width on a wide screen and not worth it on a narrow one. */
-@media (max-width: 45rem) {
-  .wide-only { display: none; }
+/* The same shape filled, for the one action a screen exists to offer: adding what
+ * the screen is a list of. Outlined says "you may"; filled says "this is the one".
+ *
+ * The ink on it flips with the scheme, because the accent does: the dark palette's
+ * accents are pale on purpose, and white on a pale green is white on nothing. */
+.pill.solid {
+  border-color: transparent;
+  background: var(--accent);
+  color: light-dark(#fff, #0c1a14);
+  font-weight: 500;
+}
+
+.pill.solid:hover { color: light-dark(#fff, #0c1a14); }
+
+.pill.solid:disabled { opacity: 0.45; cursor: default; }
+
+/* The one that cannot be undone. Red is spent on this and on nothing else in the
+ * same box. */
+.pill.undoing {
+  border-color: transparent;
+  background: var(--alarm);
+  color: #fff;
+}
+
+.pill.undoing:hover { color: #fff; }
+
+/* Outlined in the alarm colour rather than filled with it: the way into something
+ * that cannot be undone, which is not the same as doing it. The same treatment the
+ * scan strip gives its own way out. */
+.pill.risky {
+  border-color: color-mix(in srgb, var(--alarm) 45%, transparent);
+  color: var(--alarm);
+}
+
+.pill.risky:hover { border-color: var(--alarm); color: var(--alarm); }
+
+/* An action written as a word. Not a link — it goes nowhere, so it is a button
+ * wearing the clothes of one — and not a bordered button either, which is three
+ * boxes in a row where the words fit in the space the boxes would have taken.
+ *
+ * Quiet until it is pointed at, so a row of them does not compete with the name of
+ * the thing they act on. */
+.link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  color: var(--quiet);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.link:hover { color: var(--ink); }
+
+/* The one that cannot be undone reads like its neighbours and turns its own colour
+ * rather than growing a line under itself. Quiet at rest for the same reason they
+ * are: three words in a row, one of them permanently red, is a row with something
+ * shouting in it. What it does is said by the word, and asked again by the dialogue
+ * before anything happens.
+ *
+ * Not `.link.alarm`. There is an `.alarm` of its own further down this file, for
+ * text that is a warning; it is one class, like `.link` is, and it comes later — so
+ * it won the resting colour, the word sat permanently red, and the hover had nothing
+ * left to change. */
+.link.risky:hover { color: var(--alarm); }
+
+.link:disabled { opacity: 0.5; }
+
+.pill .icon { width: 16px; height: 16px; }
+
+/* Along the row, and down once the menu under it is open: the direction the thing
+ * it opens comes from. */
+.pill .chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--quiet);
+  transition: transform 0.15s ease-out;
+}
+
+.pill[aria-expanded="true"] .chevron { transform: rotate(90deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill .chevron { transition: none; }
 }
 
 .avatar {
@@ -484,17 +1019,11 @@ button:disabled { opacity: 0.6; cursor: default; }
   box-shadow: 0 2px 12px light-dark(rgb(0 0 0 / 18%), rgb(0 0 0 / 55%));
 }
 
-.menu-who {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.5rem 0.6rem 0.6rem;
-  font-size: 0.9rem;
-}
-
-.menu-who .badge { margin: 0.2rem 0 0; align-self: flex-start; }
-
-.menu a, .menu-item {
+/* One rule for an entry in any of them. The popover that opens upward from the
+ * account block had a rule of its own with the padding and the size in it and
+ * neither the colour nor the decoration, so its three links came out accented and
+ * underlined — a browser's idea of a link, in the middle of a menu. */
+.menu a, .menu-item, .upward a {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -505,14 +1034,13 @@ button:disabled { opacity: 0.6; cursor: default; }
   text-decoration: none;
   text-align: left;
   font: inherit;
-  font-weight: normal;
   background: transparent;
   border: none;
   margin: 0;
   cursor: pointer;
 }
 
-.menu a:hover, .menu-item:hover {
+.menu a:hover, .menu-item:hover, .upward a:hover {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
@@ -539,21 +1067,6 @@ button:disabled { opacity: 0.6; cursor: default; }
   color: var(--accent);
   font-weight: 600;
 }
-
-.menu-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.45rem 0.6rem;
-}
-
-.menu-field > span {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.menu-field select { width: 100%; }
 
 .badge {
   /* Inline flex and middle aligned: with padding and no baseline of its own, a
@@ -586,175 +1099,161 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 /* --- where you land ------------------------------------------------------ */
 
-.greeting { margin: 0 0 0.25rem; }
 .lead { margin: 0 0 1.75rem; }
 
-/* Four, then two, then one. Counted rather than fitted: `auto-fit` would happily
- * leave three across and one alone underneath, which reads as a mistake. */
-.tiles {
+/* Four figures between two rules, divided by rules of their own. What was here
+ * before was four cards, each with the number in one weight and a coloured disc
+ * beside it; the discs were four colours competing where four numbers were meant
+ * to be counted, and the cards were four boxes drawn to hold what a line already
+ * separates.
+ *
+ * Counted rather than fitted: `auto-fit` would happily leave three across and one
+ * alone underneath, which reads as a mistake. */
+.counts {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
-@media (max-width: 62rem) {
-  .tiles { grid-template-columns: repeat(2, 1fr); }
+.count {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 20px;
+  border-left: 1px solid var(--line);
 }
 
-@media (max-width: 26rem) {
-  .tiles { grid-template-columns: 1fr; }
+/* The two on the ends are against the margins, so neither takes a line or padding
+ * on the side where there is nothing to be divided from. The row then measures the
+ * full width of the screen, which is what makes the two rules across it read as the
+ * edges of one band rather than as a box drawn around four cells. */
+.count:first-child {
+  padding-left: 0;
+  border-left: none;
 }
 
-/* Icon on the left across both rows, figure over label on the right. Two columns
- * and a span rather than a wrapper around the text: the three elements are
- * already there, so the layout can be told where they go instead of being given
- * another box to hold them. */
-.tile {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0 0.85rem;
+.count:last-child { padding-right: 0; }
+
+/* The glyph on the label line, at the size of the label and in its colour, so it
+ * is part of the word rather than a mark beside the number. */
+.named-figure {
+  display: flex;
   align-items: center;
-  padding: 1rem 1.1rem;
-  border-radius: 8px;
-  background: var(--raised);
+  gap: 6px;
 }
 
-/* The icon carries the colour, in a tinted round of the same hue. The figure
- * stays the colour of text: four coloured numbers would compete instead of
- * count. */
-.mark {
-  grid-row: span 2;
-  display: grid;
-  place-items: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  border-radius: 50%;
-  color: var(--hue);
-  background: color-mix(in srgb, var(--hue) 15%, transparent);
-}
+.named-figure .icon { width: 13px; height: 13px; }
 
-.mark .icon { width: 1.35rem; height: 1.35rem; }
-
-.songs { --hue: light-dark(#0057b8, #6aa9e9); }
-.albums { --hue: light-dark(#2e7d32, #7cc47f); }
-.artists { --hue: light-dark(#b25000, #e8a15c); }
-.genres { --hue: light-dark(#6a3fa0, #b191dd); }
-
-.tile .figure {
-  align-self: end;
-  font-size: 1.6rem;
-  font-weight: 600;
-  line-height: 1.05;
+/* Large and light. A figure this size does not need weight as well, and at 400 it
+ * reads as a quantity rather than as a headline. */
+.count .figure {
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
-/* Against the top of its row, so the two lines sit as one block against the
- * icon rather than drifting apart inside the box. */
-.tile .quiet { align-self: start; }
+.count .quiet { font-size: 13px; }
 
-/* Side by side when there is room and stacked when there is not, which is a
- * decision the browser is better placed to make than we are. */
-/* Two across or one, never anything in between, and both the height of the taller
- * one. `align-items: start` left them ending at different points, which looks
- * like one of them failed to load. */
+/* Two across, then two by two, then one — with the lines following, which is why
+ * they are on the cells rather than on the container. */
+@media (max-width: 46rem) {
+  .counts { grid-template-columns: 1fr 1fr; }
+
+  .count { padding: 18px 16px; }
+
+  .count:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .count:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+
+  .count .figure { font-size: 28px; }
+}
+
+/* Two lists side by side, and one under the other when there is no room. The gap
+ * is horizontal only: each list draws its own lines and two of them stacked have
+ * to meet, or the seam between the columns becomes a gap in the ruling.
+ *
+ * Both columns are meant to hold the same number of rows. An asymmetry here is
+ * what the eye lands on first, and it is the whole reason this screen was redrawn. */
 .panes {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 56px;
+  margin-top: 40px;
 }
 
 @media (max-width: 46rem) {
   .panes { grid-template-columns: 1fr; }
 }
 
-.pane {
-  padding: 1rem 1.1rem;
-  border-radius: 8px;
-  background: var(--raised);
+/* A heading over a run of rows, in the same small uppercase as the ones in the
+ * navigation: they do the same job, so they are the same thing. */
+.pane h2, .part {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
 }
 
-/* A heading inside a pane, for the parts of one idea. Smaller than the pane's own
- * and with room above it, so it groups what follows without looking like a second
- * pane. */
-/* Quieter than the pane's own heading, not louder. It was inheriting the ink of
- * body text while the h2 above it was grey, so the part shouted over the whole. */
 .pane h3 {
-  margin: 1.25rem 0 0.4rem;
-  font-size: 0.85rem;
+  margin: 22px 0 6px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--quiet);
 }
 
 .pane h3:first-of-type { margin-top: 0; }
 
-.pane h2 {
-  margin: 0 0 0.6rem;
-  font-size: 1rem;
-  font-weight: 600;
-}
+/* Here the lines only divide, so there is none over the first row and none under the
+ * last: what is above the list is the heading, and what is below it is air. In the
+ * rail and in a dialogue the same list is a block of its own and is closed at both
+ * ends. */
+.pane .facts > *:last-child { border-bottom: none; }
 
-/* Two columns of pairs: the name against the left, the figure against the
- * right, so a column of numbers lines up. */
-.pane dl {
+/* --- the last scan ------------------------------------------------------- */
+
+/* Always here, rather than behind the disclosure this replaces. A scan that
+ * finished is the normal state of a server, and what it did is four figures: they
+ * fit on one line, and a line of figures does not need to be opened.
+ *
+ * The `details` that used to hold them said "2 hours ago" and hid the rest. It
+ * hid four numbers behind a click to save a line that was there anyway. */
+.last-scan { margin-top: 40px; }
+
+.figures {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.45rem 1rem;
-  margin: 0;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
-.pane dt { color: var(--quiet); }
+.figures > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-.pane dd {
-  margin: 0;
-  text-align: right;
+.figures .figure {
+  font-size: 20px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-/* --- the scan, while it lasts -------------------------------------------- */
+.figures .quiet { font-size: 13px; }
 
-/* Full width under the two panes: last, so starting a scan does not push the
- * figures off the screen every time. */
-.running {
-  grid-column: 1 / -1;
-  margin-top: 0.75rem;
+@media (max-width: 46rem) {
+  .figures { grid-template-columns: 1fr 1fr; }
 }
-
-.running h2 { margin-bottom: 0.5rem; }
-.running .counts { font-variant-numeric: tabular-nums; }
-.running .row { margin-top: 1rem; }
-
-/* The marker itself is the summary, so the arrow the browser draws is enough and
- * ours would be a second one. */
-.last-scan summary {
-  cursor: pointer;
-  text-align: right;
-}
-
-.last-scan[open] summary { margin-bottom: 0.4rem; }
-
-/* Nested inside a cell of the outer list, so it keeps its own two columns
- * without inheriting the gaps of the one around it. */
-.last-scan .inner {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.25rem 1rem;
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.last-scan .inner dt { color: var(--quiet); }
-
-.last-scan .inner dd {
-  margin: 0;
-  text-align: right;
-}
-
-/* Said in the header's accent while it happens, without the box a badge would
- * put around it. */
-.working-text { color: var(--accent); }
-
-.state { margin: 0 0 1rem; }
 
 .working {
   display: inline-flex;
@@ -772,19 +1271,6 @@ button:disabled { opacity: 0.6; cursor: default; }
  * that corner is where a pointer ends up. */
 .row.ends { justify-content: flex-end; }
 .row button { margin: 0; }
-
-/* The one that does more than the obvious thing should not look like the obvious
- * thing — but it still has to look like a button. Transparent, it disappeared into
- * the grey of a pane; a tint of the text colour mixed into whatever is behind it
- * stands out in either scheme without naming a colour for each. */
-.second {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
-  color: inherit;
-  border-color: var(--line);
-  font-weight: normal;
-}
-
-.second:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
 
 /* A path is long, arbitrary and not worth breaking the layout over. */
 .path {
@@ -805,117 +1291,133 @@ button:disabled { opacity: 0.6; cursor: default; }
  * make the message drift away from the field it belongs to. */
 form .failure, .sheet .failure { margin-top: 0.25rem; }
 
-h1 { font-size: 1.4rem; margin: 0 0 1rem; }
-
 table { border-collapse: collapse; }
-
-.figures th, .figures td {
-  padding: 0.4rem 1.5rem 0.4rem 0;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  font-weight: normal;
-}
-
-.figures th { color: var(--quiet); }
-.figures td { font-variant-numeric: tabular-nums; }
-
-/* A heading with the one action that belongs to the whole screen, which is not
- * part of any of the things listed below it. */
-.titled {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.25rem;
-}
-
-.titled h1, .titled .lead { margin: 0; }
-.titled button { margin: 0; }
 
 /* --- libraries ----------------------------------------------------------- */
 
-/* Cards and not a table: the widest thing here is an absolute path, and a column
- * that has to hold one either wraps badly or shoves everything else off the
- * side. */
-.cards {
-  display: grid;
-  gap: 0.75rem;
-}
-
-/* Column with a gap rather than margins on each child: the spacing is stated
- * once, and the last child cannot leave a gap under itself. */
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 1rem 1.1rem;
-  border-radius: 8px;
-  background: var(--raised);
-}
-
-/* A switched off library keeps everything it had and shows none of it as
- * current, so it reads as set aside rather than as broken. */
-.card.off { opacity: 0.7; }
-
-.card header {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.card h2 {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+/* One row per library on three columns: what it is, how much of it there is, and
+ * what can be done to it. These were cards on a raised surface, which is what a
+ * card is for — grouping things that do not line up — and the trouble was that
+ * these do line up. A column of figures and a column of actions read as columns.
+ *
+ * The first column takes whatever width is left and the other two are fixed, so
+ * every row's figures and every row's actions start at the same place however long
+ * a path is. `minmax(0, 1fr)` and not `1fr`, or a path with no spaces in it would
+ * refuse to shrink and push the other two off the side.
+ *
+ * `baseline` and not `center`: the three columns have two lines each and it is the
+ * first line of each that belongs together. */
+.shelf {
   margin: 0;
-  font-size: 1.05rem;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
 }
 
-.card .path {
-  font-size: 0.9rem;
+/* The two fixed columns are wider than the design's 150 and 120, and the reason is
+ * the reason everything here is wider than a drawing: the drawing was in English.
+ * "3 missing · 2 h ago" fits in 150 pixels and "12 ausentes · hace un momento" does
+ * not, and the third column has to hold three actions at once — Editar, Activar,
+ * Eliminar — because that is what a switched off library offers.
+ *
+ * Sized for the worst case rather than for the common one, so that a row does not
+ * change height when it changes state. A row that grows a line while somebody is
+ * aiming at it moves every row below it. */
+.shelf > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px 175px;
+  align-items: baseline;
+  gap: 24px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.shelf .what { min-width: 0; }
+
+.shelf h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+}
+
+/* A switched off library goes quiet and keeps everything else. It is set aside,
+ * not broken, and the row still says what is in it and still lets it be edited. */
+.shelf > li.off h2 { color: var(--quiet); }
+
+/* Wraps mid-path when it has to, which for a path with no spaces in it is the only
+ * place it can wrap. */
+.shelf .path {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
-.card .counts { font-size: 0.9rem; }
+.shelf .much {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
-.badge.muted {
-  margin: 0;
-  background: color-mix(in srgb, var(--quiet) 18%, transparent);
+/* One line, and never two. `nowrap` is not there to look tidy: it is what makes the
+ * worst case an overflow to the left instead of a second line, and an overflow
+ * moves nothing. Every fixed width here is a guess at how long a language is, and
+ * this is what a wrong guess costs. */
+.shelf .much .quiet {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* The state over the things that change it, both against the right so the column
+ * has one edge. */
+/* Two lines, the same way the other two columns have two lines: a first line and a
+ * block under it with four pixels over it. This was a flex column with a `gap`,
+ * which is a different mechanism for the same job — and a flex container's height is
+ * its tallest item rather than a line box, so the four pixels came out measured from
+ * somewhere else and the column read as more loosely set than its neighbours. */
+.shelf .doing { text-align: right; }
+
+.shelf .state {
+  display: block;
+  font-size: 13px;
   color: var(--quiet);
 }
 
-.renaming {
+.shelf .state.on { color: var(--accent); }
+
+/* Never wraps, for the same reason as the line above: switching a library off adds
+ * a third action, and a third action that dropped onto a second line would push
+ * every row under it down as it appeared. */
+.acting {
   display: flex;
-  gap: 0.4rem;
-  flex: 1;
+  justify-content: flex-end;
+  margin-top: 4px;
+  gap: 12px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-.renaming input { flex: 1; min-width: 0; }
-.renaming button { margin: 0; }
+/* Stacked once there is no room for three columns, with the actions against the
+ * left like everything else rather than hanging off an edge that is no longer
+ * there.
+ *
+ * Its own breakpoint, and a wider one than the rest of the panel uses. What decides
+ * it is not the window: it is that two fixed columns take 345 pixels of it and the
+ * path gets what is left, so this screen runs out of room a long way before a screen
+ * of figures does. By the time the columns would have collapsed at the panel's usual
+ * 736 the paths had been wrapping mid-directory for a while. */
+@media (max-width: 850px) {
+  .shelf > li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
 
-/* Wraps rather than overflowing: there are five things here at the widest and a
- * card is only as wide as the screen. */
-.row.wrap { flex-wrap: wrap; align-items: center; }
-
-.card .row { margin-top: 0.5rem; }
-
-.small {
-  padding: 0.3rem 0.55rem;
-  font-size: 0.85rem;
-}
-
-/* The one action that cannot be undone looks like it. */
-.danger {
-  background: var(--alarm);
-  border-color: transparent;
-  color: #fff;
-}
-
-.second.danger {
-  background: transparent;
-  color: var(--alarm);
-  border-color: color-mix(in srgb, var(--alarm) 45%, transparent);
+  .shelf .much, .shelf .doing { text-align: left; }
+  .acting { justify-content: flex-start; }
 }
 
 /* Asked in place, on the card holding what is about to go, rather than in a box
@@ -945,12 +1447,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 /* The password that guards the fields above it. Set apart, because everything
  * above is what is being asked for and this is the asking answered — and the two
  * read as one list otherwise. */
-.guarded {
-  margin-top: 0.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-}
-
 /* A note under a heading, with room before whatever it introduces. */
 .pane > .hint { margin-bottom: 1rem; }
 
@@ -977,53 +1473,254 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .pane-head .hint { margin: 0.25rem 0 0; }
 .pane-head button { margin: 0; }
 
-
 /* --- the dialogue -------------------------------------------------------- */
 
-/* A real `dialog`: Escape closes it, the focus stays inside and the page behind
- * it goes inert, none of which is written anywhere here. */
+/* The only raised surface in the panel, and the only border and shadow in it. It is
+ * allowed them precisely because nothing else has them: a box that floats over the
+ * screen has to say it is floating, and there is nothing else it could be confused
+ * with.
+ *
+ * A real `dialog` opened with `showModal`. Escape closes it, the focus stays inside,
+ * the page behind goes inert and the backdrop is the browser's own — none of which
+ * is written here. */
 .sheet {
-  width: min(28rem, calc(100vw - 2rem));
-  padding: 1.25rem;
-  border: none;
+  width: 440px;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--paper);
   color: var(--ink);
-  box-shadow: 0 8px 40px light-dark(rgb(0 0 0 / 22%), rgb(0 0 0 / 60%));
+  box-shadow: 0 24px 60px light-dark(rgb(0 0 0 / 18%), rgb(0 0 0 / 55%));
 }
 
-.sheet::backdrop { background: rgb(0 0 0 / 45%); }
+/* A sentence and two answers. Anything with a field in it wants the full width. */
+.sheet.narrow { width: 380px; }
 
-/* The title and the way out. The button is the only thing in a dialogue that is
- * about the dialogue rather than about what it asks. */
-.sheet-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
+/* `color-scheme` on the backdrop as well as on the page: a backdrop is not a child
+ * of anything, so without it `light-dark()` here has no scheme to read. */
+.sheet::backdrop {
+  color-scheme: light dark;
+  background: light-dark(rgb(28 28 30 / 34%), rgb(0 0 0 / 62%));
 }
 
-.sheet h2 { font-size: 1.15rem; }
+/* What is being asked, and what it is about. No ✕ in the corner: Escape, the
+ * backdrop and the cancel action are three ways out already, and a fourth drawn in
+ * the corner is the only thing in the box that is about the box. */
+.sheet-body { padding: 26px 30px 22px; }
 
-.close {
+.sheet h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: inherit;
+}
+
+/* `pretty` so a two line lead does not leave one word on the second line. */
+.sheet-lead {
   margin: 0;
-  padding: 0.25rem;
+  font-size: 14px;
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+.sheet form, .sheet-content {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 24px;
+}
+
+/* Stacked one under another and separated by nothing but air. A field is a label, a
+ * line and what the line is for. */
+.sheet label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: inherit;
+  color: inherit;
+}
+
+.sheet label > span:first-child {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+/* A line under the value rather than a box around it. The box was drawn to say
+ * "this is where you type", which is what the label above it says. */
+.sheet input, .sheet select {
+  padding: 6px 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.sheet input:focus-visible, .sheet select:focus-visible {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+/* The label goes with it. The bottom border alone is a thin thing to notice, and
+ * two things changing colour together is what makes it obvious which field has the
+ * cursor. */
+.sheet label:focus-within > span:first-child { color: var(--accent); }
+
+/* A checkbox is not a value with a line under it: it is a box and the words beside
+ * it. Both of the rules above have to be undone for it — the column and the line —
+ * because a checkbox is a `label` with an `input` in it like every other field here
+ * and nothing else tells them apart. */
+.sheet label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sheet label.checkbox input {
+  padding: 0;
+  border: none;
+}
+
+/* A path, a key, a name to be typed back: text where every character counts and
+ * none of them should be guessed at. */
+.sheet .exact {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+}
+
+.sheet .hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+/* Facts about the thing, or what is about to be lost: a line each, name against
+ * value, hairline between. The same shape as the lists on the screen you land on. */
+.sheet .facts {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+/* Tighter than elsewhere: a dialogue is 440 pixels wide and what it says about what
+ * it is handing over is a footnote to the thing itself. */
+.sheet .facts > * {
+  padding: 9px 0;
+  font-size: 14px;
+}
+
+/* Something handed over once: a secret on a band tinted with the accent, at the
+ * only moment it will ever be readable. `user-select: all` so one click takes all
+ * of it and no character is left behind. */
+.handover {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 14px 16px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.handover code {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.handover button {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: inherit;
+  font-size: 13px;
+}
+
+/* One line, the answers against the right. The one that goes ahead is a pill and
+ * the one that does not is plain text: two solid buttons side by side are two
+ * things weighed equally, and they are not. */
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
+  padding: 16px 30px;
+  border-top: 1px solid var(--line);
+}
+
+.sheet-foot .away {
+  margin: 0;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--quiet);
-  line-height: 1;
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.close:hover { color: var(--ink); }
+.sheet-foot .away:hover { color: var(--ink); }
 
-.sheet form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.sheet-foot .pill:disabled { opacity: 0.45; cursor: default; }
+
+.sheet .failure { padding: 0 30px 18px; }
+
+/* A sheet up from the bottom edge rather than a box in the middle. A dialogue on a
+ * phone that floats in the centre is a box with the keyboard over half of it; from
+ * the bottom, what is being filled in stays above it. */
+@media (max-width: 640px) {
+  .sheet, .sheet.narrow {
+    width: 100%;
+    max-width: none;
+    margin: auto 0 0;
+    border: none;
+    border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -14px 40px light-dark(rgb(0 0 0 / 14%), rgb(0 0 0 / 45%));
+  }
+
+  /* What says the sheet came up from the edge and can go back down it. */
+  .sheet::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 10px auto 2px;
+    border-radius: 999px;
+    background: var(--line);
+  }
+
+  .sheet-body { padding: 14px 18px 20px; }
+  .sheet h2 { font-size: 19px; }
+  .sheet input, .sheet select { padding: 9px 0; }
+
+  /* Both answers a thumb's width tall, and apart from each other rather than
+   * together in the corner. */
+  .sheet-foot {
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 18px 22px;
+  }
+
+  .sheet-foot .away, .sheet-foot .pill {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .sheet-foot .pill { padding: 0 20px; }
 }
-
-.sheet .row { margin-top: 0; }
 
 /* --- accounts ------------------------------------------------------------ */
 
@@ -1070,7 +1767,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   margin: 0;
   padding: 0.25rem;
   border: none;
-  background: transparent;
   color: var(--quiet);
   line-height: 1;
 }
@@ -1166,20 +1862,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 /* The one moment a key can be read. Given room, and set in the typeface that
  * makes a string of hex readable, since somebody is about to copy it by eye or by
  * selection. */
-.issued {
-  margin: 0.75rem 0;
-  padding: 0.85rem 1rem;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.issued code {
-  font-family: ui-monospace, monospace;
-  font-size: 0.95rem;
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
 /* Said after something worked. Not an error and not silence. */
 .note {
   margin-top: 0.75rem;
@@ -1190,65 +1872,83 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * Meters
  * ------------------------------------------------------------------------- */
 
+/* Two rows, one per thing measured: what it is and what it is a share of on the
+ * left, the bar across the middle, the figure against the right. The middle column
+ * is what makes them rows rather than a list — the same 2px track that measures
+ * elsewhere in the panel, at whatever width the window leaves it. */
 .gauge {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 92px;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
 }
 
-/* The name against the left and the figure against the right, on the baseline
- * they share, so two gauges side by side read as two rows of the same thing. */
+.gauges > .gauge:first-child { border-top: 1px solid var(--line); }
+
+/* The name over what it is a share of, because "61.4 %" and "of 8 cores" are one
+ * statement and reading them apart is reading half of it. */
 .gauge-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gauge .note {
+  font-size: 12px;
+  color: var(--quiet);
 }
 
 /* Tabular, because these are the only digits in the panel that change while
  * somebody is looking at them, and proportional ones make the number jiggle as
  * it goes from a 1 to a 4. */
 .gauge .reading {
-  font-weight: 600;
+  text-align: right;
+  font-size: 20px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-.gauge .note { font-size: 0.85rem; }
+/* The figures under the two rows: whatever else is worth saying about the process,
+ * in the same even pairs as the lists above, so nothing here is lopsided either. */
+.gauges + .panes { margin-top: 0; }
 
-/* A meter looks native, and native is a different look in every browser: a
- * gradient in one, a flat bar in another, green whatever the page says. Turning
- * the appearance off and painting the track and the fill here is what makes it
- * one meter everywhere, and it is also what lets the fill be the accent the
- * account chose rather than somebody's idea of a healthy green.
+@media (max-width: 46rem) {
+  .gauge {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 20px;
+  }
+
+  /* Under both, across the full width: at this size the track is the only thing
+   * with room to spare. */
+  .gauge .track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* Two pixels of line, filled from the left. The track is `--line` and the fill is
+ * the accent, so the one moving thing on the screen is the colour the account
+ * chose.
  *
- * The track is `--line` and not a colour of its own: it is the same faint step
- * away from a raised surface that every rule and border in here already is. */
-meter.bar {
-  appearance: none;
+ * A track and a fill and nothing else: no radius at this height, where a rounded
+ * end on a two pixel bar is a smudge, and no gradient. The same shape measures the
+ * progress of a scan and, later, of a song.
+ *
+ * Called a track and not a bar because `bar` is the strip across the top of a
+ * narrow screen. Both were `.bar` for a while: the later rule won, the top bar
+ * became two pixels of grey, and being two pixels of grey it still took a cell of
+ * the frame's grid — which pushed the screen into the column under the sections. */
+.track {
+  display: block;
   width: 100%;
-  height: 0.45rem;
-  border: 0;
-  border-radius: 999px;
-  /* Firefox paints the element's own background as the track... */
+  height: 2px;
   background: var(--line);
 }
 
-/* ...and this is its fill. */
-meter.bar::-moz-meter-bar {
+.track > span {
+  display: block;
+  height: 100%;
   background: var(--accent);
-  border-radius: 999px;
-}
-
-/* Chromium wants to be told both, and its own default bar has a border and an
- * inset shadow to be rid of before a flat track shows through. */
-meter.bar::-webkit-meter-bar {
-  background: var(--line);
-  border: 0;
-  border-radius: 999px;
-  box-shadow: none;
-}
-
-meter.bar::-webkit-meter-optimum-value {
-  background: var(--accent);
-  border-radius: 999px;
 }

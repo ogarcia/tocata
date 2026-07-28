@@ -3,34 +3,34 @@
 
 //! The frame every screen sits in.
 //!
-//! Down the left, where you can go. Along the top, what you can do from anywhere:
-//! start a scan, and what belongs to you.
+//! One column down the left and the screen beside it. Everything that is
+//! permanently there lives in that column: the name of the thing, where you can
+//! go, a scan while one is running, and who you are. There used to be a header
+//! across the top holding the last three of those, and it cost a strip of every
+//! screen to hold what each of them has a place for down here.
 //!
-//! The sections down the left are not one list but two, and which one is showing
-//! depends on where you are. Inside your own account they are the parts of your
-//! account; everywhere else they are the server's. It is the same panel either way,
-//! and the point of swapping them is that neither list has to carry the other's
-//! entries: the theme and the language used to be buttons in the header, on every
-//! screen, for the two minutes in a year somebody wants them.
+//! The sections are one list, in two runs under headings. They used to be two
+//! lists that swapped — the server's, or your own account's, depending on where
+//! you were — and swapping them meant the panel changed shape under somebody as
+//! they walked into it. Your own account is reached from the block with your name
+//! on it instead, which is where somebody looks for it anyway.
 //!
-//! The header and the sections share one background, and the screen sits on
-//! another. Nothing is divided by a line because the change of colour already
-//! divides it, and a border between two panels of the same shade only draws
-//! attention to a seam that need not exist.
+//! Nothing here is a box. The column is divided from the screen by one line, and
+//! the blocks at its foot from each other by one line each, and that is the whole
+//! of the furniture.
 //!
-//! On a narrow screen the sections fold away behind a button. That was a
-//! `checkbox` and a CSS rule, on the grounds that the browser already knows how
-//! to remember whether something is open — but it does not know that you have
-//! navigated, so choosing a section left the sections sitting over the screen
-//! they had just taken you to. Whatever holds this has to hear about the one
-//! thing CSS cannot see, so it is a signal.
+//! On a narrow screen the column slides in from the left behind a button in a bar
+//! that exists only at that width. That was a `checkbox` and a CSS rule, on the
+//! grounds that the browser already knows how to remember whether something is
+//! open — but it does not know that you have navigated, so choosing a section left
+//! the sections sitting over the screen they had just taken you to. Whatever holds
+//! this has to hear about the one thing CSS cannot see, so it is a signal.
 
 use crate::api;
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
-use leptos_router::hooks::use_location;
 use rust_i18n::t;
 use tocata::types::{Identity, Status};
 
@@ -41,45 +41,74 @@ use tocata::types::{Identity, Status};
 struct Section {
     path: &'static str,
     label: fn() -> String,
-    icon: Icon,
     /// Whether the mark belongs to this entry only when the path is exactly this.
     /// Anything with sections under it needs this, or it lights up while somebody
     /// is inside one of its children and two entries claim to be where you are.
     exact: bool,
 }
 
-/// What anybody with a session can reach.
+/// What anybody with a session can reach, above every heading.
+///
+/// On its own rather than under one, because it is not part of anything: it is the
+/// screen you land on.
 const EVERYONE: [Section; 1] = [Section {
     path: "/",
     label: || t!("nav.home").to_string(),
-    icon: Icon::Home,
     exact: true,
 }];
 
-/// What your own account is made of.
+/// The music itself, four ways into the same collection.
 ///
-/// Shown instead of everything else while you are in it, which is what lets the
-/// first entry be the profile rather than a way back: the logo goes home, and so
-/// does the entry that says so.
-const MINE: [Section; 3] = [
+/// Everybody sees these: a listener is here for the music, and an administrator
+/// wants to look at what they are administering.
+const COLLECTION: [Section; 4] = [
     Section {
-        path: "/account",
-        label: || t!("nav.profile").to_string(),
-        icon: Icon::Account,
-        // The other two live under this path, so without this it would be lit
-        // while somebody is on either of them.
-        exact: true,
-    },
-    Section {
-        path: "/account/access",
-        label: || t!("nav.access").to_string(),
-        icon: Icon::Key,
+        path: "/tracks",
+        label: || t!("nav.tracks").to_string(),
         exact: false,
     },
     Section {
-        path: "/account/preferences",
-        label: || t!("nav.preferences").to_string(),
-        icon: Icon::Preferences,
+        path: "/albums",
+        label: || t!("nav.albums").to_string(),
+        exact: false,
+    },
+    Section {
+        path: "/artists",
+        label: || t!("nav.artists").to_string(),
+        exact: false,
+    },
+    Section {
+        path: "/genres",
+        label: || t!("nav.genres").to_string(),
+        exact: false,
+    },
+];
+
+/// What only an administrator can reach.
+///
+/// Under a heading that says what they have in common — they are the server — which
+/// is a word that fits all four where "settings" fitted two of them.
+const SERVER: [Section; 4] = [
+    Section {
+        path: "/libraries",
+        label: || t!("nav.libraries").to_string(),
+        exact: false,
+    },
+    Section {
+        path: "/accounts",
+        label: || t!("nav.accounts").to_string(),
+        // One account of somebody else's lives under this, and the list is where
+        // you came from rather than where you are.
+        exact: false,
+    },
+    Section {
+        path: "/settings",
+        label: || t!("nav.settings").to_string(),
+        exact: false,
+    },
+    Section {
+        path: "/maintenance",
+        label: || t!("nav.maintenance").to_string(),
         exact: false,
     },
 ];
@@ -88,36 +117,24 @@ const MINE: [Section; 3] = [
 /// is administration, including for an administrator.
 pub const MINE_PATH: &str = "/account";
 
-/// What only an administrator can reach, gathered under one heading.
-///
-/// Called administration rather than settings because two of them are not
-/// settings: a library is a place music comes from and an account is a person.
-/// Grouping them under the wrong word would spend the word for nothing.
-const ADMINISTRATION: [Section; 4] = [
+/// The parts of your own account, reached from your name rather than from the
+/// sections.
+const MINE: [Section; 3] = [
     Section {
-        path: "/libraries",
-        label: || t!("nav.libraries").to_string(),
-        icon: Icon::Libraries,
+        path: "/account",
+        label: || t!("nav.profile").to_string(),
+        // The other two live under this path, so without this it would be lit
+        // while somebody is on either of them.
+        exact: true,
+    },
+    Section {
+        path: "/account/access",
+        label: || t!("nav.access").to_string(),
         exact: false,
     },
     Section {
-        path: "/accounts",
-        label: || t!("nav.accounts").to_string(),
-        icon: Icon::Accounts,
-        // One account of somebody else's lives under this, and the list is where
-        // you came from rather than where you are.
-        exact: false,
-    },
-    Section {
-        path: "/settings",
-        label: || t!("nav.settings").to_string(),
-        icon: Icon::Settings,
-        exact: false,
-    },
-    Section {
-        path: "/maintenance",
-        label: || t!("nav.maintenance").to_string(),
-        icon: Icon::Maintenance,
+        path: "/account/preferences",
+        label: || t!("nav.preferences").to_string(),
         exact: false,
     },
 ];
@@ -132,9 +149,6 @@ pub fn Shell(
     let admin = identity.admin;
     let (folded_out, fold) = signal(false);
 
-    let location = use_location();
-    let inside_mine = move || location.pathname.get().starts_with(MINE_PATH);
-
     view! {
         <div class="shell">
             <aside class="side" class:out=move || folded_out.get()>
@@ -146,26 +160,28 @@ pub fn Shell(
                 </A>
 
                 <nav>
-                    <Show
-                        when=move || inside_mine()
-                        fallback=move || {
-                            view! {
-                                {EVERYONE
-                                    .iter()
-                                    .map(|section| view! { <Entry section fold /> })
-                                    .collect_view()}
-                                <Show when=move || admin>
-                                    <Group fold />
-                                </Show>
-                            }
-                        }
-                    >
-                        // Said out loud, because the sections having been swapped
-                        // under somebody is not something to make them infer.
-                        <p class="nav-title">{t!("nav.account")}</p>
-                        {MINE.iter().map(|section| view! { <Entry section fold /> }).collect_view()}
+                    {EVERYONE.iter().map(|section| view! { <Entry section fold /> }).collect_view()}
+
+                    <p class="nav-title">{t!("nav.collection")}</p>
+                    {COLLECTION
+                        .iter()
+                        .map(|section| view! { <Entry section fold /> })
+                        .collect_view()}
+
+                    <Show when=move || admin>
+                        <p class="nav-title">{t!("nav.server")}</p>
+                        {SERVER.iter().map(|section| view! { <Entry section fold /> }).collect_view()}
                     </Show>
                 </nav>
+
+                // Against the bottom, in the order they were added to the panel's
+                // life: what the server is doing now, then who is asking.
+                <div class="foot">
+                    <Show when=move || admin>
+                        <ScanStrip scan />
+                    </Show>
+                    <WhoAmI identity on_out fold />
+                </div>
             </aside>
 
             // Over the screen while the sections are out, so a touch anywhere
@@ -174,7 +190,9 @@ pub fn Shell(
                 <div class="menu-shade" on:click=move |_| fold.set(false)></div>
             </Show>
 
-            <header class="head">
+            // Only at the width where the column has folded away. Its whole job is
+            // the way back to it, so it carries nothing else.
+            <header class="bar">
                 <button
                     class="menu-button"
                     title=t!("nav.menu")
@@ -184,16 +202,10 @@ pub fn Shell(
                     <Glyph icon=Icon::Menu />
                 </button>
 
-                // Grouped rather than pushed one by one: whatever is in here
-                // sits at the right hand end, and adding another button later
-                // does not depend on which of them happens to come first.
-                <div class="tools">
-                    <Scanning scan />
-                    <Show when=move || admin>
-                        <StartScan scan />
-                    </Show>
-                    <You identity on_out />
-                </div>
+                <A href="/" attr:class="brand">
+                    <Glyph icon=Icon::Logo />
+                    {t!("app.name")}
+                </A>
             </header>
 
             <main class="body">{children()}</main>
@@ -203,157 +215,120 @@ pub fn Shell(
 
 /// One place to go. Going there folds the sections away again, which on a wide
 /// screen changes nothing because there is nothing folded.
+///
+/// No icon. Nine entries each with a glyph beside it was nine glyphs to read past
+/// on the way to the words, and the words were doing the work.
 #[component]
 fn Entry(section: &'static Section, fold: WriteSignal<bool>) -> impl IntoView {
     view! {
         <A href=section.path exact=section.exact on:click=move |_| fold.set(false)>
-            <Glyph icon=section.icon />
             {(section.label)()}
         </A>
     }
 }
 
-/// The administration sections, behind a heading that folds.
+/// A scan, while there is one, at the foot of the column.
 ///
-/// Arriving inside one of them opens it, so the menu never disagrees with the
-/// screen about where you are. Closing it again is allowed even then — it is a
-/// fold, and one that refuses to fold is a decoration — and while it is closed
-/// over the section you are in, the heading itself carries the mark. Something
-/// has to say where you are.
+/// A scan takes minutes and people go and do something else while it runs. Here it
+/// is in front of them wherever they went, and here is also where it can be looked
+/// at in full and stopped — which used to be on the screen you land on, so watching
+/// a scan meant going back to watch it.
+///
+/// Closed it says three things: that a scan is running, how much it has found, and
+/// what it is reading. Open it adds what the run has done so far and the way to
+/// stop it. There is no chevron: the line is the colour of a link and moves, and a
+/// second hint would be furniture.
+///
+/// Nothing at all when nothing is running. A strip saying "idle" is a strip saying
+/// nothing, and the screen you land on keeps what the last scan did.
 #[component]
-fn Group(fold: WriteSignal<bool>) -> impl IntoView {
-    let location = use_location();
-    let inside = move || {
-        let path = location.pathname.get();
-        ADMINISTRATION.iter().any(|section| section.path == path)
-    };
-
-    let (open, set_open) = signal(inside());
-
-    // Opens on the way in, and only then. Landing inside from a typed URL or a
-    // reload should show where that is; closing it afterwards is a choice this
-    // does not undo, because nothing it watches has changed.
-    Effect::new(move |_| {
-        if inside() {
-            set_open.set(true);
-        }
-    });
-
-    view! {
-        <button
-            class="group"
-            class:open=move || open.get()
-            class:current=move || !open.get() && inside()
-            aria-expanded=move || open.get().to_string()
-            on:click=move |_| set_open.update(|shown| *shown = !*shown)
-        >
-            <Glyph icon=Icon::Settings />
-            {t!("nav.administration")}
-            <span class="chevron">
-                <Glyph icon=Icon::Chevron />
-            </span>
-        </button>
-
-        <Show when=move || open.get()>
-            <div class="grouped">
-                {ADMINISTRATION
-                    .iter()
-                    .map(|section| view! { <Entry section fold /> })
-                    .collect_view()}
-            </div>
-        </Show>
-    }
-}
-
-/// Says that a scan is running, from wherever in the panel you happen to be.
-///
-/// A scan takes minutes and people go and do something else while it runs. If the
-/// only place that said so were its own screen, they would have to keep going
-/// back to look; the stream is already open, so the header can say it for free.
-///
-/// Silent when nothing is running: a permanent badge saying "idle" is furniture.
-#[component]
-fn Scanning(scan: ReadSignal<Option<Status>>) -> impl IntoView {
-    view! {
-        <Show when=move || scan.get().is_some_and(|status| status.scanning)>
-            <A href="/" attr:class="scanning" attr:title=t!("scan.running")>
-                <Glyph icon=Icon::Scan />
-                <span class="counted">
-                    {move || scan.get().map(|status| status.tracks).unwrap_or_default()}
-                </span>
-            </A>
-        </Show>
-    }
-}
-
-/// Starting a scan without going anywhere to do it.
-///
-/// Two kinds, so it is a menu rather than a button: one of them reads every file
-/// again and takes as long as the collection is big, which is not something to set
-/// off by aiming badly.
-///
-/// The icon carries it alone. Two arrows going round is what every program on this
-/// machine uses for "go and look again", and a word beside it would be a word
-/// nobody needs to read twice.
-///
-/// Gone while a scan runs. Cancelling stays on the scan's own screen, because
-/// stopping something should mean having looked at what is being stopped.
-#[component]
-fn StartScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
+fn ScanStrip(scan: ReadSignal<Option<Status>>) -> impl IntoView {
     let (open, set_open) = signal(false);
+    let (stopping, set_stopping) = signal(false);
 
-    let start = move |full: bool| {
-        set_open.set(false);
+    let running = move || scan.get().filter(|status| status.scanning);
+
+    let stop = move |_| {
+        set_stopping.set(true);
         spawn_local(async move {
-            let _ = api::start_scan(full).await;
+            let _ = api::cancel_scan().await;
+            set_stopping.set(false);
         });
     };
 
     view! {
-        <Show when=move || !scan.get().is_some_and(|status| status.scanning)>
-            <div class="dropdown">
+        <Show when=move || running().is_some()>
+            <div class="strip" class:open=move || open.get()>
                 <button
-                    class="plain"
-                    title=t!("scan.start")
+                    class="strip-head working"
                     aria-expanded=move || open.get().to_string()
                     on:click=move |_| set_open.update(|shown| *shown = !*shown)
                 >
                     <Glyph icon=Icon::Scan />
+                    {t!("scan.running")}
+                    <span class="counted">
+                        {move || thousands(running().map(|status| status.tracks).unwrap_or_default())}
+                    </span>
                 </button>
 
-                <Show when=move || open.get()>
-                    <div class="veil" on:click=move |_| set_open.set(false)></div>
-                    <div class="menu">
-                        // The note is inside the button rather than under it.
-                        // Beside it, it looked like something to click that did
-                        // nothing when clicked, and left a gap in the middle of
-                        // the menu that highlighted neither entry.
-                        <button class="menu-item explained" on:click=move |_| start(false)>
-                            <span>{t!("scan.quick")}</span>
-                            <span class="menu-note">{t!("scan.quick_note")}</span>
-                        </button>
-                        <button class="menu-item explained" on:click=move |_| start(true)>
-                            <span>{t!("scan.start_full")}</span>
-                            <span class="menu-note">{t!("scan.full_note")}</span>
+                // The button that stops it is a sibling of the one that opens this,
+                // never a child: a control inside a control means one click doing
+                // two things, and the two things here are "look" and "stop".
+                <div class="strip-stats">
+                    <div>
+                        <Pair label=t!("scan.folders").to_string() figure=Signal::derive(move || {
+                            thousands(running().map(|status| status.folders).unwrap_or_default())
+                        }) />
+                        <Pair label=t!("scan.added").to_string() figure=Signal::derive(move || {
+                            let status = running();
+                            let seen = status.as_ref().map(|status| status.tracks).unwrap_or_default();
+                            let known = status.map(|status| status.unchanged).unwrap_or_default();
+                            thousands(seen.saturating_sub(known))
+                        }) />
+                        <Pair label=t!("scan.failed").to_string() figure=Signal::derive(move || {
+                            thousands(running().map(|status| status.failed).unwrap_or_default())
+                        }) />
+
+                        <button class="stop" disabled=stopping on:click=stop>
+                            {t!("scan.cancel")}
                         </button>
                     </div>
-                </Show>
+                </div>
+
+                <span class="where">
+                    {move || {
+                        running().and_then(|status| status.path.or(status.library)).unwrap_or_default()
+                    }}
+                </span>
             </div>
         </Show>
     }
 }
 
-/// The round button, and what it opens.
-///
-/// Closing it was `focusout` on the container, which reads well and does not
-/// work: the order is mousedown, then focusout, then click, so the menu went away
-/// before the click could land on anything in it. Nothing inside was clickable.
-///
-/// It closes the way the folded sections do — a sheet behind the menu catches
-/// anything aimed elsewhere — and every entry closes it on the way out, since
-/// choosing one is finishing with it.
+/// A label and a figure, apart from each other on one line.
 #[component]
-fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
+fn Pair(label: String, figure: Signal<String>) -> impl IntoView {
+    view! {
+        <span class="pair">
+            <span class="quiet">{label}</span>
+            <span>{move || figure.get()}</span>
+        </span>
+    }
+}
+
+/// Who is asking, and what that lets them reach.
+///
+/// The whole row opens the menu rather than the small round thing at its left end,
+/// which is a target the size of the column instead of the size of a coin.
+///
+/// It opens upward because it is the last thing in the column and there is nothing
+/// below it. Closing it was `focusout` on the container, which reads well and does
+/// not work: the order is mousedown, then focusout, then click, so the menu went
+/// away before the click could land on anything in it. So it closes the way the
+/// folded sections do — a sheet behind it catches anything aimed elsewhere — and
+/// every entry closes it on the way out, since choosing one is finishing with it.
+#[component]
+fn WhoAmI(identity: Identity, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl IntoView {
     let (open, set_open) = signal(false);
 
     // The first letter, and only ever one: a name is text in a language we do
@@ -368,38 +343,31 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
     let name = identity.username.clone();
     let admin = identity.admin;
 
-    view! {
-        <div class="dropdown you">
-            <button
-                class="avatar"
-                title=name.clone()
-                aria-expanded=move || open.get().to_string()
-                on:click=move |_| set_open.update(|shown| *shown = !*shown)
-            >
-                {initial}
-            </button>
+    let away = move |_| {
+        set_open.set(false);
+        fold.set(false);
+    };
 
+    view! {
+        <div class="dropdown">
             <Show when=move || open.get()>
                 <div class="veil" on:click=move |_| set_open.set(false)></div>
-                <div class="menu">
-                    <div class="menu-who">
-                        <span class="quiet">{t!("header.you")}</span>
-                        <strong>{name.clone()}</strong>
-                        {if admin {
-                            view! { <span class="badge">{t!("header.administrator")}</span> }
-                                .into_any()
-                        } else {
-                            ().into_any()
-                        }}
-                    </div>
+                <div class="upward">
+                    {MINE
+                        .iter()
+                        .map(|section| {
+                            view! {
+                                <A href=section.path on:click=away>
+                                    {(section.label)()}
+                                </A>
+                            }
+                        })
+                        .collect_view()}
 
-                    <A href="/account" on:click=move |_| set_open.set(false)>
-                        <Glyph icon=Icon::Account />
-                        {t!("nav.account")}
-                    </A>
+                    <hr />
 
                     <button
-                        class="menu-item"
+                        class="menu-item leave"
                         on:click=move |_| {
                             set_open.set(false);
                             spawn_local(async move {
@@ -413,6 +381,44 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                     </button>
                 </div>
             </Show>
+
+            <button
+                class="whoami"
+                class:plain-role=!admin
+                aria-expanded=move || open.get().to_string()
+                on:click=move |_| set_open.update(|shown| *shown = !*shown)
+            >
+                <span class="avatar">{initial}</span>
+                <span class="who">
+                    <span>{name}</span>
+                    <span class="role">
+                        {if admin { t!("header.administrator") } else { t!("header.listener") }}
+                    </span>
+                </span>
+                <span class="chevron">
+                    <Glyph icon=Icon::Chevron />
+                </span>
+            </button>
         </div>
     }
+}
+
+/// Grouped with a space, which every language this speaks agrees on and no
+/// language mistakes for a decimal point.
+///
+/// The same rule as the figures on the screen you land on. It is here rather than
+/// shared with them because it is four lines, and a module for four lines that two
+/// screens use is a module to go and look up.
+fn thousands(count: u64) -> String {
+    let digits = count.to_string();
+    let mut out = String::new();
+
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push('\u{202f}');
+        }
+        out.push(digit);
+    }
+
+    out
 }

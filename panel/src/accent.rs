@@ -32,10 +32,16 @@ pub struct Accent(pub RwSignal<String>);
 /// nothing: it is stored as no choice at all rather than as its own name, which
 /// keeps "I never picked a colour" and "I picked the default" from being two
 /// states that look the same and are not.
-pub const AVAILABLE: [&str; 6] = ["blue", "teal", "green", "amber", "crimson", "plum"];
+pub const AVAILABLE: [&str; 6] = ["green", "blue", "teal", "amber", "crimson", "plum"];
 
 /// What no choice means.
-pub const DEFAULT: &str = "blue";
+///
+/// This name and the `--accent` the stylesheet falls back to have to be the same
+/// colour, and nothing can check it: choosing this one **removes** the attribute
+/// and lets the stylesheet decide, so if the two disagree then this colour is the
+/// one that cannot be chosen — picking it hands you the other one — and the other
+/// is the one whose swatch does nothing, because it was already in force.
+pub const DEFAULT: &str = "green";
 
 /// The attribute the rules hang off, on the root element and on every swatch that
 /// shows a colour. One selector, two uses: a swatch redefines the variable for

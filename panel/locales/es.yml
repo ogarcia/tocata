@@ -8,13 +8,17 @@ nav:
   profile: "Perfil"
   access: "Acceso"
   preferences: "Preferencias"
-  home: Inicio
-  administration: Administración
+  home: Resumen
+  collection: La colección
+  tracks: Pistas
+  albums: Álbumes
+  artists: Artistas
+  genres: Géneros
+  server: El servidor
   libraries: Bibliotecas
   accounts: Cuentas
   settings: Ajustes
   maintenance: Mantenimiento
-  account: Mi cuenta
   menu: Menú
 
 login:
@@ -26,19 +30,21 @@ login:
   unreachable: El servidor no respondió
 
 header:
-  you: Sesión de
   administrator: administración
+  listener: oyente
   log_out: Salir
 
 looks:
-  heading: Apariencia
   auto: Automático
   light: Claro
   dark: Oscuro
 
 home:
   greeting: Hola, %{name}
-  lead: Lo que hay, y cómo va el servidor.
+  scanned: Escaneado %{when}. Nada en marcha.
+  while_scanning: Hay un escaneo en marcha. Su detalle está en la barra.
+  never_scanned: Nunca escaneado. Nada en marcha.
+  last_scan_when: Último escaneo · %{when}
   songs: Canciones
   albums: Álbumes
   artists: Artistas
@@ -53,13 +59,14 @@ home:
   last_scan: Último escaneo
   libraries: Bibliotecas
   accounts: Cuentas
+  keys: Claves API
   database: Base de datos
   process: El proceso
   processor: Procesador
   memory: Memoria
   cores: de %{count} núcleos
   of_total: de %{total}
-  moments: hace un momento
+  moments: ahora mismo
   minutes: hace %{count} min
   hours: hace %{count} h
   days: hace %{count} d
@@ -74,17 +81,22 @@ scan:
   never: Nunca escaneado
   cancelled: Cancelado
   cancel: Cancelar
-  seen: "%{tracks} pistas · %{folders} carpetas"
   folders: Carpetas
+  added: Nuevas
   unchanged: Sin cambios
   failed: Ilegibles
   gone: Desaparecidas
 
 libraries:
-  holds: "%{tracks} pistas · %{missing} ausentes"
+  lead_sheet: Un directorio del servidor. No se lee nada hasta que escanees.
+  remove_this: "¿Eliminar «%{name}»?"
+  remove_note: Se va la biblioteca y todo lo escaneado de su directorio. No se puede deshacer.
+  heading: Bibliotecas
+  missing: "%{count} ausentes"
+  on: Activa
+  off: Apagada
   edit: Editar
   move_note: "Moverla surte efecto al instante y no necesita escaneo: todo se guarda relativo a este directorio."
-  heading: Bibliotecas
   lead: Los directorios de los que se lee la música.
   add: Añadir biblioteca
   path: Ruta
@@ -92,24 +104,18 @@ libraries:
   name: Nombre
   name_default: El nombre del directorio
   none: Todavía no hay bibliotecas
-  disabled: desactivada
   enable: Activar
   disable: Desactivar
   remove: Eliminar
-  remove_sure: ¿Eliminarla y con ella todo lo escaneado?
   remove_yes: Eliminar
   disable_first: Desactívala antes de eliminarla
   bad_path: Esa ruta no es un directorio del servidor
   already: "Ese directorio ya es una biblioteca, está dentro o es padre de una"
 
 accounts:
-  confirm_with_password: "Confirma los cambios con tu contraseña actual"
-  password_note_mine: "Cambiarla cierra tus otras sesiones del panel. Tus claves de API siguen valiendo."
-  repeat_password: "Repite la nueva contraseña"
-  mismatch: "Las dos contraseñas no son iguales"
+  add_lead: "Puede entrar desde el primer momento. Las bibliotecas se le limitan después, si hace falta."
+  heading: Cuentas
   wrong_password: "Esa no es tu contraseña actual"
-  listening: "Escuchas"
-  listening_note: "Qué hace el servidor con lo que reproduces."
   sessions_note: "Le cierra el panel en todos sus navegadores."
   keys_note: "Cambiar la contraseña no las revoca."
   all_libraries: todas
@@ -120,7 +126,6 @@ accounts:
   remove: "Eliminar la cuenta"
   remove_note: "Se lleva la cuenta y todo lo que solo era suyo: sus sesiones, sus claves, sus favoritos, valoraciones, reproducciones, listas y marcadores."
   remove_sure: "¿Eliminarla con todo lo suyo?"
-  heading: Cuentas
   lead: Quién puede llegar a la colección.
   add: Añadir cuenta
   username: Usuario
@@ -138,7 +143,6 @@ accounts:
   sessions: "%{count} sesiones del panel abiertas"
   keys: "%{count} claves de API"
   close_all: Cerrarlas todas
-  close_mine: Cerrarlas todas, incluida esta
   revoke_all: Revocarlas todas
   closed: "%{count} sesiones cerradas"
   revoked: "%{count} claves revocadas"
@@ -150,12 +154,14 @@ accounts:
   not_allowed: El servidor no lo permite
 
 keys:
+  issue_lead: "Para un cliente que entra con una clave en lugar de con tu contraseña."
+  never: "no caduca"
+  heading: "Claves de API"
   revoke_sure: "¿Revocarlas todas?"
   made: "Tu clave nueva"
   last_use: "Último uso"
   actions: "Acciones"
   rotate: "Rotar"
-  heading: "Claves de API"
   lead: "Para los clientes que se autentican con una clave en lugar de tu contraseña. Revocar una detiene ese cliente y deja los demás en paz."
   none: "Todavía no hay claves"
   label: "Para qué es"
@@ -170,13 +176,47 @@ keys:
   once: "Cópiala ahora. No se guarda y no se mostrará otra vez."
 
 sessions:
+  heading: "Sesiones del panel"
   last_seen: "Última vez"
   expires: "Caduca"
-  heading: "Sesiones del panel"
   lead: "Dónde tienes sesión abierta en este panel. Nada de esto afecta a los clientes que reproducen tu música."
   this_one: "esta"
   close: "Cerrar"
   log_out: "Salir"
+
+# Your own account. Deliberately not sharing a word with `accounts`, which is
+# the administrator's vocabulary: the same field means a different thing when it
+# is somebody else's, and one of the two changing is not the other changing.
+profile:
+  where_signed_in: "Dónde tienes la sesión abierta"
+  panel_sessions: "Sesiones del panel"
+  api_keys: "Claves API"
+  reach: "Bibliotecas a las que llegas"
+  reach_all: "Todas"
+  reach_some: "%{some} de %{all}"
+  this_session: "Esta sesión desde"
+  manage_access: "Gestionar claves y sesiones"
+  lately: "Últimamente"
+  key_used: "Clave «%{name}» usada"
+  key_never_used: "Ninguna clave usada"
+  password_changed: "Contraseña cambiada"
+  close_mine: Cerrarlas todas, incluida esta
+  confirm_with_password: "Confirma los cambios con tu contraseña actual"
+  email: Correo electrónico
+  listening: "Escuchas"
+  mismatch: "Las dos contraseñas no son iguales"
+  new_password: Contraseña nueva
+  profile_lead: "Quién eres en este servidor."
+  repeat_password: "Repite la nueva contraseña"
+  revoke_all: Revocarlas todas
+  role: "Rol"
+  save_changes: "Guardar los cambios"
+  scrobbling: Enviar las reproducciones a un servicio de scrobbling
+  scrobbling_on: "Pasar mis reproducciones"
+  scrobbling_why: "Pasa lo que reproduces al servicio configurado en el servidor."
+  unchanged: Vacío para dejarla como está
+  username: Usuario
+  you: "Tú"
 
 access:
   lead: "Las claves que tienen los clientes y las sesiones que tienes abiertas aquí."
@@ -184,7 +224,6 @@ access:
 prefs:
   lead: "Cómo se ve y en qué idioma habla el panel. Se guardan con tu cuenta, así que te siguen a otro navegador."
   theme: "Tema"
-  theme_note: "Automático sigue lo que pida esta máquina."
   accent: "Color de acento"
   language: "Idioma"
   language_auto: "Automático"
@@ -200,6 +239,8 @@ accent:
   plum: "Ciruela"
 
 common:
+  copy: Copiar
+  copied: Copiada
   done: Hecho
   # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
   # and off as booleans, in keys and in values alike, so `no: No` becomes the key
@@ -208,9 +249,10 @@ common:
   "yes": "Sí"
   "no": "No"
   saved: Guardado
-  close: Cerrar
   refused: El servidor no lo permitió
   save: Guardar
   cancel: Cancelar
+  keep: Dejarla estar
   loading: Cargando…
   not_yet: Todavía sin construir
+  nothing_here: Esta sección tiene su sitio en el panel y nada dentro todavía.
