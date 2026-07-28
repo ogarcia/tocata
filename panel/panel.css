@@ -1185,3 +1185,70 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   margin-top: 0.75rem;
   color: var(--accent);
 }
+
+/* ---------------------------------------------------------------------------
+ * Meters
+ * ------------------------------------------------------------------------- */
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* The name against the left and the figure against the right, on the baseline
+ * they share, so two gauges side by side read as two rows of the same thing. */
+.gauge-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* Tabular, because these are the only digits in the panel that change while
+ * somebody is looking at them, and proportional ones make the number jiggle as
+ * it goes from a 1 to a 4. */
+.gauge .reading {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge .note { font-size: 0.85rem; }
+
+/* A meter looks native, and native is a different look in every browser: a
+ * gradient in one, a flat bar in another, green whatever the page says. Turning
+ * the appearance off and painting the track and the fill here is what makes it
+ * one meter everywhere, and it is also what lets the fill be the accent the
+ * account chose rather than somebody's idea of a healthy green.
+ *
+ * The track is `--line` and not a colour of its own: it is the same faint step
+ * away from a raised surface that every rule and border in here already is. */
+meter.bar {
+  appearance: none;
+  width: 100%;
+  height: 0.45rem;
+  border: 0;
+  border-radius: 999px;
+  /* Firefox paints the element's own background as the track... */
+  background: var(--line);
+}
+
+/* ...and this is its fill. */
+meter.bar::-moz-meter-bar {
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* Chromium wants to be told both, and its own default bar has a border and an
+ * inset shadow to be rid of before a flat track shows through. */
+meter.bar::-webkit-meter-bar {
+  background: var(--line);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+meter.bar::-webkit-meter-optimum-value {
+  background: var(--accent);
+  border-radius: 999px;
+}

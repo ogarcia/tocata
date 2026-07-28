@@ -112,10 +112,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     provide_context(theme);
     provide_context(accent::Accent(accent));
 
-    // One stream for the whole panel, opened here and read in two places: the
-    // header, which says a scan is running, and the screen that shows it in
-    // full. Two connections would be two of everything for the same news.
-    let scan = events::scan_status();
+    // One stream for the whole panel, opened here and read wherever it is wanted:
+    // the header says a scan is running, and where you land shows that in full
+    // alongside what the server is costing the machine. Two connections would be
+    // two of everything for the same news.
+    let live = events::open();
+    let scan = live.scan;
 
     view! {
         <Router>
@@ -132,6 +134,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                                     <pages::home::Home
                                         identity=who.clone()
                                         scan
+                                        resources=live.resources
                                         admin
                                         on_expired=forget
                                     />
@@ -313,7 +316,21 @@ mod tests {
             let mut rest = source;
 
             while let Some(at) = rest.find("t!(") {
+                // A macro whose name merely ends in a t is not this one. Without
+                // this, `format!("{share:.1} %")` is read as a call to translate
+                // `{share:.1}` — which has a dot in it, no space, and looks
+                // exactly like one of ours.
+                let ours = rest[..at]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|before| !before.is_alphanumeric() && before != '_');
+
                 rest = &rest[at + 3..];
+
+                if !ours {
+                    continue;
+                }
+
                 let trimmed = rest.trim_start();
 
                 if let Some(key) = trimmed

@@ -404,6 +404,30 @@ pub struct SettingsChanges {
     pub ignored_articles: Option<Vec<String>>,
 }
 
+/// What the server is costing the machine, right now.
+///
+/// Separate from [`Stats`] because these are the only figures here that are true
+/// of a moment rather than of the collection: everything else in this API is worth
+/// asking for once, and these two are worth watching.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Resources {
+    /// Share of the machine's processing capacity this process is using, from 0 to
+    /// 100, averaged over the time since these figures were last asked for.
+    ///
+    /// Of the machine and not of one core, so it has a ceiling: a process spread
+    /// over four threads of eight reads as 50 rather than as 400.
+    #[schema(example = 3.75)]
+    pub cpu: f64,
+    /// How many cores that is a share of, so a panel can say what the share means.
+    pub cores: i64,
+    /// Bytes of memory the process is holding.
+    pub memory: i64,
+    /// Bytes the machine has, when it can be read. What the figure above is a
+    /// share of, and without it there is no share to draw.
+    pub memory_total: Option<i64>,
+}
+
 /// The dashboard, more or less.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

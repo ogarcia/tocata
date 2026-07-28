@@ -30,6 +30,8 @@ pub mod lyrics;
 #[cfg(feature = "server")]
 pub mod panel;
 #[cfg(feature = "server")]
+pub mod resources;
+#[cfg(feature = "server")]
 pub mod scanner;
 #[cfg(feature = "server")]
 pub mod session;

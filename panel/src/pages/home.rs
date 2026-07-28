@@ -5,22 +5,27 @@
 //!
 //! Four figures large enough to read from across the room, and below them the
 //! rest grouped by what it talks about rather than by how it is measured: the
-//! collection on one side, the machine on the other.
+//! collection, the machine, and what the server is costing it.
 //!
 //! Nothing appears twice. The four at the top are the four at the top, and the
 //! boxes below say what those do not.
+//!
+//! Everything here is a figure read once except the last box, which is the only
+//! thing in the panel that moves on its own. It comes down the event stream rather
+//! than being asked for on a timer, so the page keeps no clock of its own.
 
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
-use tocata::types::{Stats, Status};
+use tocata::types::{Resources, Stats, Status};
 
 #[component]
 pub fn Home(
     identity: tocata::types::Identity,
     scan: ReadSignal<Option<Status>>,
+    resources: ReadSignal<Option<Resources>>,
     admin: bool,
     on_expired: Callback<()>,
 ) -> impl IntoView {
@@ -34,7 +39,7 @@ pub fn Home(
         <Suspense fallback=|| view! { <p class="quiet">{t!("common.loading")}</p> }>
             {move || Suspend::new(async move {
                 match figures.await {
-                    Ok(stats) => view! { <Boxes stats scan admin /> }.into_any(),
+                    Ok(stats) => view! { <Boxes stats scan resources admin /> }.into_any(),
                     Err(Failure::Unauthenticated) => {
                         on_expired.run(());
                         ().into_any()
@@ -50,7 +55,12 @@ pub fn Home(
 }
 
 #[component]
-fn Boxes(stats: Stats, scan: ReadSignal<Option<Status>>, admin: bool) -> impl IntoView {
+fn Boxes(
+    stats: Stats,
+    scan: ReadSignal<Option<Status>>,
+    resources: ReadSignal<Option<Resources>>,
+    admin: bool,
+) -> impl IntoView {
     view! {
         <div class="tiles">
             <Tile
@@ -111,11 +121,126 @@ fn Boxes(stats: Stats, scan: ReadSignal<Option<Status>>, admin: bool) -> impl In
                     <dd>{bytes(stats.database_size)}</dd>
                 </dl>
             </section>
+
+            <Process resources />
         </div>
 
         // Last, so starting a scan does not shove the figures down the page every
         // time, and gone entirely when nothing is running.
         <Running scan admin />
+    }
+}
+
+/// What the server is costing the machine it runs on, as it costs it.
+///
+/// The figures arrive on their own every couple of seconds, so this is the one box
+/// here that is worth looking at twice. Until the first one arrives there is a dash
+/// rather than a zero: nothing has been measured yet, and a zero would be a claim.
+#[component]
+fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
+    // Derived rather than read inside the markup so that a new reading changes the
+    // numbers and the length of the bars, and leaves the rest of the box alone.
+    let cpu = Signal::derive(move || {
+        resources
+            .get()
+            .map_or_else(|| MISSING.to_string(), |read| percentage(read.cpu))
+    });
+    let cpu_bar = Signal::derive(move || resources.get().map(|read| read.cpu / 100.0));
+    let cores = Signal::derive(move || {
+        resources
+            .get()
+            .map(|read| t!("home.cores", count = read.cores).to_string())
+            .unwrap_or_default()
+    });
+
+    let memory = Signal::derive(move || {
+        resources
+            .get()
+            .map_or_else(|| MISSING.to_string(), |read| bytes(read.memory))
+    });
+    let memory_bar = Signal::derive(move || {
+        let read = resources.get()?;
+        // No scale, no bar. A machine that will not say how much memory it has
+        // leaves a figure worth showing and nothing to show it against.
+        let total = read.memory_total.filter(|total| *total > 0)?;
+
+        Some(read.memory as f64 / total as f64)
+    });
+    let installed = Signal::derive(move || {
+        resources
+            .get()
+            .and_then(|read| read.memory_total)
+            .map(|total| t!("home.of_total", total = bytes(total)).to_string())
+            .unwrap_or_default()
+    });
+
+    view! {
+        // Across the whole width, under the two boxes of figures. Two bars want the
+        // room, and what they measure is a different kind of thing from a count.
+        <section class="pane wide">
+            <h2>{t!("home.process")}</h2>
+            <div class="columns">
+                <Gauge
+                    label=t!("home.processor").to_string()
+                    reading=cpu
+                    fraction=cpu_bar
+                    note=cores
+                />
+                <Gauge
+                    label=t!("home.memory").to_string()
+                    reading=memory
+                    fraction=memory_bar
+                    note=installed
+                />
+            </div>
+        </section>
+    }
+}
+
+/// One thing being measured: what it is, how much of it there is, and how much of
+/// the whole that amounts to.
+///
+/// A `meter` rather than a div of our own with a width. It is the element for
+/// exactly this, it comes out looking like a meter with no help from us, and what
+/// it means survives being read out loud.
+///
+/// Deliberately without `low` and `high`, which is what would turn the bar a
+/// warning colour near the top. A scan is supposed to use the machine it was told
+/// to scan with, and a server working hard is not a server in trouble.
+#[component]
+fn Gauge(
+    label: String,
+    reading: Signal<String>,
+    fraction: Signal<Option<f64>>,
+    note: Signal<String>,
+) -> impl IntoView {
+    let named = label.clone();
+
+    view! {
+        <div class="gauge">
+            <p class="gauge-head">
+                <span>{label}</span>
+                <span class="reading">{move || reading.get()}</span>
+            </p>
+
+            // Nothing to draw without something to be a share of, which is the
+            // case when the machine will not say how much memory it has.
+            <Show when=move || fraction.get().is_some()>
+                <meter
+                    class="bar"
+                    min="0"
+                    max="1"
+                    value=move || fraction.get().unwrap_or_default()
+                    aria-label=named.clone()
+                >
+                    {move || reading.get()}
+                </meter>
+            </Show>
+
+            <Show when=move || !note.get().is_empty()>
+                <p class="quiet note">{move || note.get()}</p>
+            </Show>
+        </div>
     }
 }
 
@@ -260,6 +385,20 @@ fn ago(status: &Status) -> String {
     } else {
         ago
     }
+}
+
+/// Stands in for a figure nothing has reported yet. An em dash rather than a zero,
+/// which would be a measurement.
+const MISSING: &str = "—";
+
+/// A share, to one decimal. More would be a figure that changes every two seconds
+/// in digits nobody is reading, and none at all would sit at zero through
+/// everything a lightly loaded server does.
+///
+/// The space before the sign is a narrow one that does not break, so the number and
+/// its unit stay on the same line.
+fn percentage(share: f64) -> String {
+    format!("{share:.1}\u{202f}%")
 }
 
 /// Grouped with a space, which every language this speaks agrees on and no

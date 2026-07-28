@@ -54,6 +54,11 @@ home:
   libraries: Bibliotecas
   accounts: Cuentas
   database: Base de datos
+  process: El proceso
+  processor: Procesador
+  memory: Memoria
+  cores: de %{count} núcleos
+  of_total: de %{total}
   moments: hace un momento
   minutes: hace %{count} min
   hours: hace %{count} h

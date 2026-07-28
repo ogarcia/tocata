@@ -58,6 +58,11 @@ home:
   libraries: Libraries
   accounts: Accounts
   database: Database
+  process: The process
+  processor: Processor
+  memory: Memory
+  cores: of %{count} cores
+  of_total: of %{total}
   moments: moments ago
   minutes: "%{count} min ago"
   hours: "%{count} h ago"

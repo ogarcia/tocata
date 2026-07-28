@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tocata::config::Config;
 use tocata::state::AppState;
-use tocata::{api, db, panel, scanner, settings, subsonic, user};
+use tocata::{api, db, panel, resources, scanner, settings, subsonic, user};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{oneshot, watch};
@@ -52,10 +52,15 @@ async fn main() -> Result<()> {
     // connection open can tell when to let go of it.
     let (stopping, is_stopping) = watch::channel(false);
 
+    // Its first reading is taken here, so the first share it reports covers the
+    // time since the server started rather than nothing at all.
+    let meter = resources::Meter::new().context("reading what this process is using")?;
+
     let state = AppState {
         pool: pool.clone(),
         scan: Arc::new(scanner::Progress::default()),
         config: config.clone(),
+        meter: Arc::new(meter),
         shutdown: is_stopping,
     };
 
