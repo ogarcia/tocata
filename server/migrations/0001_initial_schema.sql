@@ -301,6 +301,32 @@ CREATE TABLE users (
     updated_at         TEXT    NOT NULL
 );
 
+-- What somebody chose about how the panel looks and speaks. Kept with the
+-- account rather than in the browser so that logging in somewhere else brings it
+-- along, which is the whole reason it is on this side at all.
+--
+-- Its own table, not columns on users: users is the account — who you are, what
+-- you may do, what authenticates you — and none of this is. A panel is one client
+-- of this server, and its idea of an accent colour has no business widening the
+-- row that every authentication reads.
+--
+-- No row means nothing was chosen, and so does a null column, which is not the
+-- same as a value: no theme is following the machine, no locale is following the
+-- browser, no accent is the one the panel ships with. A default here would be the
+-- server deciding what it cannot know.
+--
+-- The values are opaque. The server stores identifiers and never reads them,
+-- because what a theme or an accent can be belongs to the panel: adding a colour
+-- should be a line of CSS and not a migration. The panel falls back to its own
+-- default for anything it does not recognise, which is also what makes a value
+-- left by an older panel harmless.
+CREATE TABLE panel_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    theme   TEXT,
+    locale  TEXT,
+    accent  TEXT
+) WITHOUT ROWID;
+
 -- Revocable per client, which is what makes it possible to hash the password
 -- instead of encrypting it: the legacy token scheme needs the plaintext, an
 -- API key does not.

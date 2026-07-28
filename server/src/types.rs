@@ -71,6 +71,64 @@ pub struct Identity {
     /// rather than after a call has already failed.
     #[schema(example = "2026-08-25T18:00:00Z")]
     pub expires_at: String,
+    /// Carried here rather than fetched separately, because the panel needs them
+    /// before it draws anything: a second round trip would be a panel painted in
+    /// the wrong theme first and corrected afterwards.
+    pub preferences: Preferences,
+}
+
+/// How the panel looks and speaks, for the account that chose it.
+///
+/// Each of these is a choice or the absence of one, and the absence means
+/// something: no theme is following the machine, no locale is following the
+/// browser, no accent is the one the panel ships with. There are no defaults
+/// here because a default would be the server deciding what it cannot know.
+///
+/// The values are identifiers the server stores and never reads. What a theme or
+/// an accent can be belongs to the panel, so adding a colour is a line of CSS
+/// rather than a change here, and the panel falls back to its own default for
+/// anything it does not recognise.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Preferences {
+    /// Light, dark, or nothing to follow the machine.
+    #[schema(example = "dark")]
+    pub theme: Option<String>,
+    /// Which language, or nothing to follow the browser.
+    #[schema(example = "es")]
+    pub locale: Option<String>,
+    /// Which of the panel's accent colours, or nothing for its own.
+    #[schema(example = "plum")]
+    pub accent: Option<String>,
+}
+
+/// What may be changed. Anything left out is left alone, and an explicit `null`
+/// unchooses — which has to be told apart from absent, because "follow the
+/// machine" is a thing somebody can go back to.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferenceChanges {
+    #[serde(
+        default,
+        deserialize_with = "mentioned",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(example = "dark")]
+    pub theme: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "mentioned",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(example = "es")]
+    pub locale: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "mentioned",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(example = "plum")]
+    pub accent: Option<Option<String>>,
 }
 
 /// A session as the panel can talk about it, which is to say without the token.

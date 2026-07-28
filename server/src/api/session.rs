@@ -5,6 +5,7 @@
 //! behind.
 
 use super::error::ApiError;
+use super::preferences;
 use crate::types::{Credentials, ErrorBody, Identity};
 use crate::user::User;
 use crate::{session, user};
@@ -103,12 +104,17 @@ fn token_from_cookies(headers: &HeaderMap) -> Option<String> {
 }
 
 impl Identity {
-    fn of(user: &User, expires_at: String) -> Self {
-        Self {
+    /// The preferences travel with the identity because the panel needs them to
+    /// draw itself, so both ways in fetch them: a reload lands on `current` and a
+    /// login on `log_in`, and neither should mean a second call before the first
+    /// paint.
+    async fn of(pool: &SqlitePool, user: &User, expires_at: String) -> Result<Self, ApiError> {
+        Ok(Self {
             username: user.username.clone(),
             admin: user.is_admin,
             expires_at,
-        }
+            preferences: preferences::load(pool, user.id).await?,
+        })
     }
 }
 
@@ -144,7 +150,7 @@ pub async fn log_in(
         .await
         .map_err(|e| ApiError::internal(e, "creating a session"))?;
 
-    let identity = Identity::of(&user, expires_at);
+    let identity = Identity::of(&pool, &user, expires_at).await?;
     let cookie = format!(
         "{COOKIE_NAME}={token}; Path={COOKIE_PATH}; HttpOnly; SameSite=Strict; Max-Age={}",
         session::lifetime_seconds()
@@ -196,6 +202,11 @@ pub async fn log_out(
         (status = 401, description = "No valid session", body = ErrorBody),
     )
 )]
-pub async fn current(panel: Panel) -> Json<Identity> {
-    Json(Identity::of(&panel.user, panel.expires_at))
+pub async fn current(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+) -> Result<Json<Identity>, ApiError> {
+    Identity::of(&pool, &panel.user, panel.expires_at)
+        .await
+        .map(Json)
 }
