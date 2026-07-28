@@ -107,6 +107,38 @@ macro_rules! artist_is_visible {
     };
 }
 
+/// Whether a song announced as playing could still be playing.
+///
+/// A client says "now playing" when a song starts, and says it again for the next
+/// one. Nothing obliges it to say anything when it stops: a phone that runs out of
+/// battery, an app killed by the system or a browser tab closed all leave their
+/// last announcement behind with nobody to replace it. Without a window that
+/// entry stays for good, and the list of what is playing becomes part answer and
+/// part graveyard.
+///
+/// How long a song could be playing is how long the song is. A minute is added for
+/// a client that announced a little early, for one that reports the whole queue at
+/// once, and for two clocks that do not quite agree. A length we do not know falls
+/// back to five minutes: longer than most songs, and short enough to forget.
+///
+/// Nothing here can be read as a promise that the song stopped. It says only that
+/// we no longer have grounds to claim it did not, which is the honest answer for
+/// a client that stopped speaking.
+///
+/// `$started` and `$duration` name the columns to read, the second in
+/// milliseconds.
+macro_rules! still_playing {
+    ($started:literal, $duration:literal) => {
+        concat!(
+            "(julianday('now') - julianday(",
+            $started,
+            ")) * 86400 < coalesce(",
+            $duration,
+            " / 1000, 300) + 60"
+        )
+    };
+}
+
 mod annotation;
 mod auth;
 mod bookmarks;

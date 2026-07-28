@@ -352,22 +352,7 @@ pub async fn get_songs_by_genre(
 }
 
 pub async fn get_now_playing(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
-    let rows: Result<Vec<(i64, String, String, i64)>, _> = sqlx::query_as(concat!(
-        visible_libraries!(),
-        "SELECT np.track_id, u.username, np.client,
-                cast((julianday('now') - julianday(np.started_at)) * 24 * 60 AS INTEGER)
-           FROM now_playing np
-           JOIN users u ON u.id = np.user_id
-           JOIN tracks t ON t.id = np.track_id
-          WHERE t.missing_since IS NULL
-            AND t.library_id IN (SELECT id FROM visible_libraries)
-          ORDER BY np.started_at DESC"
-    ))
-    .bind(auth.user.id)
-    .fetch_all(&pool)
-    .await;
-
-    let rows = match rows {
+    let rows = match playing_now(&pool, auth.user.id).await {
         Ok(rows) => rows,
         Err(e) => return internal(e, auth.format, "listing what is playing"),
     };
@@ -398,6 +383,38 @@ pub async fn get_now_playing(auth: Authenticated, State(pool): State<SqlitePool>
             now_playing: NowPlaying { entry: entries },
         },
     )
+}
+
+/// Everybody's announcements that are still worth believing, newest first.
+///
+/// One row per player rather than per person: the table is keyed by client, so
+/// somebody listening on their phone and on their desktop is two entries with two
+/// player names, which is what a client showing this expects to see.
+///
+/// Announcements are not visibility checked when they are made — a client says
+/// what it is playing, not what everyone may read — so the filtering happens
+/// here, and what is playing out of a library this account cannot see is not
+/// playing as far as this answer is concerned.
+async fn playing_now(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> Result<Vec<(i64, String, String, i64)>, sqlx::Error> {
+    sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT np.track_id, u.username, np.client,
+                cast((julianday('now') - julianday(np.started_at)) * 24 * 60 AS INTEGER)
+           FROM now_playing np
+           JOIN users u ON u.id = np.user_id
+           JOIN tracks t ON t.id = np.track_id
+          WHERE t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM visible_libraries)
+            AND ",
+        still_playing!("np.started_at", "t.duration_ms"),
+        " ORDER BY np.started_at DESC"
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
 }
 
 fn internal(error: sqlx::Error, format: response::Format, doing: &str) -> Response {
@@ -682,6 +699,206 @@ mod tests {
         assert_eq!(value["value"], "Rock");
         assert_eq!(value["songCount"], 3);
         assert_eq!(value["albumCount"], 1);
+    }
+}
+
+#[cfg(test)]
+mod now_playing_tests {
+    use super::*;
+    use crate::db;
+
+    /// Three songs of the lengths that matter — one ordinary, one long, one whose
+    /// length the tags never said — and somebody to play them.
+    async fn a_library() -> (SqlitePool, i64) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let at = db::now();
+        sqlx::query(
+            "INSERT INTO libraries (id, name, path, created_at, updated_at)
+             VALUES (1, 'music', '/music', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO folders (id, public_id, library_id, name, path, last_seen_scan)
+             VALUES (1, 'f1', 1, 'music', '/music', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for (id, title, duration) in [
+            (1, "Short", Some(3 * 60 * 1000)),
+            (2, "Long", Some(20 * 60 * 1000)),
+            (3, "Untagged", None),
+        ] {
+            sqlx::query(
+                "INSERT INTO tracks (id, public_id, library_id, folder_id, path, file_size,
+                                     file_modified_at, content_type, suffix, title, duration_ms,
+                                     last_seen_scan, created_at, updated_at)
+                 VALUES (?, ?, 1, 1, ?, 1, ?, 'audio/wav', 'wav', ?, ?, 1, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("trk{id}"))
+            .bind(format!("/{title}.wav"))
+            .bind(&at)
+            .bind(title)
+            .bind(duration)
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let user: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        (pool, user)
+    }
+
+    /// Announces a song as having started however long ago, in SQLite's own words
+    /// so the stored text is the shape the server writes.
+    async fn announced(pool: &SqlitePool, user: i64, client: &str, track: i64, ago: &str) {
+        sqlx::query(
+            "INSERT INTO now_playing (user_id, client, track_id, started_at)
+             VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?))",
+        )
+        .bind(user)
+        .bind(client)
+        .bind(track)
+        .bind(ago)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn players(rows: &[(i64, String, String, i64)]) -> Vec<&str> {
+        rows.iter()
+            .map(|(_, _, client, _)| client.as_str())
+            .collect()
+    }
+
+    /// The question this is all for: one person, two devices, two entries. The
+    /// table is keyed by client, so neither announcement stands on the other.
+    #[tokio::test]
+    async fn two_players_are_two_entries() {
+        let (pool, ana) = a_library().await;
+
+        announced(&pool, ana, "Phone", 1, "-30 seconds").await;
+        announced(&pool, ana, "Desktop", 2, "-10 seconds").await;
+
+        let rows = playing_now(&pool, ana).await.unwrap();
+
+        assert_eq!(players(&rows), ["Desktop", "Phone"], "newest first");
+    }
+
+    /// The point of the window. A client that stops speaking mid-song is a client
+    /// whose entry has to go by itself, or it is there for ever.
+    #[tokio::test]
+    async fn an_announcement_nobody_came_back_to_stops_counting() {
+        let (pool, ana) = a_library().await;
+
+        announced(&pool, ana, "Phone", 1, "-10 minutes").await;
+
+        assert!(
+            playing_now(&pool, ana).await.unwrap().is_empty(),
+            "a three minute song cannot still be playing ten minutes later"
+        );
+    }
+
+    /// And the reason the window is the song rather than a number: at ten minutes
+    /// in, one of these two is over and the other is not.
+    #[tokio::test]
+    async fn a_long_song_outlasts_a_short_one() {
+        let (pool, ana) = a_library().await;
+
+        announced(&pool, ana, "Phone", 1, "-10 minutes").await;
+        announced(&pool, ana, "Desktop", 2, "-10 minutes").await;
+
+        let rows = playing_now(&pool, ana).await.unwrap();
+
+        assert_eq!(players(&rows), ["Desktop"], "the twenty minute one");
+    }
+
+    /// A song whose length nobody tagged still has to expire, on the fallback.
+    #[tokio::test]
+    async fn a_song_of_unknown_length_expires_too() {
+        let (pool, ana) = a_library().await;
+
+        announced(&pool, ana, "Phone", 3, "-2 minutes").await;
+        let rows = playing_now(&pool, ana).await.unwrap();
+        assert_eq!(players(&rows), ["Phone"], "recent enough to believe");
+
+        sqlx::query("DELETE FROM now_playing")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        announced(&pool, ana, "Phone", 3, "-30 minutes").await;
+        assert!(playing_now(&pool, ana).await.unwrap().is_empty());
+    }
+
+    /// The margin exists for the client that announces a moment early and for two
+    /// clocks that disagree, so the end of a song is not the end of its entry.
+    #[tokio::test]
+    async fn a_song_just_finished_is_given_a_moment() {
+        let (pool, ana) = a_library().await;
+
+        announced(&pool, ana, "Phone", 1, "-185 seconds").await;
+
+        assert_eq!(
+            players(&playing_now(&pool, ana).await.unwrap()),
+            ["Phone"],
+            "five seconds past a three minute song is not gone yet"
+        );
+    }
+
+    /// Announcements are not checked against anybody's libraries when they are
+    /// made, so the check has to be here — expiring things is no reason to stop
+    /// filtering them.
+    #[tokio::test]
+    async fn what_plays_out_of_an_unreadable_library_is_not_listed() {
+        let (pool, ana) = a_library().await;
+
+        let nosy: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('nosy', 'x', 0, '', '') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // Allowed a library that is not the one the music is in.
+        sqlx::query(
+            "INSERT INTO libraries (id, name, path, created_at, updated_at)
+             VALUES (2, 'other', '/other', '', '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, 2)")
+            .bind(nosy)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        announced(&pool, ana, "Phone", 1, "-10 seconds").await;
+
+        assert_eq!(players(&playing_now(&pool, ana).await.unwrap()), ["Phone"]);
+        assert!(playing_now(&pool, nosy).await.unwrap().is_empty());
     }
 }
 
