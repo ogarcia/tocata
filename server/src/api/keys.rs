@@ -188,6 +188,71 @@ pub async fn issue(
     ))
 }
 
+/// Rotate an API key
+///
+/// Gives the key a new secret and keeps everything else: its name, its expiry, its
+/// row. What it is for has not changed — the same client, the same shelf in the
+/// panel — only the secret has, which is the whole point of rotating one.
+///
+/// Done here rather than by issuing one and revoking the other, because that is
+/// two calls with a gap in the middle: fail on the second and the account is left
+/// with two live keys, one of which nobody knows the purpose of.
+///
+/// The new secret is readable once, exactly like a new key. `lastUsedAt` goes back
+/// to null, because nothing has used this secret yet and saying otherwise would
+/// describe the one it replaced.
+#[utoipa::path(
+    post,
+    path = "/users/{username}/keys/{id}/rotate",
+    tag = "keys",
+    params(
+        ("username" = String, Path, description = "Whose key"),
+        ("id" = i64, Path, description = "Which one"),
+    ),
+    responses(
+        (status = 200, description = "The key, for the only time it can be read", body = IssuedKey),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Somebody else's keys", body = ErrorBody),
+        (status = 404, description = "No such account, or no such key of theirs", body = ErrorBody),
+    )
+)]
+pub async fn rotate(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    Path((username, id)): Path<(String, i64)>,
+) -> Result<Json<IssuedKey>, ApiError> {
+    let user_id = owner(&pool, &panel, &username).await?;
+
+    let key = auth::generate_token().map_err(|e| ApiError::internal(e, "generating an API key"))?;
+
+    // Both conditions, so naming somebody else's key by its number rotates
+    // nothing rather than rotating theirs.
+    let changed = sqlx::query(
+        "UPDATE api_keys SET key_hash = ?, last_used_at = NULL
+          WHERE id = ? AND user_id = ?",
+    )
+    .bind(auth::hash_secret(&key))
+    .bind(id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "rotating an API key"))?;
+
+    if changed.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    let Json(now) = load(&pool, id).await?;
+
+    Ok(Json(IssuedKey {
+        id: now.id,
+        label: now.label,
+        created_at: now.created_at,
+        expires_at: now.expires_at,
+        key,
+    }))
+}
+
 /// Change an API key
 ///
 /// Renames it, or moves its expiry — including pushing out one that has already
@@ -516,6 +581,109 @@ mod tests {
         .await;
 
         assert!(matches!(refused, Err(ApiError::Invalid(_))));
+    }
+
+    /// What rotating is for: the client gets a new secret and the shelf it sits
+    /// on in the panel does not move. The old secret is what has to stop working,
+    /// and nothing else.
+    #[tokio::test]
+    async fn rotating_changes_the_secret_and_nothing_else() {
+        let (pool, panel) = an_account().await;
+
+        let (_, Json(first)) = issue(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(NewKey {
+                label: Some("phone".to_string()),
+                expires_at: Some("2027-01-01T00:00:00Z".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        // So that forgetting it can be told apart from never having had one.
+        sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+            .bind(db::now())
+            .bind(first.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let Json(second) = rotate(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), first.id)),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(second.id, first.id, "the same key");
+        assert_eq!(second.label, "phone");
+        assert_eq!(second.expires_at.as_deref(), Some("2027-01-01T00:00:00Z"));
+        assert_ne!(second.key, first.key, "a new secret");
+
+        // The row holds the new secret and only the new one, which is the whole
+        // of what rotating does: the old one now hashes to nothing that is stored.
+        let (stored, used): (String, Option<String>) =
+            sqlx::query_as("SELECT key_hash, last_used_at FROM api_keys WHERE id = ?")
+                .bind(first.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            stored,
+            auth::hash_secret(&second.key),
+            "the new one opens it"
+        );
+        assert_ne!(stored, auth::hash_secret(&first.key), "the old one is gone");
+        assert_eq!(used, None, "nothing has used this secret yet");
+    }
+
+    /// Naming somebody else's key by its number must rotate nothing, which is why
+    /// the update carries the owner as well as the id.
+    #[tokio::test]
+    async fn a_key_of_somebody_elses_is_not_there_to_rotate() {
+        let (pool, panel) = an_account().await;
+        let timestamp = db::now();
+
+        let other: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('bruno', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let theirs: i64 = sqlx::query_scalar(
+            "INSERT INTO api_keys (user_id, key_hash, label, created_at)
+             VALUES (?, 'theirs', 'their phone', ?) RETURNING id",
+        )
+        .bind(other)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let refused = rotate(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), theirs)),
+        )
+        .await;
+
+        assert!(matches!(refused, Err(ApiError::NotFound)));
+
+        let untouched: String = sqlx::query_scalar("SELECT key_hash FROM api_keys WHERE id = ?")
+            .bind(theirs)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(untouched, "theirs", "their key still opens what it opened");
     }
 
     fn panel_like(panel: &Panel) -> Panel {

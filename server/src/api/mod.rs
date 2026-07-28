@@ -115,6 +115,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(users::restrict))
         .routes(routes!(keys::list, keys::issue, keys::revoke_all))
         .routes(routes!(keys::revoke, keys::change))
+        .routes(routes!(keys::rotate))
         .routes(routes!(sessions::list, sessions::close_all))
         .routes(routes!(sessions::close))
         .routes(routes!(settings::read, settings::change))
