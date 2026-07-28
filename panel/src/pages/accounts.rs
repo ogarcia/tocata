@@ -26,6 +26,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use rust_i18n::t;
 use tocata::types::{Account, AccountChanges, Identity, Library, NewAccount};
+use wasm_bindgen::JsCast;
 
 #[component]
 pub fn Accounts(on_expired: Callback<()>) -> impl IntoView {
@@ -81,7 +82,7 @@ pub fn Accounts(on_expired: Callback<()>) -> impl IntoView {
                                     <th>{t!("accounts.email")}</th>
                                     <th class="figure">{t!("accounts.sessions_short")}</th>
                                     <th class="figure">{t!("accounts.keys_short")}</th>
-                                    <th>{t!("accounts.reach")}</th>
+                                    <th class="figure">{t!("accounts.reach")}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -125,11 +126,14 @@ fn Row(account: Account) -> impl IntoView {
             </td>
             <td class="figure">{account.sessions}</td>
             <td class="figure">{account.keys}</td>
-            <td class="quiet">
+            // The word when there is no restriction, and the bare count when
+            // there is: "3 libraries" in a column headed Libraries says libraries
+            // twice.
+            <td class="figure quiet">
                 {if account.libraries.is_empty() {
                     t!("accounts.all_libraries").to_string()
                 } else {
-                    t!("accounts.some", count = account.libraries.len()).to_string()
+                    account.libraries.len().to_string()
                 }}
             </td>
         </tr>
@@ -210,42 +214,50 @@ fn Adding(
             </header>
 
             <form on:submit=submit>
-                <label for="username">{t!("accounts.username")}</label>
-                <input
-                    id="username"
-                    autocomplete="off"
-                    required
-                    prop:value=username
-                    on:input:target=move |e| set_username.set(e.target().value())
-                />
-
-                <label for="new-password">{t!("accounts.password")}</label>
-                <input
-                    id="new-password"
-                    type="password"
-                    autocomplete="new-password"
-                    required
-                    prop:value=password
-                    on:input:target=move |e| set_password.set(e.target().value())
-                />
-
-                <label for="email">{t!("accounts.email")}</label>
-                <input
-                    id="email"
-                    type="email"
-                    autocomplete="off"
-                    prop:value=email
-                    on:input:target=move |e| set_email.set(e.target().value())
-                />
-
-                <label class="checkbox">
+                <div class="field">
+                    <label for="username">{t!("accounts.username")}</label>
                     <input
-                        type="checkbox"
-                        prop:checked=admin
-                        on:change:target=move |e| set_admin.set(e.target().checked())
+                        id="username"
+                        autocomplete="off"
+                        required
+                        prop:value=username
+                        on:input:target=move |e| set_username.set(e.target().value())
                     />
-                    {t!("accounts.is_admin")}
-                </label>
+                </div>
+
+                <div class="field">
+                    <label for="new-password">{t!("accounts.password")}</label>
+                    <input
+                        id="new-password"
+                        type="password"
+                        autocomplete="new-password"
+                        required
+                        prop:value=password
+                        on:input:target=move |e| set_password.set(e.target().value())
+                    />
+                </div>
+
+                <div class="field">
+                    <label for="email">{t!("accounts.email")}</label>
+                    <input
+                        id="email"
+                        type="email"
+                        autocomplete="off"
+                        prop:value=email
+                        on:input:target=move |e| set_email.set(e.target().value())
+                    />
+                </div>
+
+                <div class="checks">
+                    <label class="checkbox">
+                        <input
+                            type="checkbox"
+                            prop:checked=admin
+                            on:change:target=move |e| set_admin.set(e.target().checked())
+                        />
+                        {t!("accounts.is_admin")}
+                    </label>
+                </div>
 
                 <p class="row ends">
                     <button
@@ -313,6 +325,13 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
             });
         }
     };
+
+    // Handed to the sections that change what the counts count, so the figures
+    // come from the server rather than from arithmetic here.
+    let reloading = Callback::new({
+        let reload = reload.clone();
+        move |()| reload()
+    });
 
     // Follows the URL, so going from one account to another redraws rather than
     // showing whoever was open before.
@@ -406,6 +425,16 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     let admin = who.admin;
     let me = who.username.clone();
 
+    // Known without the account: the URL says who is being looked at and the
+    // session says who is looking. Held rather than cloned into each closure,
+    // since several of them read it.
+    let looking_at = StoredValue::new({
+        let named = named.clone();
+        Callback::new(move |()| named())
+    });
+    let me_held = StoredValue::new(me.clone());
+    let mine_now = move || looking_at.get_value().run(()) == me_held.get_value();
+
     view! {
         <Show when=move || admin>
             <p class="back">
@@ -419,10 +448,6 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
                 None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
                 Some(account) => {
                     let mine = account.username == me;
-                    // Held rather than cloned into each closure: three of the
-                    // sections below capture by move, and a String cannot be
-                    // moved three times.
-                    let name = StoredValue::new(account.username.clone());
                     view! {
                         <div class="titled">
                             <div>
@@ -438,32 +463,38 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
 
                         <div class="panes">
                             <Who account=account.clone() mine admin save />
-                            <Access account=account.clone() mine cut />
+                            <Access account mine admin cut libraries restrict />
                         </div>
-
-                        <Show when=move || admin>
-                            <Reach account=account.clone() libraries restrict />
-                        </Show>
-
-                        // The full management of somebody's own credentials, and
-                        // only their own: an administrator gets the two blunt
-                        // instruments above and no view of this.
-                        <Show when=move || mine>
-                            <MyKeys username=name.get_value() on_expired />
-                            <MySessions username=name.get_value() on_expired />
-                        </Show>
-
-                        // Deleting is administration, and never your own account:
-                        // the server refuses that, and what it is protecting is a
-                        // server that still has an administrator.
-                        <Show when=move || admin && !mine>
-                            <Danger username=name.get_value() on_expired />
-                        </Show>
                     }
                         .into_any()
                 }
             }
         }}
+
+        // Outside the block that watches the account, and deliberately: these
+        // need a username and nothing else, and inside it they were rebuilt every
+        // time the account was read again — which, since they ask for the account
+        // to be read again when they change something, was a loop. It also took
+        // the dialogue holding a new key down with it.
+        <Show when=move || mine_now()>
+            <MyKeys
+                username=looking_at.get_value().run(())
+                on_changed=reloading
+                on_expired
+            />
+            <MySessions
+                username=looking_at.get_value().run(())
+                on_changed=reloading
+                on_expired
+            />
+        </Show>
+
+        // Deleting is administration, and never your own account: the server
+        // refuses that, and what it is protecting is a server that still has an
+        // administrator.
+        <Show when=move || admin && !mine_now()>
+            <Danger username=looking_at.get_value().run(()) on_expired />
+        </Show>
 
         {move || note.get().map(|said| view! { <p class="note">{said}</p> })}
         {move || {
@@ -511,59 +542,67 @@ fn Who(account: Account, mine: bool, admin: bool, save: Callback<AccountChanges>
             <h2>{t!("accounts.who")}</h2>
 
             <form class="stacked" on:submit=submit>
-                <label for="name">{t!("accounts.username")}</label>
-                <input
-                    id="name"
-                    required
-                    prop:value=username
-                    on:input:target=move |e| set_username.set(e.target().value())
-                />
-
-                <label for="mail">{t!("accounts.email")}</label>
-                <input
-                    id="mail"
-                    type="email"
-                    prop:value=email
-                    on:input:target=move |e| set_email.set(e.target().value())
-                />
-
-                <label for="pass">{t!("accounts.new_password")}</label>
-                <input
-                    id="pass"
-                    type="password"
-                    autocomplete="new-password"
-                    placeholder=t!("accounts.unchanged")
-                    prop:value=password
-                    on:input:target=move |e| set_password.set(e.target().value())
-                />
-                <span class="hint quiet">{t!("accounts.password_note")}</span>
-
-                <label class="checkbox">
+                <div class="field">
+                    <label for="name">{t!("accounts.username")}</label>
                     <input
-                        type="checkbox"
-                        prop:checked=scrobbling
-                        on:change:target=move |e| set_scrobbling.set(e.target().checked())
+                        id="name"
+                        required
+                        prop:value=username
+                        on:input:target=move |e| set_username.set(e.target().value())
                     />
-                    {t!("accounts.scrobbling")}
-                </label>
+                </div>
 
-                // Offered only to an administrator, and never on their own
-                // account: the server refuses that, and the reason it refuses is
-                // that it is what keeps a server administrable.
-                <Show when=move || admin && !mine>
+                <div class="field">
+                    <label for="mail">{t!("accounts.email")}</label>
+                    <input
+                        id="mail"
+                        type="email"
+                        prop:value=email
+                        on:input:target=move |e| set_email.set(e.target().value())
+                    />
+                </div>
+
+                <div class="field">
+                    <label for="pass">{t!("accounts.new_password")}</label>
+                    <input
+                        id="pass"
+                        type="password"
+                        autocomplete="new-password"
+                        placeholder=t!("accounts.unchanged")
+                        prop:value=password
+                        on:input:target=move |e| set_password.set(e.target().value())
+                    />
+                    <span class="hint quiet">{t!("accounts.password_note")}</span>
+                </div>
+
+                // Together, and closer to each other than to the fields above:
+                // between two switches there is nothing to explain, so the space
+                // that separates a label from its own note only separates these
+                // from each other for no reason.
+                <div class="checks">
                     <label class="checkbox">
                         <input
                             type="checkbox"
-                            prop:checked=is_admin
-                            on:change:target=move |e| set_is_admin.set(e.target().checked())
+                            prop:checked=scrobbling
+                            on:change:target=move |e| set_scrobbling.set(e.target().checked())
                         />
-                        {t!("accounts.is_admin")}
+                        {t!("accounts.scrobbling")}
                     </label>
-                </Show>
-                <Show when=move || admin && mine>
-                    <span class="hint quiet">{t!("accounts.not_yourself")}</span>
-                </Show>
 
+                    // Offered only to an administrator, and never on their own
+                    // account: the server refuses that, and the reason it refuses
+                    // is that it is what keeps a server administrable.
+                    <Show when=move || admin && !mine>
+                        <label class="checkbox">
+                            <input
+                                type="checkbox"
+                                prop:checked=is_admin
+                                on:change:target=move |e| set_is_admin.set(e.target().checked())
+                            />
+                            {t!("accounts.is_admin")}
+                        </label>
+                    </Show>
+                </div>
                 <p class="row ends">
                     <button type="submit">{t!("common.save")}</button>
                 </p>
@@ -572,159 +611,163 @@ fn Who(account: Account, mine: bool, admin: bool, save: Callback<AccountChanges>
     }
 }
 
-/// What is open, and how to close it.
+/// What this account can reach, and what it is reaching with.
+///
+/// One pane, because they are the same question asked twice: which libraries it
+/// may see, and which credentials are currently open on it. Two headings for that
+/// was two names for one idea.
 #[component]
-fn Access(account: Account, mine: bool, cut: Callback<Cut>) -> impl IntoView {
+fn Access(
+    account: Account,
+    mine: bool,
+    admin: bool,
+    cut: Callback<Cut>,
+    libraries: ReadSignal<Vec<Library>>,
+    restrict: Callback<Vec<i64>>,
+) -> impl IntoView {
     let sessions = account.sessions;
     let keys = account.keys;
+    let allowed = RwSignal::new(account.libraries.clone());
 
     view! {
         <section class="pane">
             <h2>{t!("accounts.access")}</h2>
 
-            <div class="lines">
-                <div class="line">
-                    <span>{t!("accounts.sessions", count = sessions)}</span>
+            // Which libraries, only for an administrator: it is the one thing here
+            // that is a setting rather than a fact, and only they may change it.
+            <Show when=move || admin>
+                <h3>{t!("accounts.reach")}</h3>
+                <p class="hint quiet">
+                    {move || {
+                        if allowed.get().is_empty() {
+                            t!("accounts.reach_all")
+                        } else {
+                            t!("accounts.reach_some")
+                        }
+                    }}
+                </p>
+
+                <div class="checks">
+                    {move || {
+                        libraries
+                            .get()
+                            .into_iter()
+                            .map(|library| {
+                                let id = library.id;
+                                let ticked = move || {
+                                    let allowed = allowed.get();
+                                    allowed.is_empty() || allowed.contains(&id)
+                                };
+
+                                view! {
+                                    <label class="checkbox">
+                                        <input
+                                            type="checkbox"
+                                            prop:checked=ticked
+                                            on:change:target=move |event| {
+                                                // Ticking from "all" means naming
+                                                // the rest: an empty list is not a
+                                                // subset to add to, it is the
+                                                // absence of a restriction.
+                                                let mut chosen = allowed.get();
+                                                if chosen.is_empty() {
+                                                    chosen = libraries
+                                                        .get()
+                                                        .iter()
+                                                        .map(|held| held.id)
+                                                        .collect();
+                                                }
+                                                if event.target().checked() {
+                                                    if !chosen.contains(&id) {
+                                                        chosen.push(id);
+                                                    }
+                                                } else {
+                                                    chosen.retain(|held| *held != id);
+                                                }
+                                                // Every one ticked is the same as
+                                                // no restriction, and saying it
+                                                // that way keeps it true as
+                                                // libraries are added.
+                                                if chosen.len() == libraries.get().len() {
+                                                    chosen.clear();
+                                                }
+                                                allowed.set(chosen.clone());
+                                                restrict.run(chosen);
+                                            }
+                                        />
+                                        {library.name}
+                                    </label>
+                                }
+                            })
+                            .collect_view()
+                    }}
+                </div>
+            </Show>
+
+            <h3>{t!("accounts.open_now")}</h3>
+
+            // Two columns shared by both rows rather than two rows each with its
+            // own, so the buttons come out the same width without anybody naming
+            // one. Whichever label is longest decides, in any language.
+            //
+            // Each row carries its own note. One note under both of them was read
+            // as belonging to the second, which is where it sat, while it talked
+            // about the first.
+            <div class="paired">
+                <span>
+                    {t!("accounts.sessions", count = sessions)}
+                    <span class="hint quiet">
+                        {if mine {
+                            t!("accounts.sessions_mine")
+                        } else {
+                            t!("accounts.sessions_note")
+                        }}
+                    </span>
+                </span>
+                <span class="acts">
                     <Show when=move || { sessions > 0 }>
                         <button class="second small" on:click=move |_| cut.run(Cut::Sessions)>
                             {if mine { t!("accounts.close_mine") } else { t!("accounts.close_all") }}
                         </button>
                     </Show>
-                </div>
+                </span>
 
-                <div class="line">
-                    <span>{t!("accounts.keys", count = keys)}</span>
+                <span>
+                    {t!("accounts.keys", count = keys)}
+                    <span class="hint quiet">{t!("accounts.keys_note")}</span>
+                </span>
+                <span class="acts">
                     <Show when=move || { keys > 0 }>
                         <button class="second small" on:click=move |_| cut.run(Cut::Keys)>
                             {t!("accounts.revoke_all")}
                         </button>
                     </Show>
-                </div>
-            </div>
-
-            <p class="hint quiet">
-                {if mine { t!("accounts.mine_note") } else { t!("accounts.cut_note") }}
-            </p>
-        </section>
-    }
-}
-
-/// Which libraries the account may see.
-///
-/// Nothing ticked means no restriction, which is not the same as seeing nothing:
-/// an account with no restriction sees every library that is switched on. Saying
-/// that in words matters, because an empty set of boxes looks like "none".
-#[component]
-fn Reach(
-    account: Account,
-    libraries: ReadSignal<Vec<Library>>,
-    restrict: Callback<Vec<i64>>,
-) -> impl IntoView {
-    let allowed = RwSignal::new(account.libraries.clone());
-
-    view! {
-        <section class="pane wide">
-            <h2>{t!("accounts.reach")}</h2>
-            <p class="hint quiet">
-                {move || {
-                    if allowed.get().is_empty() {
-                        t!("accounts.reach_all")
-                    } else {
-                        t!("accounts.reach_some")
-                    }
-                }}
-            </p>
-
-            <div class="lines">
-                {move || {
-                    libraries
-                        .get()
-                        .into_iter()
-                        .map(|library| {
-                            let id = library.id;
-                            let ticked = move || {
-                                let allowed = allowed.get();
-                                allowed.is_empty() || allowed.contains(&id)
-                            };
-
-                            view! {
-                                <label class="checkbox">
-                                    <input
-                                        type="checkbox"
-                                        prop:checked=ticked
-                                        on:change:target=move |event| {
-                                            // Ticking from "all" means naming the
-                                            // rest: an empty list is not a subset
-                                            // to add to, it is the absence of a
-                                            // restriction.
-                                            let mut chosen = allowed.get();
-                                            if chosen.is_empty() {
-                                                chosen = libraries
-                                                    .get()
-                                                    .iter()
-                                                    .map(|held| held.id)
-                                                    .collect();
-                                            }
-                                            if event.target().checked() {
-                                                if !chosen.contains(&id) {
-                                                    chosen.push(id);
-                                                }
-                                            } else {
-                                                chosen.retain(|held| *held != id);
-                                            }
-                                            // Every one ticked is the same as no
-                                            // restriction, and saying it that way
-                                            // keeps it true as libraries are added.
-                                            if chosen.len() == libraries.get().len() {
-                                                chosen.clear();
-                                            }
-                                            allowed.set(chosen.clone());
-                                            restrict.run(chosen);
-                                        }
-                                    />
-                                    {library.name}
-                                </label>
-                            }
-                        })
-                        .collect_view()
-                }}
+                </span>
             </div>
         </section>
     }
 }
 
-/// What to say about a refusal. The codes are the server's own and stable, so this
-/// can branch on them and say something useful in the reader's language.
-fn said(why: &Failure) -> String {
-    match why {
-        Failure::Unreachable => t!("login.unreachable").to_string(),
-        Failure::Refused(code) => match code.as_str() {
-            "conflict" => t!("accounts.taken").to_string(),
-            "invalidRequest" => t!("accounts.invalid").to_string(),
-            "notAuthorized" => t!("accounts.not_allowed").to_string(),
-            _ => t!("common.refused").to_string(),
-        },
-        Failure::Unauthenticated => t!("common.refused").to_string(),
-    }
-}
-
-/// Your own keys, in full: making them, giving them a date, taking them away.
+/// Your own keys: making them, rotating them, taking them away.
 ///
-/// A key is readable once, when it is made. What the database keeps is a hash, so
-/// this is the only moment it can be shown and the screen says so rather than
-/// letting somebody close it and come back for it.
+/// A key is readable once, when it is made and when it is rotated. What the
+/// database keeps is a hash, so there is no second chance to look at it.
+///
+/// Which is why both of those happen in a dialogue that shows the secret and
+/// forgets it on the way out. Shown in the page instead, it was a box that
+/// appeared and disappeared — moving everything under it — and a piece of state
+/// somebody had to remember to clear when the key it belonged to was revoked.
+/// A dialogue closes, and closing it is the clearing.
 #[component]
-fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
+fn MyKeys(username: String, on_changed: Callback<()>, on_expired: Callback<()>) -> impl IntoView {
     let (keys, set_keys) = signal(Option::<Vec<tocata::types::Key>>::None);
-    let (issued, set_issued) = signal(Option::<tocata::types::IssuedKey>::None);
-    let (label, set_label) = signal(String::new());
-    let (expires, set_expires) = signal(String::new());
+    let (asking, set_asking) = signal(false);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (busy, set_busy) = signal(false);
 
     let who = StoredValue::new(username);
 
-    let reload = move || {
+    let load = move || {
         spawn_local(async move {
             match api::keys(&who.get_value()).await {
                 Ok(list) => set_keys.set(Some(list)),
@@ -734,21 +777,168 @@ fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
         });
     };
 
-    reload();
+    // Reads the list again and tells whoever shows the count, because the count
+    // belongs to the account rather than to this section. Only for what changed
+    // something: the first read has nothing to announce.
+    let reload = move || {
+        load();
+        on_changed.run(());
+    };
 
-    let issue = move |event: web_sys::SubmitEvent| {
-        event.prevent_default();
+    load();
+
+    // Rotating shows a secret too, so it opens the same dialogue rather than
+    // inventing a second way to show one.
+    let (rotated, set_rotated) = signal(Option::<tocata::types::IssuedKey>::None);
+
+    let act = Callback::new(move |(what, id): (KeyAction, i64)| {
         set_busy.set(true);
         set_failure.set(None);
-        set_issued.set(None);
+
+        spawn_local(async move {
+            match what {
+                KeyAction::Rotate => match api::rotate_key(&who.get_value(), id).await {
+                    Ok(key) => {
+                        set_rotated.set(Some(key));
+                        reload();
+                    }
+                    Err(Failure::Unauthenticated) => on_expired.run(()),
+                    Err(why) => set_failure.set(Some(said(&why))),
+                },
+                KeyAction::Revoke => match api::revoke_key(&who.get_value(), id).await {
+                    Ok(()) => reload(),
+                    Err(Failure::Unauthenticated) => on_expired.run(()),
+                    Err(why) => set_failure.set(Some(said(&why))),
+                },
+            }
+            set_busy.set(false);
+        });
+    });
+
+    view! {
+        <section class="pane wide">
+            <div class="pane-head">
+                <div>
+                    <h2>{t!("keys.heading")}</h2>
+                    <p class="hint quiet">{t!("keys.lead")}</p>
+                </div>
+                <button on:click=move |_| set_asking.set(true)>
+                    <Glyph icon=Icon::Add />
+                    {t!("keys.issue")}
+                </button>
+            </div>
+
+            {move || match keys.get() {
+                None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
+                Some(list) if list.is_empty() => {
+                    view! { <p class="quiet">{t!("keys.none")}</p> }.into_any()
+                }
+                Some(list) => {
+                    view! {
+                        <div class="scrolls">
+                            <table class="listing">
+                                <thead>
+                                    <tr>
+                                        <th>{t!("keys.label")}</th>
+                                        <th>{t!("keys.until")}</th>
+                                        <th>{t!("keys.last_use")}</th>
+                                        <th class="figure">{t!("keys.actions")}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {list
+                                        .into_iter()
+                                        .map(|key| view! { <KeyRow key act busy /> })
+                                        .collect_view()}
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                        .into_any()
+                }
+            }}
+
+            {move || {
+                failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
+            }}
+
+            <NewKeySheet
+                who=who.get_value()
+                asking
+                set_asking
+                rotated
+                set_rotated
+                on_made=Callback::new(move |()| reload())
+                on_expired
+            />
+        </section>
+    }
+}
+
+/// Asks for a key, makes it, shows it, and forgets it when it closes.
+///
+/// Also where a rotated key appears, since a rotated key is the same thing: a
+/// secret with one moment to be read.
+#[component]
+fn NewKeySheet(
+    who: String,
+    asking: ReadSignal<bool>,
+    set_asking: WriteSignal<bool>,
+    rotated: ReadSignal<Option<tocata::types::IssuedKey>>,
+    set_rotated: WriteSignal<Option<tocata::types::IssuedKey>>,
+    on_made: Callback<()>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
+    let dialog: NodeRef<Dialog> = NodeRef::new();
+    let (label, set_label) = signal(String::new());
+    let (expires, set_expires) = signal(String::new());
+    let (made, set_made) = signal(Option::<tocata::types::IssuedKey>::None);
+    let (failure, set_failure) = signal(Option::<String>::None);
+    let (waiting, set_waiting) = signal(false);
+
+    let who = StoredValue::new(who);
+
+    // Open for either reason: somebody asked to make one, or one was rotated and
+    // its new secret has nowhere else to be shown.
+    Effect::new(move |_| {
+        let Some(element) = dialog.get() else { return };
+
+        if asking.get() {
+            set_label.set(String::new());
+            set_expires.set(String::new());
+            set_made.set(None);
+            set_failure.set(None);
+            let _ = element.show_modal();
+        } else if rotated.get().is_some() {
+            set_failure.set(None);
+            let _ = element.show_modal();
+        } else {
+            element.close();
+        }
+    });
+
+    // Whichever of the two has a secret to show. Nothing outlives the dialogue:
+    // closing it clears both.
+    let secret = move || made.get().or_else(|| rotated.get());
+
+    let shut = move || {
+        set_asking.set(false);
+        set_rotated.set(None);
+        set_made.set(None);
+    };
+
+    let submit = move |event: web_sys::SubmitEvent| {
+        event.prevent_default();
+        set_waiting.set(true);
+        set_failure.set(None);
 
         let asked = tocata::types::NewKey {
             label: {
                 let written = label.get().trim().to_string();
                 (!written.is_empty()).then_some(written)
             },
-            // A date, or nothing at all. The input gives a day; the server wants a
-            // moment, so it is the end of that day.
+            // The input gives a day; the server wants a moment, so it is the end
+            // of that day.
             expires_at: {
                 let day = expires.get();
                 (!day.is_empty()).then(|| format!("{day}T23:59:59Z"))
@@ -758,156 +948,230 @@ fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
         spawn_local(async move {
             match api::issue_key(&who.get_value(), asked).await {
                 Ok(key) => {
-                    set_issued.set(Some(key));
-                    set_label.set(String::new());
-                    set_expires.set(String::new());
-                    reload();
+                    set_made.set(Some(key));
+                    on_made.run(());
                 }
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(why) => set_failure.set(Some(said(&why))),
             }
-            set_busy.set(false);
-        });
-    };
-
-    let revoke = move |id: i64| {
-        set_busy.set(true);
-        spawn_local(async move {
-            match api::revoke_key(&who.get_value(), id).await {
-                Ok(()) => reload(),
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(why) => set_failure.set(Some(said(&why))),
-            }
-            set_busy.set(false);
+            set_waiting.set(false);
         });
     };
 
     view! {
-        <section class="pane wide">
-            <h2>{t!("keys.heading")}</h2>
-            <p class="hint quiet">{t!("keys.lead")}</p>
+        <dialog node_ref=dialog class="sheet" on:close=move |_| shut()>
+            <header class="sheet-head">
+                <h2>
+                    {move || {
+                        if secret().is_some() { t!("keys.made") } else { t!("keys.issue") }
+                    }}
+                </h2>
+                <button
+                    type="button"
+                    class="close"
+                    title=t!("common.close")
+                    on:click=move |_| shut()
+                >
+                    <Glyph icon=Icon::Close />
+                </button>
+            </header>
 
-            {move || match keys.get() {
-                None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
-                Some(list) if list.is_empty() => {
-                    view! { <p class="quiet">{t!("keys.none")}</p> }.into_any()
-                }
-                Some(list) => {
+            <Show
+                when=move || secret().is_some()
+                fallback=move || {
                     view! {
-                        <div class="lines">
-                            {list
-                                .into_iter()
-                                .map(|key| {
-                                    let id = key.id;
-                                    view! {
-                                        <div class="line" class:off=key.expired>
-                                            <span>
-                                                <strong>{key.label}</strong>
-                                                <span class="quiet detail">
-                                                    {key
-                                                        .expires_at
-                                                        .as_deref()
-                                                        .map(|at| {
-                                                            if key.expired {
-                                                                t!("keys.expired", when = when(at))
-                                                                    .to_string()
-                                                            } else {
-                                                                t!("keys.expires", when = when(at))
-                                                                    .to_string()
-                                                            }
-                                                        })
-                                                        .unwrap_or_else(|| {
-                                                            t!("keys.forever").to_string()
-                                                        })}
-                                                    {key
-                                                        .last_used_at
-                                                        .as_deref()
-                                                        .map(|at| {
-                                                            format!(
-                                                                " · {}",
-                                                                t!("keys.used", when = when(at)),
-                                                            )
-                                                        })
-                                                        .unwrap_or_else(|| {
-                                                            format!(" · {}", t!("keys.unused"))
-                                                        })}
-                                                </span>
-                                            </span>
-                                            <button
-                                                class="second small danger"
-                                                disabled=busy
-                                                on:click=move |_| revoke(id)
-                                            >
-                                                {t!("keys.revoke")}
-                                            </button>
-                                        </div>
-                                    }
-                                })
-                                .collect_view()}
-                        </div>
-                    }
-                        .into_any()
-                }
-            }}
-
-            // Shown once and never again, which is the whole of what there is to
-            // say about it.
-            {move || {
-                issued
-                    .get()
-                    .map(|key| {
-                        view! {
-                            <div class="issued">
-                                <p>{t!("keys.once")}</p>
-                                <code>{key.key}</code>
+                        <form on:submit=submit>
+                            <div class="field">
+                                <label for="key-label">{t!("keys.label")}</label>
+                                <input
+                                    id="key-label"
+                                    placeholder=t!("keys.label_default")
+                                    prop:value=label
+                                    on:input:target=move |e| set_label.set(e.target().value())
+                                />
                             </div>
+
+                            <div class="field">
+                                <label for="key-expires">{t!("keys.until")}</label>
+                                // Dimmed while empty, because a date field shows
+                                // dd/mm/yyyy whether or not anything has been typed,
+                                // and in the ink of real text it reads as a value
+                                // already chosen.
+                                <input
+                                    id="key-expires"
+                                    type="date"
+                                    class:empty=move || expires.get().is_empty()
+                                    prop:value=expires
+                                    on:input:target=move |e| set_expires.set(e.target().value())
+                                />
+                                <span class="hint quiet">{t!("keys.until_note")}</span>
+                            </div>
+
+                            <p class="row ends">
+                                <button
+                                    type="button"
+                                    class="second"
+                                    disabled=waiting
+                                    on:click=move |_| shut()
+                                >
+                                    {t!("common.cancel")}
+                                </button>
+                                <button type="submit" disabled=waiting>
+                                    {move || {
+                                        if waiting.get() {
+                                            t!("login.working")
+                                        } else {
+                                            t!("keys.issue")
+                                        }
+                                    }}
+                                </button>
+                            </p>
+
+                            {move || {
+                                failure
+                                    .get()
+                                    .map(|why| view! { <p class="failure" role="alert">{why}</p> })
+                            }}
+                        </form>
+                    }
+                }
+            >
+                <p>{t!("keys.once")}</p>
+                <div class="issued">
+                    <code>{move || secret().map(|key| key.key).unwrap_or_default()}</code>
+                </div>
+                <p class="row ends">
+                    <button on:click=move |_| shut()>{t!("common.done")}</button>
+                </p>
+            </Show>
+        </dialog>
+    }
+}
+
+/// What the menu at the end of a key's row offers.
+#[derive(Clone, Copy)]
+enum KeyAction {
+    Rotate,
+    Revoke,
+}
+
+/// One key as a row, with its actions behind the dots.
+#[component]
+fn KeyRow(
+    key: tocata::types::Key,
+    act: Callback<(KeyAction, i64)>,
+    busy: ReadSignal<bool>,
+) -> impl IntoView {
+    let (open, set_open) = signal(false);
+    // Where the menu goes, in viewport coordinates.
+    let (at, set_at) = signal((0.0, 0.0));
+
+    let id = key.id;
+    let expired = key.expired;
+
+    // Fixed to the viewport rather than positioned inside the cell, because the
+    // box around the table scrolls sideways and anything that overflows a
+    // scrolling box is clipped by it. Fixed escapes that; the price is working out
+    // where to put it, which is one rectangle.
+    let toggle = move |event: web_sys::MouseEvent| {
+        if let Some(button) = event
+            .current_target()
+            .and_then(|target| target.dyn_into::<web_sys::HtmlElement>().ok())
+        {
+            let rect = button.get_bounding_client_rect();
+            set_at.set((rect.bottom() + 4.0, rect.right()));
+        }
+
+        set_open.update(|shown| *shown = !*shown);
+    };
+
+    view! {
+        <tr class:off=move || expired>
+            <td>{key.label}</td>
+            <td class="quiet">
+                {key
+                    .expires_at
+                    .as_deref()
+                    .map(|at| {
+                        if expired {
+                            t!("keys.expired", when = when(at)).to_string()
+                        } else {
+                            when(at)
                         }
                     })
-            }}
+                    .unwrap_or_else(|| t!("keys.forever").to_string())}
+            </td>
+            <td class="quiet">
+                {key
+                    .last_used_at
+                    .as_deref()
+                    .map(when)
+                    .unwrap_or_else(|| t!("keys.unused").to_string())}
+            </td>
+            <td class="figure">
+                <button
+                    class="dots"
+                    title=t!("keys.actions")
+                    disabled=busy
+                    aria-expanded=move || open.get().to_string()
+                    on:click=toggle
+                >
+                    <Glyph icon=Icon::More />
+                </button>
 
-            <form class="stacked" on:submit=issue>
-                <label for="key-label">{t!("keys.label")}</label>
-                <input
-                    id="key-label"
-                    placeholder=t!("keys.label_default")
-                    prop:value=label
-                    on:input:target=move |e| set_label.set(e.target().value())
-                />
-
-                <label for="key-expires">{t!("keys.until")}</label>
-                <input
-                    id="key-expires"
-                    type="date"
-                    prop:value=expires
-                    on:input:target=move |e| set_expires.set(e.target().value())
-                />
-                <span class="hint quiet">{t!("keys.until_note")}</span>
-
-                <p class="row ends">
-                    <button type="submit" disabled=busy>
-                        <Glyph icon=Icon::Add />
-                        {t!("keys.issue")}
-                    </button>
-                </p>
-            </form>
-
-            {move || {
-                failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
-            }}
-        </section>
+                <Show when=move || open.get()>
+                    <div class="veil" on:click=move |_| set_open.set(false)></div>
+                    <div
+                        class="menu afloat"
+                        style=move || {
+                            let (top, right) = at.get();
+                            format!("top: {top}px; right: calc(100vw - {right}px)")
+                        }
+                    >
+                        <button
+                            class="menu-item"
+                            on:click=move |_| {
+                                set_open.set(false);
+                                act.run((KeyAction::Rotate, id));
+                            }
+                        >
+                            <Glyph icon=Icon::Rotate />
+                            {t!("keys.rotate")}
+                        </button>
+                        <button
+                            class="menu-item"
+                            on:click=move |_| {
+                                set_open.set(false);
+                                act.run((KeyAction::Revoke, id));
+                            }
+                        >
+                            <Glyph icon=Icon::Remove />
+                            {t!("keys.revoke")}
+                        </button>
+                    </div>
+                </Show>
+            </td>
+        </tr>
     }
 }
 
 /// Your own panel sessions, and closing them.
+///
+/// The same table as the keys above, because the values are the same shape: two
+/// dates and one thing you can do about them.
 #[component]
-fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
+fn MySessions(
+    username: String,
+    on_changed: Callback<()>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
     let (sessions, set_sessions) = signal(Option::<Vec<tocata::types::Login>>::None);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (busy, set_busy) = signal(false);
 
     let who = StoredValue::new(username);
 
-    let reload = move || {
+    let load = move || {
         spawn_local(async move {
             match api::sessions(&who.get_value()).await {
                 Ok(list) => set_sessions.set(Some(list)),
@@ -917,13 +1181,18 @@ fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
         });
     };
 
-    reload();
+    load();
 
     let close = move |id: i64| {
         set_busy.set(true);
         spawn_local(async move {
             match api::close_session(&who.get_value(), id).await {
-                Ok(()) => reload(),
+                Ok(()) => {
+                    load();
+                    // The count in the access summary is the server's, so it is
+                    // asked again rather than adjusted here.
+                    on_changed.run(());
+                }
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(why) => set_failure.set(Some(said(&why))),
             }
@@ -940,45 +1209,56 @@ fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
                 None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
                 Some(list) => {
                     view! {
-                        <div class="lines">
-                            {list
-                                .into_iter()
-                                .map(|login| {
-                                    let id = login.id;
-                                    let current = login.current;
-                                    view! {
-                                        <div class="line">
-                                            <span>
-                                                {when(&login.last_seen_at)}
-                                                {if current {
-                                                    view! {
-                                                        <span class="badge">
-                                                            {t!("sessions.this_one")}
-                                                        </span>
-                                                    }
-                                                        .into_any()
-                                                } else {
-                                                    ().into_any()
-                                                }}
-                                                <span class="quiet detail">
-                                                    {t!("sessions.until", when = when(&login.expires_at))}
-                                                </span>
-                                            </span>
-                                            <button
-                                                class="second small"
-                                                disabled=busy
-                                                on:click=move |_| close(id)
-                                            >
-                                                {if current {
-                                                    t!("sessions.log_out")
-                                                } else {
-                                                    t!("sessions.close")
-                                                }}
-                                            </button>
-                                        </div>
-                                    }
-                                })
-                                .collect_view()}
+                        <div class="scrolls">
+                            <table class="listing">
+                                <thead>
+                                    <tr>
+                                        <th>{t!("sessions.last_seen")}</th>
+                                        <th>{t!("sessions.expires")}</th>
+                                        <th class="figure">{t!("keys.actions")}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {list
+                                        .into_iter()
+                                        .map(|login| {
+                                            let id = login.id;
+                                            let current = login.current;
+                                            view! {
+                                                <tr>
+                                                    <td>
+                                                        {when(&login.last_seen_at)}
+                                                        {if current {
+                                                            view! {
+                                                                <span class="badge">
+                                                                    {t!("sessions.this_one")}
+                                                                </span>
+                                                            }
+                                                                .into_any()
+                                                        } else {
+                                                            ().into_any()
+                                                        }}
+                                                    </td>
+                                                    <td class="quiet">{when(&login.expires_at)}</td>
+                                                    <td class="figure">
+                                                        <button
+                                                            class="second small"
+                                                            disabled=busy
+                                                            on:click=move |_| close(id)
+                                                        >
+                                                            {if current {
+                                                                t!("sessions.log_out")
+                                                            } else {
+                                                                t!("sessions.close")
+                                                            }}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        })
+                                        .collect_view()}
+                                </tbody>
+                            </table>
                         </div>
                     }
                         .into_any()
@@ -1078,4 +1358,19 @@ fn when(iso: &str) -> String {
     moment
         .to_locale_string(&crate::locale::current(), &js_sys::Object::new())
         .into()
+}
+
+/// What to say about a refusal. The codes are the server's own and stable, so this
+/// can branch on them and say something useful in the reader's language.
+fn said(why: &Failure) -> String {
+    match why {
+        Failure::Unreachable => t!("login.unreachable").to_string(),
+        Failure::Refused(code) => match code.as_str() {
+            "conflict" => t!("accounts.taken").to_string(),
+            "invalidRequest" => t!("accounts.invalid").to_string(),
+            "notAuthorized" => t!("accounts.not_allowed").to_string(),
+            _ => t!("common.refused").to_string(),
+        },
+        Failure::Unauthenticated => t!("common.refused").to_string(),
+    }
 }

@@ -49,27 +49,31 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
             <form on:submit=submit>
                 <h1>{t!("app.name")}</h1>
 
-                <label for="username">{t!("login.username")}</label>
-                <input
-                    id="username"
-                    name="username"
-                    autocomplete="username"
-                    autofocus
-                    required
-                    prop:value=username
-                    on:input:target=move |e| set_username.set(e.target().value())
-                />
+                <div class="field">
+                    <label for="username">{t!("login.username")}</label>
+                    <input
+                        id="username"
+                        name="username"
+                        autocomplete="username"
+                        autofocus
+                        required
+                        prop:value=username
+                        on:input:target=move |e| set_username.set(e.target().value())
+                    />
+                </div>
 
-                <label for="password">{t!("login.password")}</label>
-                <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autocomplete="current-password"
-                    required
-                    prop:value=password
-                    on:input:target=move |e| set_password.set(e.target().value())
-                />
+                <div class="field">
+                    <label for="password">{t!("login.password")}</label>
+                    <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        required
+                        prop:value=password
+                        on:input:target=move |e| set_password.set(e.target().value())
+                    />
+                </div>
 
                 <button type="submit" disabled=waiting>
                     {move || {

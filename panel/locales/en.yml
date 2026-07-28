@@ -100,6 +100,11 @@ libraries:
   already: "That directory is already a library, is inside one, or holds one"
 
 accounts:
+  sessions_mine: "Closing them all logs you out here too."
+  sessions_note: "Logs them out of the panel in every browser."
+  keys_note: "Changing a password does not revoke these."
+  all_libraries: all
+  open_now: "Open now"
   admin_short: Admin
   sessions_short: "Sessions"
   keys_short: "Keys"
@@ -120,17 +125,12 @@ accounts:
   unchanged: Leave empty to keep it
   password_note: Changing it closes their other panel sessions. API keys keep working.
   scrobbling: Pass plays on to a scrobbling service
-  not_yourself: You cannot take away your own administrator rights
-  all_libraries: all
-  some: "%{count} libraries"
   access: Access
   sessions: "%{count} panel sessions open"
   keys: "%{count} API keys"
   close_all: Close them all
   close_mine: Close them all, this one included
   revoke_all: Revoke them all
-  cut_note: For cutting somebody off. Changing a password does not revoke keys, and a key is not a password.
-  mine_note: Closing them all logs you out here too.
   closed: "%{count} sessions closed"
   revoked: "%{count} keys revoked"
   reach: Libraries
@@ -141,6 +141,10 @@ accounts:
   not_allowed: The server would not allow that
 
 keys:
+  made: "Your new key"
+  last_use: "Last used"
+  actions: "Actions"
+  rotate: "Rotate"
   heading: "API keys"
   lead: "For clients that authenticate with a key instead of your password. Revoking one stops that client and leaves the others alone."
   none: "No keys yet"
@@ -150,22 +154,22 @@ keys:
   until: "Expires on"
   until_note: "Left empty it never expires, which is what a music player wants: nothing can renew one for you."
   forever: "never expires"
-  expires: "expires %{when}"
   expired: "expired %{when}"
-  used: "last used %{when}"
   unused: "never used"
   revoke: "Revoke"
   once: "Copy it now. It is not stored and will not be shown again."
 
 sessions:
+  last_seen: "Last seen"
+  expires: "Expires"
   heading: "Panel sessions"
   lead: "Where you are logged in to this panel. Nothing here affects the clients that play your music."
   this_one: "this one"
-  until: "until %{when}"
   close: "Close"
   log_out: "Log out"
 
 common:
+  done: Done
   # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
   # and off as booleans, in keys and in values alike, so `no: No` becomes the key
   # `false` holding the value `false` — which is what the panel then shows

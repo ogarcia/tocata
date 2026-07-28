@@ -250,7 +250,7 @@ a { color: var(--accent); }
   width: min(20rem, 100%);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 1rem;
 }
 
 .entry h1 { margin: 0 0 1rem; text-align: center; }
@@ -258,6 +258,21 @@ a { color: var(--accent); }
 /* --- the parts ----------------------------------------------------------- */
 
 label { font-size: 0.85rem; color: var(--quiet); }
+
+/* A label, its control and whatever explains it, as one thing. The gap inside is
+ * small because they belong together; the gap between fields comes from the form
+ * below and is larger, because they do not. One `gap` for both was what left a
+ * note as far from its own field as from the next one. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* A date field with nothing in it still shows dd/mm/yyyy, in the same ink as a
+ * value that had been typed. Dimmed, it reads as the hint it is — the same as a
+ * placeholder anywhere else. */
+input[type="date"].empty { color: var(--quiet); }
 
 input, select, button {
   font: inherit;
@@ -274,10 +289,14 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 }
 
 /* Inline flex so an icon and its label sit on one baseline. Buttons were being
- * laid out as text, which left every icon riding a little high. */
+ * laid out as text, which left every icon riding a little high.
+ *
+ * Centred, which only shows once a button is wider than its label — a whole
+ * column of them at the width of the longest, for instance. */
 button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
   cursor: pointer;
   background: var(--accent);
@@ -366,6 +385,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .menu a, .menu-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.6rem;
   padding: 0.45rem 0.6rem;
   border-radius: 4px;
@@ -424,8 +444,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 .menu-field select { width: 100%; }
 
 .badge {
+  /* Inline flex and middle aligned: with padding and no baseline of its own, a
+   * badge sits low against the text beside it. */
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
   margin-left: 0.5rem;
-  padding: 0.1rem 0.4rem;
+  padding: 0.1rem 0.45rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
@@ -537,11 +562,24 @@ button:disabled { opacity: 0.6; cursor: default; }
   background: var(--raised);
 }
 
-.pane h2 {
-  margin: 0 0 0.75rem;
-  font-size: 0.95rem;
+/* A heading inside a pane, for the parts of one idea. Smaller than the pane's own
+ * and with room above it, so it groups what follows without looking like a second
+ * pane. */
+/* Quieter than the pane's own heading, not louder. It was inheriting the ink of
+ * body text while the h2 above it was grey, so the part shouted over the whole. */
+.pane h3 {
+  margin: 1.25rem 0 0.4rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--quiet);
+}
+
+.pane h3:first-of-type { margin-top: 0; }
+
+.pane h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 /* Two columns of pairs: the name against the left, the figure against the
@@ -624,13 +662,17 @@ button:disabled { opacity: 0.6; cursor: default; }
 .row button { margin: 0; }
 
 /* The one that does more than the obvious thing should not look like the obvious
- * thing. */
+ * thing — but it still has to look like a button. Transparent, it disappeared into
+ * the grey of a pane; a tint of the text colour mixed into whatever is behind it
+ * stands out in either scheme without naming a colour for each. */
 .second {
-  background: transparent;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
   color: inherit;
   border-color: var(--line);
   font-weight: normal;
 }
+
+.second:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
 
 /* A path is long, arbitrary and not worth breaking the layout over. */
 .path {
@@ -779,6 +821,24 @@ table { border-collapse: collapse; }
  * offered. */
 .hint { font-size: 0.85rem; }
 
+/* A note under a heading, with room before whatever it introduces. */
+.pane > .hint { margin-bottom: 1rem; }
+
+/* A heading with the action that belongs to the whole section, the same shape as
+ * the one at the top of a screen. */
+.pane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.pane-head h2 { margin: 0; }
+.pane-head .hint { margin: 0.25rem 0 0; }
+.pane-head button { margin: 0; }
+
 
 /* --- the dialogue -------------------------------------------------------- */
 
@@ -822,10 +882,10 @@ table { border-collapse: collapse; }
 .sheet form {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 1rem;
 }
 
-.sheet .row { margin-top: 1rem; }
+.sheet .row { margin-top: 0; }
 
 /* --- accounts ------------------------------------------------------------ */
 
@@ -835,7 +895,7 @@ table { border-collapse: collapse; }
 .listing { width: 100%; }
 
 .listing th, .listing td {
-  padding: 0.55rem 1rem 0.55rem 0;
+  padding: 0.7rem 1.25rem 0.7rem 0;
   border-bottom: 1px solid var(--line);
   text-align: left;
   white-space: nowrap;
@@ -850,6 +910,11 @@ table { border-collapse: collapse; }
 .listing tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .listing .figure { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* The last column shrinks to its content and its buttons fill it, so every button
+ * in it is the width of the widest label — "Close" and "Log out" included. */
+.listing td:last-child { width: 1%; padding-right: 0; }
+.listing td:last-child button { width: 100%; }
+
 /* The link that names the row, with its icon on the same line. */
 .named {
   display: inline-flex;
@@ -861,6 +926,32 @@ table { border-collapse: collapse; }
 
 .named:hover { text-decoration: underline; }
 
+/* Just the dots, and no wider than they are: it lives at the end of a row and
+ * anything more would push the columns around. */
+.dots {
+  margin: 0;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  line-height: 1;
+}
+
+.dots:hover { color: var(--ink); }
+.dots:disabled { opacity: 0.4; }
+
+/* Fixed to the viewport, because the box around a table scrolls sideways and a
+ * scrolling box clips whatever overflows it — which is what left this menu drawn
+ * inside the table and cut off. Fixed is outside all of that; where to put it is
+ * worked out from the button's own rectangle. */
+.menu.afloat {
+  position: fixed;
+  text-align: left;
+}
+
+/* A row for something that has expired: still there, plainly not current. */
+.listing tr.off td { opacity: 0.55; }
+
 /* An address can be long and is the one column here that may be cut. */
 .ellipsis {
   max-width: 18rem;
@@ -871,8 +962,6 @@ table { border-collapse: collapse; }
 /* Wide content sideways inside its own box, never the whole page. */
 .scrolls { overflow-x: auto; }
 
-.grow { flex: 1; min-width: 0; }
-
 /* Back to the list, above the heading, small enough not to compete with it. */
 .back { margin-bottom: 0.5rem; font-size: 0.9rem; }
 
@@ -880,17 +969,36 @@ table { border-collapse: collapse; }
  * anything. */
 .pane.wide { grid-column: 1 / -1; margin-top: 0.75rem; }
 
-/* A label and a control on one line, as many as there are. */
-.lines { display: flex; flex-direction: column; gap: 0.5rem; }
-
-.line {
-  display: flex;
+/* Pairs of label and action, in two columns shared by every row. The buttons come
+ * out the same width because the column is as wide as the widest of them, which is
+ * the same reason a table's columns line up. */
+.paired {
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.7rem 1rem;
 }
 
-.line button { margin: 0; }
+.paired .acts { display: flex; justify-content: stretch; }
+.paired button { width: 100%; margin: 0; }
+
+/* Name over note in the left column, both centred against the button on the
+ * right, so the three read as one row. */
+.paired > span:not(.acts) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.paired .hint { margin: 0; }
+
+/* Switches read as a set, so they sit closer together than fields do. A field
+ * needs room for the note under it; a switch is its own label and needs none. */
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
 
 /* The box before its words, both clickable, and the cursor saying so. */
 .checkbox {
@@ -914,7 +1022,24 @@ table { border-collapse: collapse; }
 .stacked {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 1rem;
+}
+
+/* The one moment a key can be read. Given room, and set in the typeface that
+ * makes a string of hex readable, since somebody is about to copy it by eye or by
+ * selection. */
+.issued {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.issued code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+  user-select: all;
 }
 
 /* Said after something worked. Not an error and not silence. */

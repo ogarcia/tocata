@@ -235,26 +235,30 @@ fn Details(
                 // What it is called comes first: somebody adding a library has
                 // decided to add "the vinyl rips" and then goes looking for where
                 // they are, not the other way round.
-                <label for="name">{t!("libraries.name")}</label>
-                <input
-                    id="name"
-                    placeholder=t!("libraries.name_default")
-                    autofocus
-                    prop:value=name
-                    on:input:target=move |e| set_name.set(e.target().value())
-                />
+                <div class="field">
+                    <label for="name">{t!("libraries.name")}</label>
+                    <input
+                        id="name"
+                        placeholder=t!("libraries.name_default")
+                        autofocus
+                        prop:value=name
+                        on:input:target=move |e| set_name.set(e.target().value())
+                    />
+                </div>
 
-                <label for="path">{t!("libraries.path")}</label>
-                <input
-                    id="path"
-                    placeholder="/srv/music"
-                    required
-                    prop:value=path
-                    on:input:target=move |e| set_path.set(e.target().value())
-                />
-                // The server is the only one who can say whether the directory is
-                // there, so this says what it will be looking for.
-                <span class="hint quiet">{t!("libraries.path_note")}</span>
+                <div class="field">
+                    <label for="path">{t!("libraries.path")}</label>
+                    <input
+                        id="path"
+                        placeholder="/srv/music"
+                        required
+                        prop:value=path
+                        on:input:target=move |e| set_path.set(e.target().value())
+                    />
+                    // The server is the only one who can say whether the directory is
+                    // there, so this says what it will be looking for.
+                    <span class="hint quiet">{t!("libraries.path_note")}</span>
+                </div>
 
                 // Only when moving one, because only then is there anything under
                 // an old path to reconcile.

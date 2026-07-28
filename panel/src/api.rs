@@ -226,6 +226,11 @@ pub async fn issue_key(username: &str, new: NewKey) -> Result<tocata::types::Iss
     read(post(&format!("/users/{username}/keys"), &new)?).await
 }
 
+/// Gives a key a new secret and keeps the rest. Readable once, like a new one.
+pub async fn rotate_key(username: &str, id: i64) -> Result<tocata::types::IssuedKey, Failure> {
+    read(post(&format!("/users/{username}/keys/{id}/rotate"), &())?).await
+}
+
 pub async fn revoke_key(username: &str, id: i64) -> Result<(), Failure> {
     plain(delete(&format!("/users/{username}/keys/{id}"))?).await
 }

@@ -34,6 +34,8 @@ pub enum Icon {
     On,
     Off,
     Close,
+    More,
+    Rotate,
     Libraries,
     Accounts,
     Settings,
@@ -66,6 +68,9 @@ impl Icon {
             Self::On => include_str!("../icons/on.svg"),
             Self::Off => include_str!("../icons/off.svg"),
             Self::Close => include_str!("../icons/close.svg"),
+            Self::More => include_str!("../icons/more.svg"),
+            // The same two arrows as a scan: both mean "go round again".
+            Self::Rotate => include_str!("../icons/scan.svg"),
             Self::Libraries => include_str!("../icons/libraries.svg"),
             Self::Accounts => include_str!("../icons/accounts.svg"),
             Self::Settings => include_str!("../icons/settings.svg"),
