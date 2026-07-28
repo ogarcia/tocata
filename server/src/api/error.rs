@@ -27,6 +27,14 @@ pub enum ApiError {
     WrongCredentials,
     /// 403 — a real session, but not one allowed to do this.
     NotAuthorized,
+    /// 403 — the password given to confirm a change of your own is not the one on
+    /// the account.
+    ///
+    /// Not 401, which is what a wrong password means when logging in: here the
+    /// session is fine and stays fine, and 401 is what the panel reads as "your
+    /// session is gone" before sending somebody back to the login form. Being told
+    /// off for a typo should not cost anybody their session.
+    WrongPassword,
     /// 404 — no such thing.
     NotFound,
     /// 400 — the request itself does not make sense.
@@ -45,6 +53,7 @@ impl ApiError {
             Self::NotAuthenticated => "notAuthenticated",
             Self::WrongCredentials => "wrongCredentials",
             Self::NotAuthorized => "notAuthorized",
+            Self::WrongPassword => "wrongPassword",
             Self::NotFound => "notFound",
             Self::Invalid(_) => "invalidRequest",
             Self::Conflict(_) => "conflict",
@@ -57,7 +66,7 @@ impl ApiError {
             // Not 403 for either: 403 says "you, but not this", and a request
             // with no session at all has not said who "you" is yet.
             Self::NotAuthenticated | Self::WrongCredentials => StatusCode::UNAUTHORIZED,
-            Self::NotAuthorized => StatusCode::FORBIDDEN,
+            Self::NotAuthorized | Self::WrongPassword => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Invalid(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
@@ -70,6 +79,7 @@ impl ApiError {
             Self::NotAuthenticated => "No valid session",
             Self::WrongCredentials => "Wrong username or password",
             Self::NotAuthorized => "Not allowed to perform this operation",
+            Self::WrongPassword => "That is not the current password",
             Self::NotFound => "No such thing",
             Self::Invalid(detail) | Self::Conflict(detail) => detail,
             Self::Internal => "An internal error occurred",

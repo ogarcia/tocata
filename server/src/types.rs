@@ -271,6 +271,7 @@ pub struct NewAccount {
 
 /// What may be changed. Anything left out is left alone.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountChanges {
     /// A new name for the account. Nothing else has to move with it.
     #[schema(example = "oscar")]
@@ -280,6 +281,17 @@ pub struct AccountChanges {
     /// Only an administrator may set this, and none may clear their own.
     pub admin: Option<bool>,
     pub scrobbling: Option<bool>,
+    /// The password as it is now, which changing your own name, address or
+    /// password requires and nothing else does.
+    ///
+    /// What it is for is the browser somebody left open, not the session: the
+    /// session already proved itself, and that is exactly the problem — it proved
+    /// itself an hour ago and whoever is sitting there now inherited it. Anything
+    /// that would lock the owner out of their own account asks again.
+    ///
+    /// Not asked of an administrator changing somebody else's account: they do not
+    /// have that password, and the account they would be locking out is not theirs.
+    pub current_password: Option<String>,
 }
 
 /// Which libraries an account is restricted to.

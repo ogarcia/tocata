@@ -22,7 +22,6 @@ pub enum Icon {
     Home,
     Scan,
     Chevron,
-    Theme,
     Songs,
     Albums,
     Artists,
@@ -41,9 +40,10 @@ pub enum Icon {
     Settings,
     Maintenance,
     Account,
+    Key,
+    Preferences,
     Menu,
     LogOut,
-    Language,
 }
 
 impl Icon {
@@ -54,7 +54,6 @@ impl Icon {
             Self::Home => include_str!("../icons/home.svg"),
             Self::Scan => include_str!("../icons/scan.svg"),
             Self::Chevron => include_str!("../icons/chevron.svg"),
-            Self::Theme => include_str!("../icons/theme.svg"),
             Self::Songs => include_str!("../icons/songs.svg"),
             Self::Albums => include_str!("../icons/albums.svg"),
             Self::Artists => include_str!("../icons/artists.svg"),
@@ -76,9 +75,12 @@ impl Icon {
             Self::Settings => include_str!("../icons/settings.svg"),
             Self::Maintenance => include_str!("../icons/maintenance.svg"),
             Self::Account => include_str!("../icons/account.svg"),
+            Self::Key => include_str!("../icons/key.svg"),
+            // Sliders. The preferences are more than how it looks, so a moon
+            // would be naming one of them and standing for all three.
+            Self::Preferences => include_str!("../icons/adjustments.svg"),
             Self::Menu => include_str!("../icons/menu.svg"),
             Self::LogOut => include_str!("../icons/logout.svg"),
-            Self::Language => include_str!("../icons/language.svg"),
         }
     }
 }

@@ -12,7 +12,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tocata::types::{
     Account, AccountChanges, Closed, Credentials, Identity, Key, Library, LibraryAccess,
-    LibraryChanges, NewAccount, NewKey, NewLibrary, Revoked, Stats,
+    LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences, Revoked, Stats,
 };
 use web_sys::RequestCredentials;
 
@@ -125,6 +125,12 @@ pub async fn log_out() {
     if let Ok(request) = delete("/session") {
         let _ = request.send().await;
     }
+}
+
+/// Changes how the panel looks and speaks for whoever is logged in. Never somebody
+/// else: these are not administered, so there is no username in the path.
+pub async fn set_preferences(changes: PreferenceChanges) -> Result<Preferences, Failure> {
+    read(patch("/preferences", &changes)?).await
 }
 
 pub async fn stats() -> Result<Stats, Failure> {

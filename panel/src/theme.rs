@@ -23,8 +23,9 @@ pub enum Theme {
 }
 
 impl Theme {
-    /// As it is remembered and as it is read back.
-    fn name(self) -> &'static str {
+    /// As it is remembered, as it is read back, and as it is stored on the
+    /// account: one name for all three, so nothing has to translate between them.
+    pub fn name(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Light => "light",
@@ -56,7 +57,16 @@ pub const AVAILABLE: [Theme; 3] = [Theme::Auto, Theme::Light, Theme::Dark];
 
 const REMEMBERED: &str = "tocata.theme";
 
-/// Applies what was chosen last time, before the first paint if it can manage it.
+/// Applies what this browser saw last time, before the first paint.
+///
+/// A cache of what the account chose, not the choice itself: the choice lives on
+/// the server and arrives with the session. Starting from the cache is what keeps
+/// the panel from painting light and turning dark a moment later.
+///
+/// Two accounts sharing a browser will each see the other's theme for as long as
+/// that answer takes to arrive. Nothing can be done about that without knowing who
+/// is asking before asking, and a wrong theme for one paint is a smaller price
+/// than a blank screen until the server answers.
 pub fn settle() -> RwSignal<Theme> {
     let theme = RwSignal::new(remembered());
     apply(theme.get_untracked());
@@ -64,13 +74,27 @@ pub fn settle() -> RwSignal<Theme> {
     theme
 }
 
-/// Remembers a choice and puts it into effect.
+/// Remembers a choice and puts it into effect. Telling the server is the caller's
+/// business: this module has no session and no reason to grow one.
 pub fn choose(theme: RwSignal<Theme>, chosen: Theme) {
     theme.set(chosen);
     apply(chosen);
+    remember(chosen);
+}
 
+/// Adopts what the server says this account chose, which may be nothing at all —
+/// and nothing means following the machine, not the light theme.
+pub fn adopt(theme: RwSignal<Theme>, chosen: Option<&str>) {
+    let chosen = chosen.map_or(Theme::Auto, Theme::from_name);
+
+    theme.set(chosen);
+    apply(chosen);
+    remember(chosen);
+}
+
+fn remember(theme: Theme) {
     if let Some(storage) = storage() {
-        let _ = storage.set_item(REMEMBERED, chosen.name());
+        let _ = storage.set_item(REMEMBERED, theme.name());
     }
 }
 

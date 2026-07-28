@@ -4,7 +4,14 @@
 //! The frame every screen sits in.
 //!
 //! Down the left, where you can go. Along the top, what you can do from anywhere:
-//! start a scan, change how it looks, and what belongs to you.
+//! start a scan, and what belongs to you.
+//!
+//! The sections down the left are not one list but two, and which one is showing
+//! depends on where you are. Inside your own account they are the parts of your
+//! account; everywhere else they are the server's. It is the same panel either way,
+//! and the point of swapping them is that neither list has to carry the other's
+//! entries: the theme and the language used to be buttons in the header, on every
+//! screen, for the two minutes in a year somebody wants them.
 //!
 //! The header and the sections share one background, and the screen sits on
 //! another. Nothing is divided by a line because the change of colour already
@@ -20,8 +27,6 @@
 
 use crate::api;
 use crate::icon::{Glyph, Icon};
-use crate::locale;
-use crate::theme::{self, Theme};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
@@ -37,6 +42,10 @@ struct Section {
     path: &'static str,
     label: fn() -> String,
     icon: Icon,
+    /// Whether the mark belongs to this entry only when the path is exactly this.
+    /// Anything with sections under it needs this, or it lights up while somebody
+    /// is inside one of its children and two entries claim to be where you are.
+    exact: bool,
 }
 
 /// What anybody with a session can reach.
@@ -44,7 +53,40 @@ const EVERYONE: [Section; 1] = [Section {
     path: "/",
     label: || t!("nav.home").to_string(),
     icon: Icon::Home,
+    exact: true,
 }];
+
+/// What your own account is made of.
+///
+/// Shown instead of everything else while you are in it, which is what lets the
+/// first entry be the profile rather than a way back: the logo goes home, and so
+/// does the entry that says so.
+const MINE: [Section; 3] = [
+    Section {
+        path: "/account",
+        label: || t!("nav.profile").to_string(),
+        icon: Icon::Account,
+        // The other two live under this path, so without this it would be lit
+        // while somebody is on either of them.
+        exact: true,
+    },
+    Section {
+        path: "/account/access",
+        label: || t!("nav.access").to_string(),
+        icon: Icon::Key,
+        exact: false,
+    },
+    Section {
+        path: "/account/preferences",
+        label: || t!("nav.preferences").to_string(),
+        icon: Icon::Preferences,
+        exact: false,
+    },
+];
+
+/// Where your own account starts. Everything under it is yours; nothing under it
+/// is administration, including for an administrator.
+pub const MINE_PATH: &str = "/account";
 
 /// What only an administrator can reach, gathered under one heading.
 ///
@@ -56,21 +98,27 @@ const ADMINISTRATION: [Section; 4] = [
         path: "/libraries",
         label: || t!("nav.libraries").to_string(),
         icon: Icon::Libraries,
+        exact: false,
     },
     Section {
         path: "/accounts",
         label: || t!("nav.accounts").to_string(),
         icon: Icon::Accounts,
+        // One account of somebody else's lives under this, and the list is where
+        // you came from rather than where you are.
+        exact: false,
     },
     Section {
         path: "/settings",
         label: || t!("nav.settings").to_string(),
         icon: Icon::Settings,
+        exact: false,
     },
     Section {
         path: "/maintenance",
         label: || t!("nav.maintenance").to_string(),
         icon: Icon::Maintenance,
+        exact: false,
     },
 ];
 
@@ -79,28 +127,43 @@ pub fn Shell(
     identity: Identity,
     on_out: Callback<()>,
     scan: ReadSignal<Option<Status>>,
-    theme: RwSignal<Theme>,
     children: Children,
 ) -> impl IntoView {
     let admin = identity.admin;
     let (folded_out, fold) = signal(false);
 
+    let location = use_location();
+    let inside_mine = move || location.pathname.get().starts_with(MINE_PATH);
+
     view! {
         <div class="shell">
             <aside class="side" class:out=move || folded_out.get()>
-                <div class="brand">
+                // The name goes home. It is the one thing on every screen that
+                // everybody already tries to click.
+                <A href="/" attr:class="brand" on:click=move |_| fold.set(false)>
                     <Glyph icon=Icon::Logo />
                     {t!("app.name")}
-                </div>
+                </A>
 
                 <nav>
-                    {EVERYONE
-                        .iter()
-                        .map(|section| view! { <Entry section fold /> })
-                        .collect_view()}
-
-                    <Show when=move || admin>
-                        <Group fold />
+                    <Show
+                        when=move || inside_mine()
+                        fallback=move || {
+                            view! {
+                                {EVERYONE
+                                    .iter()
+                                    .map(|section| view! { <Entry section fold /> })
+                                    .collect_view()}
+                                <Show when=move || admin>
+                                    <Group fold />
+                                </Show>
+                            }
+                        }
+                    >
+                        // Said out loud, because the sections having been swapped
+                        // under somebody is not something to make them infer.
+                        <p class="nav-title">{t!("nav.account")}</p>
+                        {MINE.iter().map(|section| view! { <Entry section fold /> }).collect_view()}
                     </Show>
                 </nav>
             </aside>
@@ -129,7 +192,6 @@ pub fn Shell(
                     <Show when=move || admin>
                         <StartScan scan />
                     </Show>
-                    <Looks theme />
                     <You identity on_out />
                 </div>
             </header>
@@ -144,7 +206,7 @@ pub fn Shell(
 #[component]
 fn Entry(section: &'static Section, fold: WriteSignal<bool>) -> impl IntoView {
     view! {
-        <A href=section.path exact=section.path == "/" on:click=move |_| fold.set(false)>
+        <A href=section.path exact=section.exact on:click=move |_| fold.set(false)>
             <Glyph icon=section.icon />
             {(section.label)()}
         </A>
@@ -281,58 +343,6 @@ fn StartScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
     }
 }
 
-/// Light, dark, or whatever the machine says. Takes effect at once, unlike the
-/// language, because one CSS property does all of it.
-#[component]
-fn Looks(theme: RwSignal<Theme>) -> impl IntoView {
-    let (open, set_open) = signal(false);
-
-    view! {
-        <div class="dropdown">
-            <button
-                class="plain"
-                title=t!("looks.heading")
-                aria-expanded=move || open.get().to_string()
-                on:click=move |_| set_open.update(|shown| *shown = !*shown)
-            >
-                <Glyph icon=Icon::Theme />
-            </button>
-
-            <Show when=move || open.get()>
-                <div class="veil" on:click=move |_| set_open.set(false)></div>
-                <div class="menu">
-                    {theme::AVAILABLE
-                        .iter()
-                        .map(|choice| {
-                            let choice = *choice;
-                            view! {
-                                <button
-                                    class="menu-item"
-                                    class:chosen=move || theme.get() == choice
-                                    on:click=move |_| {
-                                        theme::choose(theme, choice);
-                                        set_open.set(false);
-                                    }
-                                >
-                                    {looks_label(choice)}
-                                </button>
-                            }
-                        })
-                        .collect_view()}
-                </div>
-            </Show>
-        </div>
-    }
-}
-
-fn looks_label(theme: Theme) -> String {
-    match theme {
-        Theme::Auto => t!("looks.auto").to_string(),
-        Theme::Light => t!("looks.light").to_string(),
-        Theme::Dark => t!("looks.dark").to_string(),
-    }
-}
-
 /// The round button, and what it opens.
 ///
 /// Closing it was `focusout` on the container, which reads well and does not
@@ -388,14 +398,6 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                         {t!("nav.account")}
                     </A>
 
-                    <label class="menu-field">
-                        <span class="quiet">
-                            <Glyph icon=Icon::Language />
-                            {t!("header.language")}
-                        </span>
-                        <Languages />
-                    </label>
-
                     <button
                         class="menu-item"
                         on:click=move |_| {
@@ -412,26 +414,5 @@ fn You(identity: Identity, on_out: Callback<()>) -> impl IntoView {
                 </div>
             </Show>
         </div>
-    }
-}
-
-/// Picking a language reloads the page, for the reason spelled out in `locale`.
-#[component]
-fn Languages() -> impl IntoView {
-    let current = locale::current();
-
-    view! {
-        <select on:change:target=move |event| locale::choose(&event.target().value())>
-            {locale::AVAILABLE
-                .iter()
-                .map(|(code, name)| {
-                    view! {
-                        <option value=*code selected=*code == current>
-                            {*name}
-                        </option>
-                    }
-                })
-                .collect_view()}
-        </select>
     }
 }

@@ -9,6 +9,9 @@ app:
   name: Tocata
 
 nav:
+  profile: "Profile"
+  access: "Access"
+  preferences: "Preferences"
   home: Home
   administration: Administration
   libraries: Libraries
@@ -30,7 +33,6 @@ header:
   you: Signed in as
   administrator: administrator
   log_out: Log out
-  language: Language
 
 looks:
   heading: Appearance
@@ -100,7 +102,13 @@ libraries:
   already: "That directory is already a library, is inside one, or holds one"
 
 accounts:
-  sessions_mine: "Closing them all logs you out here too."
+  confirm_with_password: "Confirm the changes with your current password"
+  password_note_mine: "Changing it closes your other panel sessions. Your API keys keep working."
+  repeat_password: "Repeat the new password"
+  mismatch: "The two passwords are not the same"
+  wrong_password: "That is not your current password"
+  listening: "Listening"
+  listening_note: "What the server does with what you play."
   sessions_note: "Logs them out of the panel in every browser."
   keys_note: "Changing a password does not revoke these."
   all_libraries: all
@@ -141,6 +149,7 @@ accounts:
   not_allowed: The server would not allow that
 
 keys:
+  revoke_sure: "Revoke every one of them?"
   made: "Your new key"
   last_use: "Last used"
   actions: "Actions"
@@ -167,6 +176,27 @@ sessions:
   this_one: "this one"
   close: "Close"
   log_out: "Log out"
+
+access:
+  lead: "The keys clients hold and the logins you have open here."
+
+prefs:
+  lead: "How the panel looks and speaks to you. Kept with your account, so it follows you to another browser."
+  theme: "Theme"
+  theme_note: "Automatic follows what this machine asks for."
+  accent: "Accent colour"
+  language: "Language"
+  language_auto: "Automatic"
+  language_note: "Choosing one reloads the panel, which is what applies it."
+  unsaved: "That is applied here, but the server did not keep it"
+
+accent:
+  blue: "Blue"
+  teal: "Teal"
+  green: "Green"
+  amber: "Amber"
+  crimson: "Crimson"
+  plum: "Plum"
 
 common:
   done: Done

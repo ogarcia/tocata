@@ -5,6 +5,9 @@ app:
   name: Tocata
 
 nav:
+  profile: "Perfil"
+  access: "Acceso"
+  preferences: "Preferencias"
   home: Inicio
   administration: Administración
   libraries: Bibliotecas
@@ -26,7 +29,6 @@ header:
   you: Sesión de
   administrator: administración
   log_out: Salir
-  language: Idioma
 
 looks:
   heading: Apariencia
@@ -96,7 +98,13 @@ libraries:
   already: "Ese directorio ya es una biblioteca, está dentro o es padre de una"
 
 accounts:
-  sessions_mine: "Cerrarlas todas te saca también de aquí."
+  confirm_with_password: "Confirma los cambios con tu contraseña actual"
+  password_note_mine: "Cambiarla cierra tus otras sesiones del panel. Tus claves de API siguen valiendo."
+  repeat_password: "Repite la nueva contraseña"
+  mismatch: "Las dos contraseñas no son iguales"
+  wrong_password: "Esa no es tu contraseña actual"
+  listening: "Escuchas"
+  listening_note: "Qué hace el servidor con lo que reproduces."
   sessions_note: "Le cierra el panel en todos sus navegadores."
   keys_note: "Cambiar la contraseña no las revoca."
   all_libraries: todas
@@ -137,6 +145,7 @@ accounts:
   not_allowed: El servidor no lo permite
 
 keys:
+  revoke_sure: "¿Revocarlas todas?"
   made: "Tu clave nueva"
   last_use: "Último uso"
   actions: "Acciones"
@@ -163,6 +172,27 @@ sessions:
   this_one: "esta"
   close: "Cerrar"
   log_out: "Salir"
+
+access:
+  lead: "Las claves que tienen los clientes y las sesiones que tienes abiertas aquí."
+
+prefs:
+  lead: "Cómo se ve y en qué idioma habla el panel. Se guardan con tu cuenta, así que te siguen a otro navegador."
+  theme: "Tema"
+  theme_note: "Automático sigue lo que pida esta máquina."
+  accent: "Color de acento"
+  language: "Idioma"
+  language_auto: "Automático"
+  language_note: "Al elegir uno se recarga el panel, que es lo que lo aplica."
+  unsaved: "Se ha aplicado aquí, pero el servidor no lo ha guardado"
+
+accent:
+  blue: "Azul"
+  teal: "Verde azulado"
+  green: "Verde"
+  amber: "Ámbar"
+  crimson: "Carmesí"
+  plum: "Ciruela"
 
 common:
   done: Hecho

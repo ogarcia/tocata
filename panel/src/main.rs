@@ -10,6 +10,7 @@
 //! needs a database or a socket switched off by a feature. Rename a field there
 //! and this stops compiling, which is the whole reason the panel is in Rust.
 
+mod accent;
 mod api;
 mod events;
 mod icon;
@@ -52,6 +53,11 @@ fn Panel() -> impl IntoView {
 
     // One question on load. A live cookie lands straight on the panel; anything
     // else puts the form up.
+    //
+    // The answer carries how the panel should look and speak, so it is applied
+    // before the panel is built rather than after: the language especially, since
+    // rust-i18n reads it as each string is rendered and nothing already on screen
+    // would be rendered again.
     spawn_local(async move {
         set_who.set(match api::whoami().await {
             Ok(identity) => Who::Somebody(identity),
@@ -90,9 +96,21 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     let admin = identity.admin;
     let who = identity.clone();
 
-    // Applied before anything is drawn, so a dark panel does not flash white on
-    // the way in.
+    // What the account chose, over what this browser had cached from last time.
+    // Both were already applied before the first paint; this is where they are
+    // corrected, and where somebody logging in on a borrowed machine stops seeing
+    // its owner's colours.
     let theme = theme::settle();
+    let accent = accent::settle();
+
+    theme::adopt(theme, identity.preferences.theme.as_deref());
+    accent::adopt(&accent, identity.preferences.accent.as_deref());
+    locale::adopt(identity.preferences.locale.as_deref());
+
+    // Reached by the one screen that offers them, rather than threaded through
+    // every route on the way there.
+    provide_context(theme);
+    provide_context(accent::Accent(accent));
 
     // One stream for the whole panel, opened here and read in two places: the
     // header, which says a scan is running, and the screen that shows it in
@@ -101,7 +119,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
 
     view! {
         <Router>
-            <layout::Shell identity on_out=forget scan theme>
+            <layout::Shell identity on_out=forget scan>
                 <Routes fallback=move || {
                     view! { <pages::Unbuilt heading=t!("nav.home").to_string() /> }
                 }>
@@ -121,17 +139,35 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                             }
                         }
                     />
-                    // The same screen as one account under administration: the
-                    // API already draws the line between yours and anybody's.
+                    // Your own account, in three: who you are, what opens it, and
+                    // how the panel looks to you. Not the screen an administrator
+                    // sees on somebody else, because none of this is administration.
                     <Route
                         path=path!("/account")
                         view={
                             let who = who.clone();
                             move || {
                                 view! {
-                                    <pages::accounts::Detail who=who.clone() on_expired=forget />
+                                    <pages::account::Profile who=who.clone() on_expired=forget />
                                 }
                             }
+                        }
+                    />
+                    <Route
+                        path=path!("/account/access")
+                        view={
+                            let who = who.clone();
+                            move || {
+                                view! {
+                                    <pages::account::Access who=who.clone() on_expired=forget />
+                                }
+                            }
+                        }
+                    />
+                    <Route
+                        path=path!("/account/preferences")
+                        view=move || {
+                            view! { <pages::account::Preferences on_expired=forget /> }
                         }
                     />
 
@@ -272,6 +308,7 @@ mod tests {
             include_str!("pages/home.rs"),
             include_str!("pages/libraries.rs"),
             include_str!("pages/accounts.rs"),
+            include_str!("pages/account.rs"),
         ] {
             let mut rest = source;
 

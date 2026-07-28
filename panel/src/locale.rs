@@ -19,8 +19,9 @@ const REMEMBERED: &str = "tocata.locale";
 
 /// Settles on a language and tells rust-i18n about it.
 ///
-/// What was chosen wins over what the browser prefers, because somebody who
-/// picked a language meant it.
+/// What this browser saw last wins over what the browser prefers, because it is a
+/// cache of what the account chose and somebody who picked a language meant it.
+/// The account's own answer arrives with the session, and `adopt` applies it.
 pub fn settle() {
     let chosen = remembered().or_else(from_browser);
 
@@ -34,14 +35,65 @@ pub fn current() -> String {
     rust_i18n::locale().to_string()
 }
 
-/// Remembers a language and reloads, which is what applies it.
-pub fn choose(locale: &str) {
-    if let Some(storage) = storage() {
-        let _ = storage.set_item(REMEMBERED, locale);
+/// Adopts what the server says this account chose.
+///
+/// No reload, and none needed: this runs before the panel proper is built, so every
+/// string in it is read after the language is settled. What was on screen until now
+/// is a spinner.
+///
+/// Nothing chosen leaves the browser's own preference in force, which is what the
+/// absence of a choice means.
+pub fn adopt(locale: Option<&str>) {
+    match locale.filter(|locale| is_available(locale)) {
+        Some(locale) => {
+            set_locale(locale);
+            remember(locale);
+        }
+        // Nothing chosen has to undo a cache from whoever used this browser before,
+        // or the browser would keep speaking their language to somebody who never
+        // asked for it.
+        None => {
+            forget();
+            set_locale(
+                &from_browser()
+                    .filter(|locale| is_available(locale))
+                    .unwrap_or_else(|| {
+                        let (fallback, _) = AVAILABLE[0];
+                        fallback.to_string()
+                    }),
+            );
+        }
+    }
+}
+
+/// Whether a language was chosen, as against one being in force because the
+/// browser asked for it. The screen that offers them needs to tell those apart.
+pub fn chosen() -> bool {
+    remembered().is_some()
+}
+
+/// Remembers a language, or unremembers one, and reloads — which is what applies
+/// either.
+pub fn choose(locale: Option<&str>) {
+    match locale {
+        Some(locale) => remember(locale),
+        None => forget(),
     }
 
     if let Some(window) = web_sys::window() {
         let _ = window.location().reload();
+    }
+}
+
+fn remember(locale: &str) {
+    if let Some(storage) = storage() {
+        let _ = storage.set_item(REMEMBERED, locale);
+    }
+}
+
+fn forget() {
+    if let Some(storage) = storage() {
+        let _ = storage.remove_item(REMEMBERED);
     }
 }
 

@@ -23,7 +23,7 @@
 use super::error::ApiError;
 use super::session::{Administrator, Panel};
 use crate::types::{Account, AccountChanges, ErrorBody, LibraryAccess, NewAccount};
-use crate::{auth, db, session};
+use crate::{auth, db, session, user};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -208,6 +208,11 @@ pub async fn create(
 /// Changing the password closes the account's other panel sessions, keeping only
 /// the one that asked. API keys are left alone, since revoking one of those is
 /// its own deliberate act.
+///
+/// Changing your own name, address or password needs `currentPassword` as well: a
+/// live session is not proof that the person sitting there is the owner, and those
+/// three are what would lock the owner out. An administrator changing somebody
+/// else's account is not asked for it — they do not have it.
 #[utoipa::path(
     patch,
     path = "/users/{username}",
@@ -218,7 +223,7 @@ pub async fn create(
         (status = 200, description = "The account as it now is", body = Account),
         (status = 400, description = "Nothing worth changing was asked for", body = ErrorBody),
         (status = 401, description = "No valid session", body = ErrorBody),
-        (status = 403, description = "Somebody else's account, or a right you do not have", body = ErrorBody),
+        (status = 403, description = "Somebody else's account, a right you do not have, or the wrong current password", body = ErrorBody),
         (status = 404, description = "No such account", body = ErrorBody),
         (status = 409, description = "The new name is taken", body = ErrorBody),
     )
@@ -268,6 +273,38 @@ pub async fn change(
         && changes.scrobbling.is_none()
     {
         return Err(ApiError::Invalid("Nothing to change was given"));
+    }
+
+    // What somebody would have to undo by asking an administrator: the name they
+    // log in with, the address a lost password would be recovered through, and the
+    // password itself. Everything else about an account is a preference, and a
+    // preference set by mistake is set back by hand.
+    //
+    // Only on your own account. An administrator does not have somebody else's
+    // password, and the account they could lock out is not the one they are sitting
+    // in front of — theirs is protected by this same rule when they change it.
+    let sensitive = new_name.is_some() || hash.is_some() || changes.email.is_some();
+
+    if sensitive && touching_self {
+        let given = changes
+            .current_password
+            .as_deref()
+            .filter(|given| !given.is_empty())
+            .ok_or(ApiError::Invalid(
+                "Changing your own name, address or password needs the current password",
+            ))?;
+
+        // The password and only the password. An API key stands in for one when a
+        // music player logs in, and it must not stand in for one here: a key is
+        // held by whatever was set up with it, and the point of asking is that
+        // somebody is there to answer.
+        if user::authenticate_password(&pool, &username, given)
+            .await
+            .map_err(|e| ApiError::internal(e, "checking the current password"))?
+            .is_none()
+        {
+            return Err(ApiError::WrongPassword);
+        }
     }
 
     // Coalesce rather than assembling the statement: sqlx will not take SQL built
@@ -567,6 +604,20 @@ mod tests {
             email: None,
             admin: None,
             scrobbling: None,
+            current_password: None,
+        }
+    }
+
+    /// What the account below was created with, and what changing anything
+    /// sensitive about it therefore has to prove.
+    const PASSWORD: &str = "before";
+
+    /// The same, with the current password given: what a change to your own name,
+    /// address or password needs alongside it.
+    fn proving() -> AccountChanges {
+        AccountChanges {
+            current_password: Some(PASSWORD.to_string()),
+            ..nothing()
         }
     }
 
@@ -581,7 +632,7 @@ mod tests {
             Path("ana".to_string()),
             Json(AccountChanges {
                 password: Some("after".to_string()),
-                ..nothing()
+                ..proving()
             }),
         )
         .await
@@ -609,7 +660,7 @@ mod tests {
             Json(AccountChanges {
                 username: Some("anna".to_string()),
                 password: Some("after".to_string()),
-                ..nothing()
+                ..proving()
             }),
         )
         .await
@@ -658,7 +709,7 @@ mod tests {
             Path("ana".to_string()),
             Json(AccountChanges {
                 password: Some("after".to_string()),
-                ..nothing()
+                ..proving()
             }),
         )
         .await
@@ -695,7 +746,7 @@ mod tests {
             Path("ana".to_string()),
             Json(AccountChanges {
                 email: Some("ana@example.org".to_string()),
-                ..nothing()
+                ..proving()
             }),
         )
         .await
@@ -708,6 +759,188 @@ mod tests {
                 .await
                 .unwrap(),
             3
+        );
+    }
+
+    /// The three that would lock somebody out of their own account, each refused on
+    /// its own: a session is not proof that the owner is the one sitting there.
+    #[tokio::test]
+    async fn changing_your_own_credentials_needs_the_current_password() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        for asked in [
+            AccountChanges {
+                password: Some("after".to_string()),
+                ..nothing()
+            },
+            AccountChanges {
+                username: Some("anna".to_string()),
+                ..nothing()
+            },
+            AccountChanges {
+                email: Some("ana@example.org".to_string()),
+                ..nothing()
+            },
+        ] {
+            let refused = change(
+                panel_of(ids[0], user_id, "ana", false),
+                State(pool.clone()),
+                Path("ana".to_string()),
+                Json(asked.clone()),
+            )
+            .await;
+
+            assert!(
+                matches!(refused, Err(ApiError::Invalid(_))),
+                "{asked:?} should have been refused for want of the current password"
+            );
+        }
+
+        let untouched = load(&pool, "ana").await.expect("still called ana");
+        assert_eq!(untouched.email, None);
+    }
+
+    /// A typo is a typo. It must not read as the session having gone, which is what
+    /// a 401 would say and what would cost somebody their session for mistyping.
+    #[tokio::test]
+    async fn the_wrong_current_password_is_refused_without_ending_the_session() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let refused = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                password: Some("after".to_string()),
+                current_password: Some("not it".to_string()),
+                ..nothing()
+            }),
+        )
+        .await;
+
+        assert_eq!(refused.err(), Some(ApiError::WrongPassword));
+        assert_eq!(ApiError::WrongPassword.status(), 403);
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            3,
+            "and the sessions are all still there"
+        );
+
+        assert!(
+            user::authenticate_password(&pool, "ana", PASSWORD)
+                .await
+                .unwrap()
+                .is_some(),
+            "the password is the one it was"
+        );
+    }
+
+    /// An API key stands in for a password when a music player logs in. It must not
+    /// stand in for one here: the whole point of asking is that somebody is present
+    /// to answer, and a key is held by whatever was set up with it.
+    #[tokio::test]
+    async fn an_api_key_does_not_count_as_the_current_password() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let key = auth::generate_token().unwrap();
+        sqlx::query(
+            "INSERT INTO api_keys (user_id, key_hash, label, created_at)
+             VALUES (?, ?, 'phone', ?)",
+        )
+        .bind(user_id)
+        .bind(auth::hash_secret(&key))
+        .bind(db::now())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let refused = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                password: Some("after".to_string()),
+                current_password: Some(key),
+                ..nothing()
+            }),
+        )
+        .await;
+
+        assert_eq!(refused.err(), Some(ApiError::WrongPassword));
+    }
+
+    /// What is not sensitive is not asked about. A preference set by mistake is set
+    /// back by hand, and asking for a password to tick a box teaches people to type
+    /// it without reading why.
+    #[tokio::test]
+    async fn a_preference_of_your_own_needs_nothing() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let Json(account) = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                scrobbling: Some(false),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("no password needed for this");
+
+        assert!(!account.scrobbling);
+    }
+
+    /// An administrator resetting somebody's password does not have it to give, and
+    /// the account they could lock out is not theirs. Their own is protected by the
+    /// same rule when they change it.
+    #[tokio::test]
+    async fn an_administrator_resetting_somebody_else_is_not_asked() {
+        let (pool, user_id, _) = logged_in_thrice(false).await;
+
+        let timestamp = db::now();
+        let admin_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('boss', ?, 1, ?, ?) RETURNING id",
+        )
+        .bind(auth::hash_password("boss's own").unwrap())
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let Json(_) = change(
+            panel_of(99, admin_id, "boss", true),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                password: Some("reset".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("an administrator may reset it");
+
+        assert!(
+            user::authenticate_password(&pool, "ana", "reset")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0,
+            "and every session of theirs is gone, since none of them was the asker"
         );
     }
 }

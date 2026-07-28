@@ -16,8 +16,19 @@
   --paper: light-dark(#fff, #191919);
   --raised: light-dark(#f6f6f6, #222);
   --line: light-dark(#ddd, #333);
-  --accent: light-dark(#0057b8, #6aa9e9);
   --alarm: light-dark(#c00, #ff6b6b);
+
+  /* Two shades per accent, because one will not do: what reads on white is too
+   * dark on black. `light-dark()` picks, the same way every other colour here is
+   * picked, so there is no second set of rules for the dark panel. */
+  --accent-blue: light-dark(#0057b8, #6aa9e9);
+  --accent-teal: light-dark(#00706b, #4dc4bc);
+  --accent-green: light-dark(#2e7d32, #86ca8a);
+  --accent-amber: light-dark(#a15c00, #e8a33d);
+  --accent-crimson: light-dark(#c2185b, #f07fa8);
+  --accent-plum: light-dark(#6d28d9, #b79cf0);
+
+  --accent: var(--accent-blue);
 
   --side: 14rem;
   --head: 3.25rem;
@@ -40,6 +51,21 @@ body {
   color: var(--ink);
   background: var(--paper);
 }
+
+/* Which accent, on whatever carries the attribute. Not written as `:root[...]`,
+ * so the same rules colour a swatch on the preferences screen: the button showing
+ * plum redefines the variable for itself and is plum whatever the panel is set to.
+ *
+ * The default is the absence of the attribute rather than a value of its own,
+ * which is what makes choosing it the same as never having chosen. Anything
+ * unrecognised matches nothing here and inherits the default, so a colour written
+ * by a newer panel is harmless rather than colourless. */
+[data-accent="blue"] { --accent: var(--accent-blue); }
+[data-accent="teal"] { --accent: var(--accent-teal); }
+[data-accent="green"] { --accent: var(--accent-green); }
+[data-accent="amber"] { --accent: var(--accent-amber); }
+[data-accent="crimson"] { --accent: var(--accent-crimson); }
+[data-accent="plum"] { --accent: var(--accent-plum); }
 
 a { color: var(--accent); }
 
@@ -80,6 +106,24 @@ a { color: var(--accent); }
   padding: 0 1rem;
   font-weight: 600;
   font-size: 1.1rem;
+  color: inherit;
+  text-decoration: none;
+  flex: none;
+}
+
+/* Enough to say it can be pressed, and no more: it is the name of the thing, not
+ * a button. */
+.brand:hover { color: var(--accent); }
+
+/* Says which list of sections this is, for the account's own. Without it the
+ * entries change under somebody and nothing accounts for it. */
+.nav-title {
+  padding: 0.5rem 0.7rem 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quiet);
 }
 
 .side nav { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem; }
@@ -257,7 +301,27 @@ a { color: var(--accent); }
 
 /* --- the parts ----------------------------------------------------------- */
 
-label { font-size: 0.85rem; color: var(--quiet); }
+label, .label { font-size: 0.85rem; color: var(--quiet); }
+
+/* Two lists of fields side by side, and one list when there is no room for two.
+ * `auto-fit` with a floor rather than a media query: what decides is whether the
+ * columns still fit, which is the actual question. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* A pane that is not a form still needs the air a form gives its fields. */
+.pane > .field + .field { margin-top: 1rem; }
+
+.pane > .field select { align-self: start; }
 
 /* A label, its control and whatever explains it, as one thing. The gap inside is
  * small because they belong together; the gap between fields comes from the form
@@ -267,6 +331,54 @@ label { font-size: 0.85rem; color: var(--quiet); }
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+/* A row of buttons where exactly one is in force, which is a radio group wearing
+ * buttons: three words fit on a line and read at a glance, where a dropdown would
+ * hide two of the three behind a click. Wraps rather than squeezes, since the
+ * words are as long as the language makes them. */
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.choices button { margin: 0; }
+
+/* The one in force, said in the accent — which on this screen is also a preview of
+ * the colour underneath it. */
+.choices button.chosen {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+/* A colour and nothing else. It carries its own `data-accent`, so the fill is the
+ * same variable the panel paints with rather than a second copy of the palette. */
+.swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  background: var(--accent);
+  cursor: pointer;
+}
+
+/* A ring outside the circle rather than a tick inside it: at this size a tick is
+ * a smudge, and the ring leaves the colour whole. */
+.swatch.chosen {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: transparent;
 }
 
 /* A date field with nothing in it still shows dd/mm/yyyy, in the same ink as a
@@ -821,10 +933,36 @@ table { border-collapse: collapse; }
  * offered. */
 .hint { font-size: 0.85rem; }
 
+/* A hint that is a complaint. Said in the alarm colour rather than shown as a
+ * banner, because it belongs to the field above it and goes away as soon as that
+ * field is right. */
+.alarm { color: var(--alarm); }
+
+/* A field whose value is wrong as it stands. The border says so where the eye
+ * already is, without moving anything. */
+input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
+
+/* The password that guards the fields above it. Set apart, because everything
+ * above is what is being asked for and this is the asking answered — and the two
+ * read as one list otherwise. */
+.guarded {
+  margin-top: 0.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
 /* A note under a heading, with room before whatever it introduces. */
 .pane > .hint { margin-bottom: 1rem; }
 
-/* A heading with the action that belongs to the whole section, the same shape as
+/* Two or three things you can do, together at one end of something. */
+.acts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* A heading with the actions that belong to the whole section, the same shape as
  * the one at the top of a screen. */
 .pane-head {
   display: flex;
@@ -979,7 +1117,7 @@ table { border-collapse: collapse; }
   gap: 0.7rem 1rem;
 }
 
-.paired .acts { display: flex; justify-content: stretch; }
+.paired .acts { justify-content: stretch; }
 .paired button { width: 100%; margin: 0; }
 
 /* Name over note in the left column, both centred against the button on the

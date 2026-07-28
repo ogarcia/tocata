@@ -17,16 +17,16 @@
 //! rights. Between them they guarantee there is always somebody left who can
 //! administer the server.
 
+use super::said;
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
 use leptos::html::Dialog;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use rust_i18n::t;
 use tocata::types::{Account, AccountChanges, Identity, Library, NewAccount};
-use wasm_bindgen::JsCast;
 
 #[component]
 pub fn Accounts(on_expired: Callback<()>) -> impl IntoView {
@@ -283,37 +283,37 @@ fn Adding(
     }
 }
 
-/// One account, in full.
+/// One account under administration.
 ///
-/// The same screen serves an administrator opening somebody else and a person
-/// opening their own, because the API draws that line already: every call here is
-/// "yours, or anybody's if you administer the server". What changes is what is
-/// offered, not who is trusted.
+/// Somebody else's, always. Opening your own from the list lands on your own
+/// account instead, which is not the same screen and should not be: what is
+/// administration about somebody else — what they may reach, cutting them off,
+/// deleting them — is either meaningless or forbidden about yourself.
 #[component]
 pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     let params = use_params_map();
+    let navigate = use_navigate();
 
     let (account, set_account) = signal(Option::<Account>::None);
     let (libraries, set_libraries) = signal(Vec::<Library>::new());
     let (failure, set_failure) = signal(Option::<String>::None);
     let (note, set_note) = signal(Option::<String>::None);
 
-    // Whoever the URL names, or yourself when it names nobody, which is what
-    // makes this screen serve /account as well.
-    let named = {
-        let mine = who.username.clone();
-        move || {
-            let asked = params.read().get("username").unwrap_or_default();
-            if asked.is_empty() {
-                mine.clone()
-            } else {
-                asked
+    let named = move || params.read().get("username").unwrap_or_default();
+
+    // Sent to your own account rather than shown a version of this one with half of
+    // it missing. It is a redirect and not a branch because the URL should end up
+    // saying where you are.
+    {
+        let me = who.username.clone();
+        Effect::new(move |_| {
+            if named() == me {
+                navigate(crate::layout::MINE_PATH, Default::default());
             }
-        }
-    };
+        });
+    }
 
     let reload = {
-        let named = named.clone();
         move || {
             let looking = named();
             spawn_local(async move {
@@ -326,21 +326,11 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
         }
     };
 
-    // Handed to the sections that change what the counts count, so the figures
-    // come from the server rather than from arithmetic here.
-    let reloading = Callback::new({
-        let reload = reload.clone();
-        move |()| reload()
-    });
-
     // Follows the URL, so going from one account to another redraws rather than
     // showing whoever was open before.
-    Effect::new({
-        let reload = reload.clone();
-        move |_| {
-            let _ = params.read();
-            reload();
-        }
+    Effect::new(move |_| {
+        let _ = params.read();
+        reload();
     });
 
     // Only an administrator may list them, and only an administrator is offered
@@ -354,11 +344,8 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     }
 
     let cut = {
-        let named = named.clone();
-        let reload = reload.clone();
         Callback::new(move |what: Cut| {
             let looking = named();
-            let reload = reload.clone();
             set_failure.set(None);
             set_note.set(None);
 
@@ -387,7 +374,6 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     };
 
     let save = {
-        let named = named.clone();
         Callback::new(move |changes: AccountChanges| {
             let looking = named();
             set_failure.set(None);
@@ -407,7 +393,6 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     };
 
     let restrict = {
-        let named = named.clone();
         Callback::new(move |chosen: Vec<i64>| {
             let looking = named();
             set_failure.set(None);
@@ -423,31 +408,17 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     };
 
     let admin = who.admin;
-    let me = who.username.clone();
-
-    // Known without the account: the URL says who is being looked at and the
-    // session says who is looking. Held rather than cloned into each closure,
-    // since several of them read it.
-    let looking_at = StoredValue::new({
-        let named = named.clone();
-        Callback::new(move |()| named())
-    });
-    let me_held = StoredValue::new(me.clone());
-    let mine_now = move || looking_at.get_value().run(()) == me_held.get_value();
 
     view! {
-        <Show when=move || admin>
-            <p class="back">
-                <A href="/accounts">{t!("accounts.all")}</A>
-            </p>
-        </Show>
+        <p class="back">
+            <A href="/accounts">{t!("accounts.all")}</A>
+        </p>
 
         {move || {
-            let me = me.clone();
             match account.get() {
                 None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
                 Some(account) => {
-                    let mine = account.username == me;
+                    let username = account.username.clone();
                     view! {
                         <div class="titled">
                             <div>
@@ -462,39 +433,24 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
                         </div>
 
                         <div class="panes">
-                            <Who account=account.clone() mine admin save />
-                            <Access account mine admin cut libraries restrict />
+                            <Who account=account.clone() admin save />
+                            <Access account admin cut libraries restrict />
                         </div>
+
+                        // Named from the account that was read rather than from the
+                        // URL, so going from one account to another cannot leave
+                        // this pointing at the one before: the router reuses this
+                        // screen instead of building it again, and a name taken once
+                        // when it was built would stay taken.
+                        //
+                        // Never your own. The server refuses that, and what it is
+                        // protecting is a server that still has an administrator.
+                        <Danger username on_expired />
                     }
                         .into_any()
                 }
             }
         }}
-
-        // Outside the block that watches the account, and deliberately: these
-        // need a username and nothing else, and inside it they were rebuilt every
-        // time the account was read again — which, since they ask for the account
-        // to be read again when they change something, was a loop. It also took
-        // the dialogue holding a new key down with it.
-        <Show when=move || mine_now()>
-            <MyKeys
-                username=looking_at.get_value().run(())
-                on_changed=reloading
-                on_expired
-            />
-            <MySessions
-                username=looking_at.get_value().run(())
-                on_changed=reloading
-                on_expired
-            />
-        </Show>
-
-        // Deleting is administration, and never your own account: the server
-        // refuses that, and what it is protecting is a server that still has an
-        // administrator.
-        <Show when=move || admin && !mine_now()>
-            <Danger username=looking_at.get_value().run(()) on_expired />
-        </Show>
 
         {move || note.get().map(|said| view! { <p class="note">{said}</p> })}
         {move || {
@@ -511,8 +467,12 @@ enum Cut {
 }
 
 /// Who they are: what can be changed about the account itself.
+///
+/// Somebody else's, always — your own profile is its own screen, with its own rules
+/// about what has to be proved. Which is why nothing here asks for a password: an
+/// administrator does not have this one, and the server does not ask them for it.
 #[component]
-fn Who(account: Account, mine: bool, admin: bool, save: Callback<AccountChanges>) -> impl IntoView {
+fn Who(account: Account, admin: bool, save: Callback<AccountChanges>) -> impl IntoView {
     let (username, set_username) = signal(account.username.clone());
     let (email, set_email) = signal(account.email.clone().unwrap_or_default());
     let (password, set_password) = signal(String::new());
@@ -528,10 +488,14 @@ fn Who(account: Account, mine: bool, admin: bool, save: Callback<AccountChanges>
             username: Some(username.get().trim().to_string()),
             email: Some(email.get().trim().to_string()),
             password: (!password.is_empty()).then_some(password),
-            // Only an administrator may set this at all, and never on themselves,
-            // so anybody else sends nothing rather than sending what it already is.
-            admin: (admin && !mine).then_some(is_admin.get()),
+            // Only an administrator may set this at all, so anybody else sends
+            // nothing rather than sending what it already is.
+            admin: admin.then_some(is_admin.get()),
             scrobbling: Some(scrobbling.get()),
+            // Nothing to prove: the server asks for the current password only when
+            // the account being changed is the one asking, and this screen is never
+            // that.
+            current_password: None,
         });
 
         set_password.set(String::new());
@@ -589,10 +553,9 @@ fn Who(account: Account, mine: bool, admin: bool, save: Callback<AccountChanges>
                         {t!("accounts.scrobbling")}
                     </label>
 
-                    // Offered only to an administrator, and never on their own
-                    // account: the server refuses that, and the reason it refuses
-                    // is that it is what keeps a server administrable.
-                    <Show when=move || admin && !mine>
+                    // Offered only to an administrator. Never on their own account
+                    // either, which this screen guarantees by never being their own.
+                    <Show when=move || admin>
                         <label class="checkbox">
                             <input
                                 type="checkbox"
@@ -619,7 +582,6 @@ fn Who(account: Account, mine: bool, admin: bool, save: Callback<AccountChanges>
 #[component]
 fn Access(
     account: Account,
-    mine: bool,
     admin: bool,
     cut: Callback<Cut>,
     libraries: ReadSignal<Vec<Library>>,
@@ -716,18 +678,12 @@ fn Access(
             <div class="paired">
                 <span>
                     {t!("accounts.sessions", count = sessions)}
-                    <span class="hint quiet">
-                        {if mine {
-                            t!("accounts.sessions_mine")
-                        } else {
-                            t!("accounts.sessions_note")
-                        }}
-                    </span>
+                    <span class="hint quiet">{t!("accounts.sessions_note")}</span>
                 </span>
                 <span class="acts">
                     <Show when=move || { sessions > 0 }>
                         <button class="second small" on:click=move |_| cut.run(Cut::Sessions)>
-                            {if mine { t!("accounts.close_mine") } else { t!("accounts.close_all") }}
+                            {t!("accounts.close_all")}
                         </button>
                     </Show>
                 </span>
@@ -744,530 +700,6 @@ fn Access(
                     </Show>
                 </span>
             </div>
-        </section>
-    }
-}
-
-/// Your own keys: making them, rotating them, taking them away.
-///
-/// A key is readable once, when it is made and when it is rotated. What the
-/// database keeps is a hash, so there is no second chance to look at it.
-///
-/// Which is why both of those happen in a dialogue that shows the secret and
-/// forgets it on the way out. Shown in the page instead, it was a box that
-/// appeared and disappeared — moving everything under it — and a piece of state
-/// somebody had to remember to clear when the key it belonged to was revoked.
-/// A dialogue closes, and closing it is the clearing.
-#[component]
-fn MyKeys(username: String, on_changed: Callback<()>, on_expired: Callback<()>) -> impl IntoView {
-    let (keys, set_keys) = signal(Option::<Vec<tocata::types::Key>>::None);
-    let (asking, set_asking) = signal(false);
-    let (failure, set_failure) = signal(Option::<String>::None);
-    let (busy, set_busy) = signal(false);
-
-    let who = StoredValue::new(username);
-
-    let load = move || {
-        spawn_local(async move {
-            match api::keys(&who.get_value()).await {
-                Ok(list) => set_keys.set(Some(list)),
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
-            }
-        });
-    };
-
-    // Reads the list again and tells whoever shows the count, because the count
-    // belongs to the account rather than to this section. Only for what changed
-    // something: the first read has nothing to announce.
-    let reload = move || {
-        load();
-        on_changed.run(());
-    };
-
-    load();
-
-    // Rotating shows a secret too, so it opens the same dialogue rather than
-    // inventing a second way to show one.
-    let (rotated, set_rotated) = signal(Option::<tocata::types::IssuedKey>::None);
-
-    let act = Callback::new(move |(what, id): (KeyAction, i64)| {
-        set_busy.set(true);
-        set_failure.set(None);
-
-        spawn_local(async move {
-            match what {
-                KeyAction::Rotate => match api::rotate_key(&who.get_value(), id).await {
-                    Ok(key) => {
-                        set_rotated.set(Some(key));
-                        reload();
-                    }
-                    Err(Failure::Unauthenticated) => on_expired.run(()),
-                    Err(why) => set_failure.set(Some(said(&why))),
-                },
-                KeyAction::Revoke => match api::revoke_key(&who.get_value(), id).await {
-                    Ok(()) => reload(),
-                    Err(Failure::Unauthenticated) => on_expired.run(()),
-                    Err(why) => set_failure.set(Some(said(&why))),
-                },
-            }
-            set_busy.set(false);
-        });
-    });
-
-    view! {
-        <section class="pane wide">
-            <div class="pane-head">
-                <div>
-                    <h2>{t!("keys.heading")}</h2>
-                    <p class="hint quiet">{t!("keys.lead")}</p>
-                </div>
-                <button on:click=move |_| set_asking.set(true)>
-                    <Glyph icon=Icon::Add />
-                    {t!("keys.issue")}
-                </button>
-            </div>
-
-            {move || match keys.get() {
-                None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
-                Some(list) if list.is_empty() => {
-                    view! { <p class="quiet">{t!("keys.none")}</p> }.into_any()
-                }
-                Some(list) => {
-                    view! {
-                        <div class="scrolls">
-                            <table class="listing">
-                                <thead>
-                                    <tr>
-                                        <th>{t!("keys.label")}</th>
-                                        <th>{t!("keys.until")}</th>
-                                        <th>{t!("keys.last_use")}</th>
-                                        <th class="figure">{t!("keys.actions")}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {list
-                                        .into_iter()
-                                        .map(|key| view! { <KeyRow key act busy /> })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                        .into_any()
-                }
-            }}
-
-            {move || {
-                failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
-            }}
-
-            <NewKeySheet
-                who=who.get_value()
-                asking
-                set_asking
-                rotated
-                set_rotated
-                on_made=Callback::new(move |()| reload())
-                on_expired
-            />
-        </section>
-    }
-}
-
-/// Asks for a key, makes it, shows it, and forgets it when it closes.
-///
-/// Also where a rotated key appears, since a rotated key is the same thing: a
-/// secret with one moment to be read.
-#[component]
-fn NewKeySheet(
-    who: String,
-    asking: ReadSignal<bool>,
-    set_asking: WriteSignal<bool>,
-    rotated: ReadSignal<Option<tocata::types::IssuedKey>>,
-    set_rotated: WriteSignal<Option<tocata::types::IssuedKey>>,
-    on_made: Callback<()>,
-    on_expired: Callback<()>,
-) -> impl IntoView {
-    let dialog: NodeRef<Dialog> = NodeRef::new();
-    let (label, set_label) = signal(String::new());
-    let (expires, set_expires) = signal(String::new());
-    let (made, set_made) = signal(Option::<tocata::types::IssuedKey>::None);
-    let (failure, set_failure) = signal(Option::<String>::None);
-    let (waiting, set_waiting) = signal(false);
-
-    let who = StoredValue::new(who);
-
-    // Open for either reason: somebody asked to make one, or one was rotated and
-    // its new secret has nowhere else to be shown.
-    Effect::new(move |_| {
-        let Some(element) = dialog.get() else { return };
-
-        if asking.get() {
-            set_label.set(String::new());
-            set_expires.set(String::new());
-            set_made.set(None);
-            set_failure.set(None);
-            let _ = element.show_modal();
-        } else if rotated.get().is_some() {
-            set_failure.set(None);
-            let _ = element.show_modal();
-        } else {
-            element.close();
-        }
-    });
-
-    // Whichever of the two has a secret to show. Nothing outlives the dialogue:
-    // closing it clears both.
-    let secret = move || made.get().or_else(|| rotated.get());
-
-    let shut = move || {
-        set_asking.set(false);
-        set_rotated.set(None);
-        set_made.set(None);
-    };
-
-    let submit = move |event: web_sys::SubmitEvent| {
-        event.prevent_default();
-        set_waiting.set(true);
-        set_failure.set(None);
-
-        let asked = tocata::types::NewKey {
-            label: {
-                let written = label.get().trim().to_string();
-                (!written.is_empty()).then_some(written)
-            },
-            // The input gives a day; the server wants a moment, so it is the end
-            // of that day.
-            expires_at: {
-                let day = expires.get();
-                (!day.is_empty()).then(|| format!("{day}T23:59:59Z"))
-            },
-        };
-
-        spawn_local(async move {
-            match api::issue_key(&who.get_value(), asked).await {
-                Ok(key) => {
-                    set_made.set(Some(key));
-                    on_made.run(());
-                }
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(why) => set_failure.set(Some(said(&why))),
-            }
-            set_waiting.set(false);
-        });
-    };
-
-    view! {
-        <dialog node_ref=dialog class="sheet" on:close=move |_| shut()>
-            <header class="sheet-head">
-                <h2>
-                    {move || {
-                        if secret().is_some() { t!("keys.made") } else { t!("keys.issue") }
-                    }}
-                </h2>
-                <button
-                    type="button"
-                    class="close"
-                    title=t!("common.close")
-                    on:click=move |_| shut()
-                >
-                    <Glyph icon=Icon::Close />
-                </button>
-            </header>
-
-            <Show
-                when=move || secret().is_some()
-                fallback=move || {
-                    view! {
-                        <form on:submit=submit>
-                            <div class="field">
-                                <label for="key-label">{t!("keys.label")}</label>
-                                <input
-                                    id="key-label"
-                                    placeholder=t!("keys.label_default")
-                                    prop:value=label
-                                    on:input:target=move |e| set_label.set(e.target().value())
-                                />
-                            </div>
-
-                            <div class="field">
-                                <label for="key-expires">{t!("keys.until")}</label>
-                                // Dimmed while empty, because a date field shows
-                                // dd/mm/yyyy whether or not anything has been typed,
-                                // and in the ink of real text it reads as a value
-                                // already chosen.
-                                <input
-                                    id="key-expires"
-                                    type="date"
-                                    class:empty=move || expires.get().is_empty()
-                                    prop:value=expires
-                                    on:input:target=move |e| set_expires.set(e.target().value())
-                                />
-                                <span class="hint quiet">{t!("keys.until_note")}</span>
-                            </div>
-
-                            <p class="row ends">
-                                <button
-                                    type="button"
-                                    class="second"
-                                    disabled=waiting
-                                    on:click=move |_| shut()
-                                >
-                                    {t!("common.cancel")}
-                                </button>
-                                <button type="submit" disabled=waiting>
-                                    {move || {
-                                        if waiting.get() {
-                                            t!("login.working")
-                                        } else {
-                                            t!("keys.issue")
-                                        }
-                                    }}
-                                </button>
-                            </p>
-
-                            {move || {
-                                failure
-                                    .get()
-                                    .map(|why| view! { <p class="failure" role="alert">{why}</p> })
-                            }}
-                        </form>
-                    }
-                }
-            >
-                <p>{t!("keys.once")}</p>
-                <div class="issued">
-                    <code>{move || secret().map(|key| key.key).unwrap_or_default()}</code>
-                </div>
-                <p class="row ends">
-                    <button on:click=move |_| shut()>{t!("common.done")}</button>
-                </p>
-            </Show>
-        </dialog>
-    }
-}
-
-/// What the menu at the end of a key's row offers.
-#[derive(Clone, Copy)]
-enum KeyAction {
-    Rotate,
-    Revoke,
-}
-
-/// One key as a row, with its actions behind the dots.
-#[component]
-fn KeyRow(
-    key: tocata::types::Key,
-    act: Callback<(KeyAction, i64)>,
-    busy: ReadSignal<bool>,
-) -> impl IntoView {
-    let (open, set_open) = signal(false);
-    // Where the menu goes, in viewport coordinates.
-    let (at, set_at) = signal((0.0, 0.0));
-
-    let id = key.id;
-    let expired = key.expired;
-
-    // Fixed to the viewport rather than positioned inside the cell, because the
-    // box around the table scrolls sideways and anything that overflows a
-    // scrolling box is clipped by it. Fixed escapes that; the price is working out
-    // where to put it, which is one rectangle.
-    let toggle = move |event: web_sys::MouseEvent| {
-        if let Some(button) = event
-            .current_target()
-            .and_then(|target| target.dyn_into::<web_sys::HtmlElement>().ok())
-        {
-            let rect = button.get_bounding_client_rect();
-            set_at.set((rect.bottom() + 4.0, rect.right()));
-        }
-
-        set_open.update(|shown| *shown = !*shown);
-    };
-
-    view! {
-        <tr class:off=move || expired>
-            <td>{key.label}</td>
-            <td class="quiet">
-                {key
-                    .expires_at
-                    .as_deref()
-                    .map(|at| {
-                        if expired {
-                            t!("keys.expired", when = when(at)).to_string()
-                        } else {
-                            when(at)
-                        }
-                    })
-                    .unwrap_or_else(|| t!("keys.forever").to_string())}
-            </td>
-            <td class="quiet">
-                {key
-                    .last_used_at
-                    .as_deref()
-                    .map(when)
-                    .unwrap_or_else(|| t!("keys.unused").to_string())}
-            </td>
-            <td class="figure">
-                <button
-                    class="dots"
-                    title=t!("keys.actions")
-                    disabled=busy
-                    aria-expanded=move || open.get().to_string()
-                    on:click=toggle
-                >
-                    <Glyph icon=Icon::More />
-                </button>
-
-                <Show when=move || open.get()>
-                    <div class="veil" on:click=move |_| set_open.set(false)></div>
-                    <div
-                        class="menu afloat"
-                        style=move || {
-                            let (top, right) = at.get();
-                            format!("top: {top}px; right: calc(100vw - {right}px)")
-                        }
-                    >
-                        <button
-                            class="menu-item"
-                            on:click=move |_| {
-                                set_open.set(false);
-                                act.run((KeyAction::Rotate, id));
-                            }
-                        >
-                            <Glyph icon=Icon::Rotate />
-                            {t!("keys.rotate")}
-                        </button>
-                        <button
-                            class="menu-item"
-                            on:click=move |_| {
-                                set_open.set(false);
-                                act.run((KeyAction::Revoke, id));
-                            }
-                        >
-                            <Glyph icon=Icon::Remove />
-                            {t!("keys.revoke")}
-                        </button>
-                    </div>
-                </Show>
-            </td>
-        </tr>
-    }
-}
-
-/// Your own panel sessions, and closing them.
-///
-/// The same table as the keys above, because the values are the same shape: two
-/// dates and one thing you can do about them.
-#[component]
-fn MySessions(
-    username: String,
-    on_changed: Callback<()>,
-    on_expired: Callback<()>,
-) -> impl IntoView {
-    let (sessions, set_sessions) = signal(Option::<Vec<tocata::types::Login>>::None);
-    let (failure, set_failure) = signal(Option::<String>::None);
-    let (busy, set_busy) = signal(false);
-
-    let who = StoredValue::new(username);
-
-    let load = move || {
-        spawn_local(async move {
-            match api::sessions(&who.get_value()).await {
-                Ok(list) => set_sessions.set(Some(list)),
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
-            }
-        });
-    };
-
-    load();
-
-    let close = move |id: i64| {
-        set_busy.set(true);
-        spawn_local(async move {
-            match api::close_session(&who.get_value(), id).await {
-                Ok(()) => {
-                    load();
-                    // The count in the access summary is the server's, so it is
-                    // asked again rather than adjusted here.
-                    on_changed.run(());
-                }
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(why) => set_failure.set(Some(said(&why))),
-            }
-            set_busy.set(false);
-        });
-    };
-
-    view! {
-        <section class="pane wide">
-            <h2>{t!("sessions.heading")}</h2>
-            <p class="hint quiet">{t!("sessions.lead")}</p>
-
-            {move || match sessions.get() {
-                None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
-                Some(list) => {
-                    view! {
-                        <div class="scrolls">
-                            <table class="listing">
-                                <thead>
-                                    <tr>
-                                        <th>{t!("sessions.last_seen")}</th>
-                                        <th>{t!("sessions.expires")}</th>
-                                        <th class="figure">{t!("keys.actions")}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {list
-                                        .into_iter()
-                                        .map(|login| {
-                                            let id = login.id;
-                                            let current = login.current;
-                                            view! {
-                                                <tr>
-                                                    <td>
-                                                        {when(&login.last_seen_at)}
-                                                        {if current {
-                                                            view! {
-                                                                <span class="badge">
-                                                                    {t!("sessions.this_one")}
-                                                                </span>
-                                                            }
-                                                                .into_any()
-                                                        } else {
-                                                            ().into_any()
-                                                        }}
-                                                    </td>
-                                                    <td class="quiet">{when(&login.expires_at)}</td>
-                                                    <td class="figure">
-                                                        <button
-                                                            class="second small"
-                                                            disabled=busy
-                                                            on:click=move |_| close(id)
-                                                        >
-                                                            {if current {
-                                                                t!("sessions.log_out")
-                                                            } else {
-                                                                t!("sessions.close")
-                                                            }}
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                        .into_any()
-                }
-            }}
-
-            {move || {
-                failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
-            }}
         </section>
     }
 }
@@ -1344,33 +776,5 @@ fn Danger(username: String, on_expired: Callback<()>) -> impl IntoView {
                 failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
             }}
         </section>
-    }
-}
-
-/// A timestamp the way the reader's own machine writes one.
-fn when(iso: &str) -> String {
-    let moment = js_sys::Date::new(&iso.into());
-
-    if moment.get_time().is_nan() {
-        return iso.to_string();
-    }
-
-    moment
-        .to_locale_string(&crate::locale::current(), &js_sys::Object::new())
-        .into()
-}
-
-/// What to say about a refusal. The codes are the server's own and stable, so this
-/// can branch on them and say something useful in the reader's language.
-fn said(why: &Failure) -> String {
-    match why {
-        Failure::Unreachable => t!("login.unreachable").to_string(),
-        Failure::Refused(code) => match code.as_str() {
-            "conflict" => t!("accounts.taken").to_string(),
-            "invalidRequest" => t!("accounts.invalid").to_string(),
-            "notAuthorized" => t!("accounts.not_allowed").to_string(),
-            _ => t!("common.refused").to_string(),
-        },
-        Failure::Unauthenticated => t!("common.refused").to_string(),
     }
 }
