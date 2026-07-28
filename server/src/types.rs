@@ -244,6 +244,11 @@ pub struct Account {
     pub admin: bool,
     /// Whether plays from this account are passed on to a scrobbling service.
     pub scrobbling: bool,
+    /// When the password was last set. What tells somebody looking at their own
+    /// account how long ago that was, which `updated_at` cannot: that moves for a
+    /// change of address as readily as for a change of password.
+    #[schema(example = "2026-05-14T09:12:00Z")]
+    pub password_set_at: String,
     /// Sessions logged in and not yet expired. What tells an administrator that
     /// an account is in use before they remove it.
     pub sessions: i64,
@@ -444,6 +449,9 @@ pub struct Stats {
     pub genres: i64,
     pub playlists: i64,
     pub users: i64,
+    /// API keys issued across every account. Counted here because the panel shows
+    /// it beside the accounts, and an administrator looking at one wants the other.
+    pub keys: i64,
     pub libraries: i64,
     /// Bytes of music, counting only what is still there.
     pub total_size: i64,

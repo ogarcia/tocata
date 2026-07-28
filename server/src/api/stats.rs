@@ -22,6 +22,7 @@ type Counts = (
     i64,
     i64,
     i64,
+    i64,
     Option<i64>,
     Option<i64>,
 );
@@ -54,6 +55,7 @@ pub async fn stats(
                 (SELECT count(*) FROM genres),
                 (SELECT count(*) FROM playlists),
                 (SELECT count(*) FROM users),
+                (SELECT count(*) FROM api_keys),
                 (SELECT count(*) FROM libraries),
                 (SELECT sum(file_size) FROM tracks WHERE missing_since IS NULL),
                 (SELECT sum(duration_ms) FROM tracks WHERE missing_since IS NULL)",
@@ -62,8 +64,19 @@ pub async fn stats(
     .await
     .map_err(|e| ApiError::internal(e, "counting what there is"))?;
 
-    let (artists, albums, tracks, missing, genres, playlists, users, libraries, size, duration) =
-        row;
+    let (
+        artists,
+        albums,
+        tracks,
+        missing,
+        genres,
+        playlists,
+        users,
+        keys,
+        libraries,
+        size,
+        duration,
+    ) = row;
 
     Ok(Json(Stats {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -74,6 +87,7 @@ pub async fn stats(
         genres,
         playlists,
         users,
+        keys,
         libraries,
         total_size: size.unwrap_or(0),
         total_duration: duration.unwrap_or(0) / 1000,

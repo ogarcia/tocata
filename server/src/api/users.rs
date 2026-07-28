@@ -34,6 +34,7 @@ type AccountRow = (
     Option<String>,
     bool,
     bool,
+    String,
     i64,
     i64,
     Option<String>,
@@ -43,13 +44,25 @@ type AccountRow = (
 
 impl From<AccountRow> for Account {
     fn from(
-        (username, email, admin, scrobbling, sessions, keys, libraries, created_at, updated_at): AccountRow,
+        (
+            username,
+            email,
+            admin,
+            scrobbling,
+            password_set_at,
+            sessions,
+            keys,
+            libraries,
+            created_at,
+            updated_at,
+        ): AccountRow,
     ) -> Self {
         Self {
             username,
             email,
             admin,
             scrobbling,
+            password_set_at,
             sessions,
             keys,
             // group_concat gives back what we put in, so these parse or the
@@ -74,7 +87,7 @@ impl From<AccountRow> for Account {
 /// the two, so every session would have counted as live.
 macro_rules! account_columns {
     () => {
-        "SELECT u.username, u.email, u.is_admin, u.scrobbling_enabled,
+        "SELECT u.username, u.email, u.is_admin, u.scrobbling_enabled, u.password_set_at,
                 (SELECT count(*) FROM sessions s
                   WHERE s.user_id = u.id AND s.expires_at > ?),
                 (SELECT count(*) FROM api_keys k WHERE k.user_id = u.id),
@@ -310,10 +323,16 @@ pub async fn change(
     // Coalesce rather than assembling the statement: sqlx will not take SQL built
     // at runtime, and a null bind meaning "leave it" says the same in one query
     // instead of one per field.
+    let now = db::now();
+
     let changed = sqlx::query(
         "UPDATE users
             SET username = coalesce(?, username),
                 password_hash = coalesce(?, password_hash),
+                -- Moves with the hash and with nothing else. `updated_at` below
+                -- moves for a change of address just as readily, which is why it
+                -- cannot answer when the password was last changed.
+                password_set_at = CASE WHEN ? IS NULL THEN password_set_at ELSE ? END,
                 email = coalesce(?, email),
                 is_admin = coalesce(?, is_admin),
                 scrobbling_enabled = coalesce(?, scrobbling_enabled),
@@ -322,10 +341,12 @@ pub async fn change(
     )
     .bind(new_name)
     .bind(&hash)
+    .bind(&hash)
+    .bind(&now)
     .bind(&changes.email)
     .bind(changes.admin.map(i64::from))
     .bind(changes.scrobbling.map(i64::from))
-    .bind(db::now())
+    .bind(&now)
     .bind(&username)
     .execute(&pool)
     .await;
@@ -760,6 +781,65 @@ mod tests {
                 .unwrap(),
             3
         );
+    }
+
+    /// The date the password carries moves when the password does, and not when
+    /// anything else does.
+    ///
+    /// Both halves matter. `updated_at` already says "something changed", so a date
+    /// that moved with it would be a second copy of that and would answer the
+    /// question it is there for — how long since I changed my password — with the day
+    /// somebody corrected their email address.
+    #[tokio::test]
+    async fn the_password_date_moves_only_with_the_password() {
+        let (pool, user_id, _) = logged_in_thrice(false).await;
+
+        let set_at = |pool: SqlitePool| async move {
+            sqlx::query_scalar::<_, String>("SELECT password_set_at FROM users WHERE id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        };
+
+        let when_made = set_at(pool.clone()).await;
+        assert!(!when_made.is_empty(), "set when the account was made");
+
+        // Something that is not the password, and a name change at that: the most
+        // identity-like thing there is short of the password itself.
+        let Json(_) = change(
+            panel_of(1, user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                username: Some("anna".to_string()),
+                ..proving()
+            }),
+        )
+        .await
+        .expect("the rename goes through");
+
+        assert_eq!(
+            set_at(pool.clone()).await,
+            when_made,
+            "a rename is not a new password"
+        );
+
+        let Json(_) = change(
+            panel_of(1, user_id, "anna", false),
+            State(pool.clone()),
+            Path("anna".to_string()),
+            Json(AccountChanges {
+                password: Some("after".to_string()),
+                ..proving()
+            }),
+        )
+        .await
+        .expect("the new password goes through");
+
+        // Compared as text, which is what the schema stores and what makes one
+        // timestamp later than another.
+        assert!(set_at(pool).await >= when_made, "and a new password is one");
     }
 
     /// The three that would lock somebody out of their own account, each refused on

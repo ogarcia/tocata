@@ -293,6 +293,16 @@ CREATE TABLE users (
     username           TEXT    NOT NULL UNIQUE,
     -- Argon2id. Nothing in this schema needs the plaintext back.
     password_hash      TEXT    NOT NULL,
+    -- When that hash was last written. Not derivable from `updated_at`, which moves
+    -- for a change of address as readily as for a change of password, and the whole
+    -- point of showing it is that it answers when the password was last changed.
+    --
+    -- Defaulted rather than demanded of every insert, and the default is the right
+    -- answer rather than a placeholder: a row that arrives with a hash and says
+    -- nothing about when it was set had it set now. What has to be explicit is the
+    -- update, where saying nothing would mean a date that moves with the address.
+    password_set_at    TEXT    NOT NULL
+                       DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     email              TEXT,
     is_admin           INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
     scrobbling_enabled INTEGER NOT NULL DEFAULT 1
