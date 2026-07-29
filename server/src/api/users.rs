@@ -90,7 +90,8 @@ macro_rules! account_columns {
         "SELECT u.username, u.email, u.is_admin, u.scrobbling_enabled, u.password_set_at,
                 (SELECT count(*) FROM sessions s
                   WHERE s.user_id = u.id AND s.expires_at > ?),
-                (SELECT count(*) FROM api_keys k WHERE k.user_id = u.id),
+                (SELECT count(*) FROM api_keys k
+                  WHERE k.user_id = u.id AND k.revoked_at IS NULL),
                 (SELECT group_concat(ul.library_id) FROM user_libraries ul
                   WHERE ul.user_id = u.id),
                 u.created_at, u.updated_at

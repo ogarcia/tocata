@@ -72,15 +72,17 @@ pub async fn authenticate_password(
 async fn lookup_api_key(pool: &SqlitePool, key: &str) -> Result<Option<(i64, User)>> {
     let key_hash = auth::hash_secret(key);
 
-    // An expired key stays in the table so its date can be pushed out later, so
-    // it has to be turned away here rather than by not being there. The
-    // comparison is against a bound timestamp and not SQLite's own
-    // `datetime('now')`, which writes a space where the schema writes a T.
+    // An expired key stays in the table so its date can be pushed out later, and
+    // a revoked one stays so it can still be read in the panel, so both have to
+    // be turned away here rather than by not being there. The comparison is
+    // against a bound timestamp and not SQLite's own `datetime('now')`, which
+    // writes a space where the schema writes a T.
     let row: Option<(i64, i64, String, bool)> = sqlx::query_as(
         "SELECT k.id, u.id, u.username, u.is_admin
            FROM api_keys k
            JOIN users u ON u.id = k.user_id
-          WHERE k.key_hash = ? AND (k.expires_at IS NULL OR k.expires_at > ?)",
+          WHERE k.key_hash = ? AND k.revoked_at IS NULL
+            AND (k.expires_at IS NULL OR k.expires_at > ?)",
     )
     .bind(&key_hash)
     .bind(now())
@@ -333,6 +335,65 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    /// A revoked key stays in the table until it is removed, so nothing about it
+    /// being gone turns it away: the column has to.
+    #[tokio::test]
+    async fn a_revoked_key_is_turned_away() {
+        let pool = two_users_with_keys().await;
+        revoke(&pool, "ana's key").await;
+
+        assert!(
+            authenticate_api_key(&pool, "ana's key")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            authenticate_password_or_api_key(&pool, "ana", "ana's key")
+                .await
+                .unwrap()
+                .is_none(),
+            "and by the other door as well"
+        );
+    }
+
+    /// Revoked beats an expiry that is still ahead. The two conditions are
+    /// separate, and a key with years left on it is exactly the one somebody
+    /// revokes.
+    #[tokio::test]
+    async fn a_revoked_key_with_time_left_is_turned_away_too() {
+        let pool = two_users_with_keys().await;
+        expire_at(&pool, "ana's key", Some("2999-01-01T00:00:00Z")).await;
+        revoke(&pool, "ana's key").await;
+
+        assert!(
+            authenticate_api_key(&pool, "ana's key")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_revoked_key_records_no_use() {
+        let pool = two_users_with_keys().await;
+        revoke(&pool, "ana's key").await;
+
+        let _ = authenticate_api_key(&pool, "ana's key").await.unwrap();
+
+        assert!(last_used(&pool, "ana's key").await.is_none());
+    }
+
+    /// Withdraws a key the way the API does, by writing the moment on it.
+    async fn revoke(pool: &SqlitePool, key: &str) {
+        sqlx::query("UPDATE api_keys SET revoked_at = ? WHERE key_hash = ?")
+            .bind(now())
+            .bind(auth::hash_secret(key))
+            .execute(pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

@@ -55,7 +55,7 @@ pub async fn stats(
                 (SELECT count(*) FROM genres),
                 (SELECT count(*) FROM playlists),
                 (SELECT count(*) FROM users),
-                (SELECT count(*) FROM api_keys),
+                (SELECT count(*) FROM api_keys WHERE revoked_at IS NULL),
                 (SELECT count(*) FROM libraries),
                 (SELECT sum(file_size) FROM tracks WHERE missing_since IS NULL),
                 (SELECT sum(duration_ms) FROM tracks WHERE missing_since IS NULL)",

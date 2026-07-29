@@ -327,6 +327,11 @@ pub struct Key {
     /// When a request last arrived with it. Null means it has never been used,
     /// which is the interesting case when something is not working.
     pub last_used_at: Option<String>,
+    /// When it was withdrawn. Null means it was not. A revoked key authenticates
+    /// nothing whatever its expiry says, and cannot be brought back: what is left
+    /// to do with it is remove it.
+    #[schema(example = "2026-07-29T08:15:00Z")]
+    pub revoked_at: Option<String>,
 }
 
 /// A key at the one moment it can be read.
@@ -449,8 +454,9 @@ pub struct Stats {
     pub genres: i64,
     pub playlists: i64,
     pub users: i64,
-    /// API keys issued across every account. Counted here because the panel shows
-    /// it beside the accounts, and an administrator looking at one wants the other.
+    /// API keys across every account that have not been revoked. Counted here
+    /// because the panel shows it beside the accounts, and an administrator
+    /// looking at one wants the other.
     pub keys: i64,
     pub libraries: i64,
     /// Bytes of music, counting only what is still there.

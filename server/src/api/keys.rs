@@ -19,7 +19,18 @@
 //! mechanism is for: a password changes and every client is locked out at once,
 //! a key is withdrawn and only that one is.
 //!
-//! An expired key is kept until it is revoked. It authenticates nothing, but the
+//! Withdrawing and removing are two steps, and the order is the same one a
+//! library goes through before it can be deleted: a key works, then it is revoked
+//! or its date passes, and only then can the row go. Revoking is what stops the
+//! client; removing is tidying up afterwards, and it is worth being a second
+//! press because the row is where the key's name is — which is the only thing
+//! anybody can check a revocation against, and gone for good once the row is.
+//!
+//! Revoking is final for the key it revokes. There is no unrevoking: whatever
+//! held it has to be given a new one, which is the same as it was when the only
+//! way to withdraw a key was to delete it.
+//!
+//! An expired key is kept until it is removed. It authenticates nothing, but the
 //! date can be pushed out and the same key works again, so a week's trial does
 //! not have to become setting the client up a second time.
 
@@ -33,13 +44,33 @@ use axum::http::StatusCode;
 use sqlx::SqlitePool;
 
 /// Every column the two readers below select, in the order they select it.
-type KeyRow = (i64, String, String, Option<String>, Option<String>);
+type KeyRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// The columns themselves, written once because two statements select exactly
+/// these and a listing that disagreed with a reload would be two shapes of the
+/// same key. A macro rather than a constant so `concat!` finishes each statement
+/// at compile time: sqlx does not take SQL assembled at runtime.
+macro_rules! key_columns {
+    () => {
+        "SELECT id, label, created_at, expires_at, last_used_at, revoked_at FROM api_keys"
+    };
+}
 
 impl Key {
     /// Whether the expiry has passed is settled against a timestamp passed in,
     /// so a whole listing is judged against one moment rather than against a
     /// clock that moves between rows.
-    fn from_row((id, label, created_at, expires_at, last_used_at): KeyRow, today: &str) -> Self {
+    fn from_row(
+        (id, label, created_at, expires_at, last_used_at, revoked_at): KeyRow,
+        today: &str,
+    ) -> Self {
         Self {
             id,
             label,
@@ -47,6 +78,7 @@ impl Key {
             expired: expires_at.as_deref().is_some_and(|at| at <= today),
             expires_at,
             last_used_at,
+            revoked_at,
         }
     }
 }
@@ -57,6 +89,13 @@ const UNLABELLED: &str = "unnamed";
 /// Refused rather than guessed at. A date nobody can parse would otherwise
 /// become no expiry at all, which is the opposite of what was asked for.
 const BAD_DATE: ApiError = ApiError::Invalid("The expiry is not an ISO-8601 moment");
+
+/// A revoked key is not there to be given a new secret. Rotating one would hand
+/// back a key that reads as usable and opens nothing.
+const ALREADY_REVOKED: ApiError = ApiError::Conflict("The key is revoked");
+
+/// The order the two steps go in, said to whoever skipped the first one.
+const STILL_LIVE: ApiError = ApiError::Conflict("Revoke the key before removing it");
 
 /// Anybody may manage their own keys; only an administrator somebody else's.
 ///
@@ -72,6 +111,26 @@ async fn owner(pool: &SqlitePool, panel: &Panel, username: &str) -> Result<i64, 
         .fetch_optional(pool)
         .await
         .map_err(|e| ApiError::internal(e, "looking up an account"))?
+        .ok_or(ApiError::NotFound)
+}
+
+/// Where one of the account's keys stands: when it was withdrawn, and when it
+/// runs out. `NotFound` when the account has no such key, which is also the
+/// answer for somebody else's key named by its number.
+///
+/// The two timestamps rather than a verdict, because the two callers below ask
+/// different questions of them.
+async fn standing(
+    pool: &SqlitePool,
+    user_id: i64,
+    id: i64,
+) -> Result<(Option<String>, Option<String>), ApiError> {
+    sqlx::query_as("SELECT revoked_at, expires_at FROM api_keys WHERE id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "looking up an API key"))?
         .ok_or(ApiError::NotFound)
 }
 
@@ -98,12 +157,13 @@ pub async fn list(
 ) -> Result<Json<Vec<Key>>, ApiError> {
     let user_id = owner(&pool, &panel, &username).await?;
 
-    // Expired keys are listed too. They are kept on purpose, and a key that had
-    // vanished from the panel could not be given a new date.
-    let rows: Vec<KeyRow> = sqlx::query_as(
-        "SELECT id, label, created_at, expires_at, last_used_at
-           FROM api_keys WHERE user_id = ? ORDER BY created_at",
-    )
+    // Expired and revoked keys are listed too. Both are kept on purpose: an
+    // expired one can be given a new date, and a revoked one is what tells
+    // whoever revoked it that they revoked the right one.
+    let rows: Vec<KeyRow> = sqlx::query_as(concat!(
+        key_columns!(),
+        " WHERE user_id = ? ORDER BY created_at"
+    ))
     .bind(user_id)
     .fetch_all(&pool)
     .await
@@ -201,6 +261,9 @@ pub async fn issue(
 /// The new secret is readable once, exactly like a new key. `lastUsedAt` goes back
 /// to null, because nothing has used this secret yet and saying otherwise would
 /// describe the one it replaced.
+///
+/// A revoked key is not rotated. Withdrawing one is meant to be the end of it, and
+/// a new secret on that row would be a way back that nothing else offers.
 #[utoipa::path(
     post,
     path = "/users/{username}/keys/{id}/rotate",
@@ -214,6 +277,7 @@ pub async fn issue(
         (status = 401, description = "No valid session", body = ErrorBody),
         (status = 403, description = "Somebody else's keys", body = ErrorBody),
         (status = 404, description = "No such account, or no such key of theirs", body = ErrorBody),
+        (status = 409, description = "The key is revoked", body = ErrorBody),
     )
 )]
 pub async fn rotate(
@@ -223,11 +287,18 @@ pub async fn rotate(
 ) -> Result<Json<IssuedKey>, ApiError> {
     let user_id = owner(&pool, &panel, &username).await?;
 
+    // Read before written, so a key of somebody else's is a miss and a revoked
+    // one of your own is a refusal — two different answers to what would
+    // otherwise both have been zero rows changed.
+    let (revoked_at, _) = standing(&pool, user_id, id).await?;
+
+    if revoked_at.is_some() {
+        return Err(ALREADY_REVOKED);
+    }
+
     let key = auth::generate_token().map_err(|e| ApiError::internal(e, "generating an API key"))?;
 
-    // Both conditions, so naming somebody else's key by its number rotates
-    // nothing rather than rotating theirs.
-    let changed = sqlx::query(
+    sqlx::query(
         "UPDATE api_keys SET key_hash = ?, last_used_at = NULL
           WHERE id = ? AND user_id = ?",
     )
@@ -237,10 +308,6 @@ pub async fn rotate(
     .execute(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "rotating an API key"))?;
-
-    if changed.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
 
     let Json(now) = load(&pool, id).await?;
 
@@ -333,13 +400,11 @@ pub async fn change(
 
 /// One key as it stands, for handing back after a change.
 async fn load(pool: &SqlitePool, id: i64) -> Result<Json<Key>, ApiError> {
-    let row: KeyRow = sqlx::query_as(
-        "SELECT id, label, created_at, expires_at, last_used_at FROM api_keys WHERE id = ?",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ApiError::internal(e, "loading an API key"))?;
+    let row: KeyRow = sqlx::query_as(concat!(key_columns!(), " WHERE id = ?"))
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "loading an API key"))?;
 
     Ok(Json(Key::from_row(row, &db::now())))
 }
@@ -351,10 +416,14 @@ async fn load(pool: &SqlitePool, id: i64) -> Result<Json<Key>, ApiError> {
 /// at once. Changing the password does not do this — a key is not the password,
 /// which is the whole point of having keys.
 ///
+/// The rows stay, revoked, so that afterwards there is still a list saying what
+/// was withdrawn. One already revoked is left as it was, with the moment it was
+/// first withdrawn.
+///
 /// Yours, or anybody's if you administer the server.
 #[utoipa::path(
-    delete,
-    path = "/users/{username}/keys",
+    post,
+    path = "/users/{username}/keys/revoke",
     tag = "keys",
     params(("username" = String, Path, description = "Whose keys")),
     responses(
@@ -371,30 +440,39 @@ pub async fn revoke_all(
 ) -> Result<Json<Revoked>, ApiError> {
     let user_id = owner(&pool, &panel, &username).await?;
 
-    let deleted = sqlx::query("DELETE FROM api_keys WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&pool)
-        .await
-        .map_err(|e| ApiError::internal(e, "revoking every API key"))?;
+    // The ones that still work, which is what makes the count the number of
+    // clients this just stopped rather than the number of rows there happened
+    // to be.
+    let withdrawn =
+        sqlx::query("UPDATE api_keys SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
+            .bind(db::now())
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .map_err(|e| ApiError::internal(e, "revoking every API key"))?;
 
     Ok(Json(Revoked {
-        revoked: deleted.rows_affected(),
+        revoked: withdrawn.rows_affected(),
     }))
 }
 
 /// Revoke an API key
 ///
-/// Whatever was using it stops working at once.
+/// Whatever was using it stops working at once. The key stays in the listing,
+/// revoked and named, until it is removed.
+///
+/// Asking twice changes nothing and keeps the first moment: what matters about a
+/// revocation is when the key stopped working, and that already happened.
 #[utoipa::path(
-    delete,
-    path = "/users/{username}/keys/{id}",
+    post,
+    path = "/users/{username}/keys/{id}/revoke",
     tag = "keys",
     params(
         ("username" = String, Path, description = "Whose keys"),
         ("id" = i64, Path, description = "Which key"),
     ),
     responses(
-        (status = 204, description = "Revoked"),
+        (status = 200, description = "The key as it now is", body = Key),
         (status = 401, description = "No valid session", body = ErrorBody),
         (status = 403, description = "Somebody else's keys", body = ErrorBody),
         (status = 404, description = "No such account, or no such key of theirs", body = ErrorBody),
@@ -404,21 +482,74 @@ pub async fn revoke(
     panel: Panel,
     State(pool): State<SqlitePool>,
     Path((username, id)): Path<(String, i64)>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<Json<Key>, ApiError> {
     let user_id = owner(&pool, &panel, &username).await?;
 
     // Both conditions, so naming somebody else's key by its number revokes
     // nothing rather than revoking theirs.
-    let deleted = sqlx::query("DELETE FROM api_keys WHERE id = ? AND user_id = ?")
+    let withdrawn = sqlx::query(
+        "UPDATE api_keys SET revoked_at = coalesce(revoked_at, ?) WHERE id = ? AND user_id = ?",
+    )
+    .bind(db::now())
+    .bind(id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "revoking an API key"))?;
+
+    if withdrawn.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    load(&pool, id).await
+}
+
+/// Remove an API key
+///
+/// Takes the row away, name and all. What it was for is no longer written down
+/// anywhere, which is the difference from revoking it.
+///
+/// Only a key that has already stopped working: revoked, or past its date. A key
+/// that is still letting a client in is refused, because removing it would be
+/// withdrawing it under another name — and the word for withdrawing something is
+/// not one everybody reads as the end of it.
+#[utoipa::path(
+    delete,
+    path = "/users/{username}/keys/{id}",
+    tag = "keys",
+    params(
+        ("username" = String, Path, description = "Whose keys"),
+        ("id" = i64, Path, description = "Which key"),
+    ),
+    responses(
+        (status = 204, description = "Gone"),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Somebody else's keys", body = ErrorBody),
+        (status = 404, description = "No such account, or no such key of theirs", body = ErrorBody),
+        (status = 409, description = "The key still works; revoke it first", body = ErrorBody),
+    )
+)]
+pub async fn remove(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    Path((username, id)): Path<(String, i64)>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = owner(&pool, &panel, &username).await?;
+
+    let (revoked_at, expires_at) = standing(&pool, user_id, id).await?;
+    let today = db::now();
+    let expired = expires_at.as_deref().is_some_and(|at| at <= today.as_str());
+
+    if revoked_at.is_none() && !expired {
+        return Err(STILL_LIVE);
+    }
+
+    sqlx::query("DELETE FROM api_keys WHERE id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
         .execute(&pool)
         .await
-        .map_err(|e| ApiError::internal(e, "revoking an API key"))?;
-
-    if deleted.rows_affected() == 0 {
-        return Err(ApiError::NotFound);
-    }
+        .map_err(|e| ApiError::internal(e, "removing an API key"))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -639,6 +770,164 @@ mod tests {
         );
         assert_ne!(stored, auth::hash_secret(&first.key), "the old one is gone");
         assert_eq!(used, None, "nothing has used this secret yet");
+    }
+
+    /// The two steps, in the order they go in. Revoking is what stops the client;
+    /// the row goes on a second press, and not before.
+    #[tokio::test]
+    async fn a_working_key_is_revoked_before_it_can_be_removed() {
+        let (pool, panel) = an_account().await;
+        let id = issue_with(&pool, &panel, None).await;
+
+        let refused = remove(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await;
+
+        assert!(matches!(refused, Err(ApiError::Conflict(_))));
+        assert_eq!(rows(&pool).await, 1, "still there to be revoked");
+
+        let Json(key) = revoke(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await
+        .expect("revoking it");
+
+        assert!(key.revoked_at.is_some(), "withdrawn");
+        assert_eq!(
+            key.label, "trying a client",
+            "and still says what it was for"
+        );
+        assert_eq!(rows(&pool).await, 1, "revoking is not deleting");
+
+        remove(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await
+        .expect("and now it goes");
+
+        assert_eq!(rows(&pool).await, 0);
+    }
+
+    /// The other way to the same end: a key whose date has passed has already
+    /// stopped working, so there is nothing left for revoking it to stop.
+    #[tokio::test]
+    async fn an_expired_key_is_removed_without_being_revoked() {
+        let (pool, panel) = an_account().await;
+        let ran_out = format!("{}T00:00:00Z", &db::now()[..10]);
+        let id = issue_with(&pool, &panel, Some(&ran_out)).await;
+
+        remove(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await
+        .expect("it stopped working on its own");
+
+        assert_eq!(rows(&pool).await, 0);
+    }
+
+    /// What matters about a revocation is when the key stopped working, and asking
+    /// again does not move that moment.
+    #[tokio::test]
+    async fn revoking_twice_keeps_the_first_moment() {
+        let (pool, panel) = an_account().await;
+        let id = issue_with(&pool, &panel, None).await;
+
+        let Json(first) = revoke(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await
+        .unwrap();
+
+        sqlx::query("UPDATE api_keys SET revoked_at = '2020-01-01T00:00:00Z' WHERE id = ?")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let Json(again) = revoke(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(again.revoked_at.as_deref(), Some("2020-01-01T00:00:00Z"));
+        assert_ne!(again.revoked_at, first.revoked_at, "and not written afresh");
+    }
+
+    /// Rotating a revoked key would hand back a secret that opens nothing, on a
+    /// row that says it is finished.
+    #[tokio::test]
+    async fn a_revoked_key_is_not_rotated() {
+        let (pool, panel) = an_account().await;
+        let id = issue_with(&pool, &panel, None).await;
+
+        let Json(_) = revoke(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await
+        .unwrap();
+
+        let refused = rotate(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), id)),
+        )
+        .await;
+
+        assert!(matches!(refused, Err(ApiError::Conflict(_))));
+    }
+
+    /// Cutting an account off: every key that worked stops, the rows stay so that
+    /// what was withdrawn can still be read, and the count is the number of
+    /// clients this just stopped.
+    #[tokio::test]
+    async fn revoking_every_key_counts_only_the_ones_that_worked() {
+        let (pool, panel) = an_account().await;
+        let already = issue_with(&pool, &panel, None).await;
+        issue_with(&pool, &panel, None).await;
+        issue_with(&pool, &panel, None).await;
+
+        let Json(_) = revoke(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), already)),
+        )
+        .await
+        .unwrap();
+
+        let Json(counted) = revoke_all(panel_like(&panel), State(pool.clone()), Path("ana".into()))
+            .await
+            .unwrap();
+
+        assert_eq!(counted.revoked, 2, "the two that were still working");
+        assert_eq!(rows(&pool).await, 3, "and all three are still listed");
+
+        let Json(keys) = list(panel_like(&panel), State(pool.clone()), Path("ana".into()))
+            .await
+            .unwrap();
+        assert!(keys.iter().all(|key| key.revoked_at.is_some()));
+    }
+
+    async fn rows(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM api_keys")
+            .fetch_one(pool)
+            .await
+            .unwrap()
     }
 
     /// Naming somebody else's key by its number must rotate nothing, which is why

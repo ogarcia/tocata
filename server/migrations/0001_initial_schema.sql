@@ -348,8 +348,15 @@ CREATE TABLE panel_preferences (
 -- client out, or one lent to somebody — and a poor thing to be handed.
 --
 -- An expired key is kept. It cannot authenticate, but the row stays until it is
--- revoked, so the date can be pushed out and the same key start working again
+-- removed, so the date can be pushed out and the same key start working again
 -- rather than every client having to be set up afresh.
+--
+-- Revoking is a state and not a delete, so a key is withdrawn and removed in two
+-- steps rather than one. A row that vanished the moment it was revoked took its
+-- name with it, and left whoever pressed the button with nothing to check
+-- against — while the word "revoke" is not one everybody reads as "delete".
+-- Revoking is final, though: a revoked key authenticates nothing and there is no
+-- way back to a key that works, only the way out.
 CREATE TABLE api_keys (
     id           INTEGER PRIMARY KEY,
     user_id      INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -359,7 +366,11 @@ CREATE TABLE api_keys (
     -- Null means it never expires. Stored in the same shape as every other
     -- timestamp here, because it is compared as text against one of them.
     expires_at   TEXT,
-    last_used_at TEXT
+    last_used_at TEXT,
+    -- Null means it still works. Set, and the key is dead whatever its expiry
+    -- says, which is why the moment is kept rather than a flag: a row that says
+    -- when it was withdrawn is a row that can be read afterwards.
+    revoked_at   TEXT
 );
 
 CREATE INDEX api_keys_user_idx ON api_keys (user_id);
