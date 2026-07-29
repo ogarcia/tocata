@@ -895,6 +895,42 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 .pill:hover { border-color: var(--accent); color: var(--accent); }
 
+/* The same button while the scan it started is running: the glyph turns and the pill
+ * takes the accent, which is what everything live in this panel is coloured. It is
+ * not a state of the pill so much as the pill being the scan for a while. */
+.pill.scanning {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+
+.pill.scanning .icon { animation: turn 1.4s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill.scanning .icon { animation: none; }
+}
+
+/* Both labels in one cell, so the pill is as wide as the longer of them and holds
+ * still while somebody aims at it. Hidden rather than removed, for the same reason:
+ * a label taken out of the flow would take its width with it — and `visibility`
+ * hides it from whatever reads the page aloud as well, so only one is announced. */
+.pill.scanning .swap { display: grid; }
+
+.pill.scanning .swap > * { grid-area: 1 / 1; }
+
+.pill.scanning .undo { visibility: hidden; }
+
+/* Under the pointer, or under focus: a keyboard cannot hover, and a button whose
+ * meaning is only revealed by hovering has no meaning for one. What it turns is the
+ * alarm colour, because what it does now is stop something. */
+.pill.scanning:hover, .pill.scanning:focus-visible {
+  border-color: color-mix(in srgb, var(--alarm) 45%, transparent);
+  color: var(--alarm);
+}
+
+.pill.scanning:hover .doing, .pill.scanning:focus-visible .doing { visibility: hidden; }
+
+.pill.scanning:hover .undo, .pill.scanning:focus-visible .undo { visibility: visible; }
+
 /* The same shape filled, for the one action a screen exists to offer: adding what
  * the screen is a list of. Outlined says "you may"; filled says "this is the one".
  *

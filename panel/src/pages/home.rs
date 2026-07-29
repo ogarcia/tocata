@@ -49,11 +49,12 @@ pub fn Home(
                 </p>
             </div>
 
-            // Starting one, and only while there is none to start. What a running
-            // scan is doing, and the way to stop it, are in the column on the left:
-            // one place for it rather than a button here and a panel there.
-            <Show when=move || admin && !running(scan)>
-                <StartScan />
+            // One button for the whole of it: it starts a scan, it says while one is
+            // running, and it is how one is stopped. What the running scan is doing —
+            // which folder, how many files — stays in the column on the left, where
+            // anything permanently live belongs.
+            <Show when=move || admin>
+                <StartScan scan />
             </Show>
         </header>
 
@@ -359,7 +360,7 @@ fn Figure(label: String, figure: Signal<String>) -> impl IntoView {
 /// off by aiming badly. The chevron is what says so — a pill with a word on it and
 /// nothing else would promise one thing and do two.
 #[component]
-fn StartScan() -> impl IntoView {
+fn StartScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
     let (open, set_open) = signal(false);
 
     let start = move |full: bool| {
@@ -369,38 +370,79 @@ fn StartScan() -> impl IntoView {
         });
     };
 
+    let cancel = move |_| {
+        spawn_local(async move {
+            let _ = api::cancel_scan().await;
+        });
+    };
+
     view! {
-        <div class="dropdown">
-            <button
-                class="pill"
-                aria-expanded=move || open.get().to_string()
-                on:click=move |_| set_open.update(|shown| *shown = !*shown)
-            >
+        // While one is running the same button is the scan: the glyph turns, there is
+        // no chevron because there is nothing left to choose, and what it says under
+        // the pointer is what pressing it would do. Two labels in one grid cell, so
+        // the pill is as wide as the longer of them and does not resize under the
+        // hand that is aiming at it.
+        <Show
+            when=move || running(scan)
+            fallback=move || {
+                view! {
+                    <div class="dropdown">
+                        <button
+                            class="pill"
+                            aria-expanded=move || open.get().to_string()
+                            on:click=move |_| set_open.update(|shown| *shown = !*shown)
+                        >
+                            <Glyph icon=Icon::Scan />
+                            {t!("scan.start")}
+                            <span class="chevron">
+                                <Glyph icon=Icon::Chevron />
+                            </span>
+                        </button>
+
+                        <Menu open set_open start />
+                    </div>
+                }
+            }
+        >
+            <button class="pill scanning" on:click=cancel>
                 <Glyph icon=Icon::Scan />
-                {t!("scan.start")}
-                <span class="chevron">
-                    <Glyph icon=Icon::Chevron />
+                <span class="swap">
+                    <span class="doing">{t!("scan.running")}</span>
+                    // Said to a pointer and to a keyboard alike: focus swaps it too,
+                    // or the only way to know what the button does would be to hover,
+                    // which is not something a keyboard can do.
+                    <span class="undo">{t!("scan.cancel")}</span>
                 </span>
             </button>
+        </Show>
+    }
+}
 
-            <Show when=move || open.get()>
-                <div class="veil" on:click=move |_| set_open.set(false)></div>
-                <div class="menu">
-                    // The note is inside the button rather than under it. Beside
-                    // it, it looked like something to click that did nothing when
-                    // clicked, and left a gap in the middle of the menu that
-                    // highlighted neither entry.
-                    <button class="menu-item explained" on:click=move |_| start(false)>
-                        <span>{t!("scan.quick")}</span>
-                        <span class="menu-note">{t!("scan.quick_note")}</span>
-                    </button>
-                    <button class="menu-item explained" on:click=move |_| start(true)>
-                        <span>{t!("scan.start_full")}</span>
-                        <span class="menu-note">{t!("scan.full_note")}</span>
-                    </button>
-                </div>
-            </Show>
-        </div>
+/// What kind of scan, in the menu the pill opens.
+#[component]
+fn Menu(
+    open: ReadSignal<bool>,
+    set_open: WriteSignal<bool>,
+    start: impl Fn(bool) + Copy + Send + Sync + 'static,
+) -> impl IntoView {
+    view! {
+
+        <Show when=move || open.get()>
+            <div class="veil" on:click=move |_| set_open.set(false)></div>
+            <div class="menu">
+                // The note is inside the button rather than under it. Beside it, it
+                // looked like something to click that did nothing when clicked, and
+                // left a gap in the middle of the menu that highlighted neither entry.
+                <button class="menu-item explained" on:click=move |_| start(false)>
+                    <span>{t!("scan.quick")}</span>
+                    <span class="menu-note">{t!("scan.quick_note")}</span>
+                </button>
+                <button class="menu-item explained" on:click=move |_| start(true)>
+                    <span>{t!("scan.start_full")}</span>
+                    <span class="menu-note">{t!("scan.full_note")}</span>
+                </button>
+            </div>
+        </Show>
     }
 }
 

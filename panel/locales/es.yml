@@ -30,7 +30,7 @@ login:
   unreachable: El servidor no respondió
 
 header:
-  administrator: administración
+  administrator: administrador
   listener: oyente
   log_out: Salir
 
