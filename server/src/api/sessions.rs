@@ -128,12 +128,16 @@ pub async fn close(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Close every session
+/// Close every other session
 ///
-/// Ends all of the account's logins, this one included when the account is
-/// yours. Everything, rather than everything else: somebody reaching for this
-/// wants no way in left open, and one that survived because it happened to be
-/// the one they clicked from would be the wrong answer.
+/// Ends all of the account's logins except the one asking. Somebody reaching for
+/// this has left a browser open somewhere it should not have been, and what they
+/// want is every one of those closed — not to be thrown out of the screen they
+/// are doing it from. Leaving is a separate act, with a button of its own that
+/// says so.
+///
+/// An administrator closing somebody else's sessions closes all of them, because
+/// none of them is the one asking.
 #[utoipa::path(
     delete,
     path = "/users/{username}/sessions",
@@ -153,9 +157,92 @@ pub async fn close_all(
 ) -> Result<Json<Closed>, ApiError> {
     let user_id = owner(&pool, &panel, &username).await?;
 
-    let closed = session::destroy_all(&pool, user_id, None)
+    let closed = session::destroy_all(&pool, user_id, panel.id)
         .await
         .map_err(|e| ApiError::internal(e, "closing an account's sessions"))?;
 
     Ok(Json(Closed { closed }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::user::User;
+
+    /// An account with three browsers logged in, one of which is asking.
+    async fn logged_in_thrice() -> (SqlitePool, Panel) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let timestamp = crate::db::now();
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        for _ in 0..3 {
+            session::create(&pool, user_id).await.unwrap();
+        }
+
+        // The middle one, so that neither the first nor the last row surviving
+        // could be mistaken for the right answer arrived at by accident.
+        let asking: i64 = sqlx::query_scalar(
+            "SELECT id FROM sessions WHERE user_id = ? ORDER BY id LIMIT 1 OFFSET 1",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let panel = Panel {
+            id: asking,
+            user: User {
+                id: user_id,
+                username: "ana".to_string(),
+                is_admin: false,
+            },
+            expires_at: "2999-01-01T00:00:00Z".to_string(),
+        };
+
+        (pool, panel)
+    }
+
+    /// This is somebody's own Access screen, and the only thing that takes them
+    /// out of it is logging out. Closing the browsers they left open elsewhere
+    /// must not close the one they are doing it from.
+    #[tokio::test]
+    async fn closing_every_session_leaves_the_one_asking() {
+        let (pool, panel) = logged_in_thrice().await;
+
+        let Json(counted) = close_all(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path("ana".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(counted.closed, 2);
+
+        let Json(left) = list(panel_like(&panel), State(pool.clone()), Path("ana".into()))
+            .await
+            .unwrap();
+
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, panel.id);
+        assert!(left[0].current, "and it is the one still being used");
+    }
+
+    fn panel_like(panel: &Panel) -> Panel {
+        Panel {
+            id: panel.id,
+            user: panel.user.clone(),
+            expires_at: panel.expires_at.clone(),
+        }
+    }
 }

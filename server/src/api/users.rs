@@ -377,7 +377,7 @@ pub async fn change(
             .await
             .map_err(|e| ApiError::internal(e, "looking up an account"))?;
 
-        session::destroy_all(&pool, user_id, Some(panel.id))
+        session::destroy_all(&pool, user_id, panel.id)
             .await
             .map_err(|e| ApiError::internal(e, "ending sessions after a password change"))?;
     }

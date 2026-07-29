@@ -124,15 +124,19 @@ pub async fn destroy(pool: &SqlitePool, token: &str) -> Result<()> {
     Ok(())
 }
 
-/// Ends every session an account has, except optionally the one asking.
+/// Ends every session an account has, except the one asking.
 ///
-/// Sparing the caller's own is what makes this usable while changing a password:
-/// somebody who just proved who they are should not be thrown out along with
-/// whoever they are throwing out. Pass `None` and nothing is spared.
-pub async fn destroy_all(pool: &SqlitePool, user_id: i64, except: Option<i64>) -> Result<u64> {
-    // `?` never matches a row when the value is NULL, which is exactly the
-    // "spare nothing" case, so one statement covers both.
-    let done = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?")
+/// Sparing the caller's own is what every caller wants, which is why it is not
+/// optional: somebody who just proved who they are, by changing their password or
+/// by closing the browsers they left open, should not be thrown out along with
+/// whatever they were throwing out. Leaving is its own act, and it has its own
+/// button.
+///
+/// The spared session is the caller's, so passing one belonging to somebody else
+/// — an administrator closing an account's sessions — spares nothing here, which
+/// is the right answer and needs no second rule.
+pub async fn destroy_all(pool: &SqlitePool, user_id: i64, except: i64) -> Result<u64> {
+    let done = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND id != ?")
         .bind(user_id)
         .bind(except)
         .execute(pool)
@@ -190,23 +194,9 @@ mod tests {
             .unwrap()
     }
 
-    /// `IS NOT` rather than `!=` is the whole trick, and the difference only
-    /// shows with NULL: `id != NULL` is never true, so a plain comparison would
-    /// spare every row instead of none and this would quietly close nothing.
-    #[tokio::test]
-    async fn sparing_nothing_closes_everything() {
-        let (pool, ana, bob) = two_users_logged_in_twice().await;
-
-        let closed = destroy_all(&pool, ana, None).await.unwrap();
-
-        assert_eq!(closed, 2);
-        assert_eq!(count(&pool, ana).await, 0);
-        assert_eq!(count(&pool, bob).await, 2, "nobody else was touched");
-    }
-
     #[tokio::test]
     async fn one_session_can_be_spared() {
-        let (pool, ana, _) = two_users_logged_in_twice().await;
+        let (pool, ana, bob) = two_users_logged_in_twice().await;
 
         let keep: i64 = sqlx::query_scalar("SELECT min(id) FROM sessions WHERE user_id = ?")
             .bind(ana)
@@ -214,9 +204,10 @@ mod tests {
             .await
             .unwrap();
 
-        let closed = destroy_all(&pool, ana, Some(keep)).await.unwrap();
+        let closed = destroy_all(&pool, ana, keep).await.unwrap();
 
         assert_eq!(closed, 1);
+        assert_eq!(count(&pool, bob).await, 2, "nobody else was touched");
         let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
             .bind(ana)
             .fetch_all(&pool)
@@ -238,7 +229,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(destroy_all(&pool, ana, Some(bobs)).await.unwrap(), 2);
+        assert_eq!(destroy_all(&pool, ana, bobs).await.unwrap(), 2);
         assert_eq!(count(&pool, ana).await, 0);
         assert_eq!(count(&pool, bob).await, 2);
     }
