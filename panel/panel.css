@@ -410,6 +410,12 @@ h1 {
 
 .two > .forms { flex: 3 1 420px; min-width: 0; }
 
+/* Under a band of figures it stands as far off as the two lists on the access screen
+ * do: the figures are about the account and the form changes it, and read together
+ * they came out as one block with a rule through it. Only under the figures — where a
+ * screen starts with its title, the title's own margin has already said it. */
+.counts + .two { margin-top: 44px; }
+
 /* Narrower than the form and capped, because everything in it is a short label and a
  * shorter value. */
 .rail {

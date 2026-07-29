@@ -283,6 +283,12 @@ profile:
   unchanged: Vacío para dejarla como está
   username: Usuario
   you: "Tú"
+  # Las cuatro cifras de lo que tienes aquí. Escritas otra vez y no compartidas
+  # con `accounts`: allí son las pérdidas de una cuenta ajena, aquí son tuyas.
+  plays: "Reproducciones"
+  favourites: "Favoritos"
+  ratings: "Valoraciones"
+  playlists: "Listas de reproducción"
 
 access:
   lead: "Una clave es con lo que un cliente reproduce tu música. Una sesión es un navegador con este panel abierto. Son independientes: revocar una nunca toca a la otra."

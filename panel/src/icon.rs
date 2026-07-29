@@ -31,6 +31,10 @@ pub enum Icon {
     Rotate,
     Key,
     Search,
+    Plays,
+    Favourites,
+    Ratings,
+    Playlists,
     Menu,
     LogOut,
 }
@@ -53,6 +57,10 @@ impl Icon {
             Self::Rotate => include_str!("../icons/scan.svg"),
             Self::Key => include_str!("../icons/key.svg"),
             Self::Search => include_str!("../icons/search.svg"),
+            Self::Plays => include_str!("../icons/play.svg"),
+            Self::Favourites => include_str!("../icons/heart.svg"),
+            Self::Ratings => include_str!("../icons/star.svg"),
+            Self::Playlists => include_str!("../icons/playlist.svg"),
             Self::Menu => include_str!("../icons/menu.svg"),
             Self::LogOut => include_str!("../icons/logout.svg"),
         }

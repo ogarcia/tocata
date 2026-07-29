@@ -25,7 +25,7 @@
 //! An administrator opening their own account from the list lands here too, because
 //! there is no version of this that is administration.
 
-use super::{Dots, MISSING, Setting, lapse, on_day, said, since, when};
+use super::{Dots, MISSING, Setting, lapse, on_day, said, since, thousands, when};
 use crate::accent::{self, Accent};
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
@@ -36,7 +36,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 use rust_i18n::t;
-use tocata::types::{Account, AccountChanges, Identity, PreferenceChanges};
+use tocata::types::{Account, AccountChanges, Holdings, Identity, PreferenceChanges};
 
 /// Who you are, in two forms rather than one.
 ///
@@ -56,6 +56,7 @@ use tocata::types::{Account, AccountChanges, Identity, PreferenceChanges};
 #[component]
 pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     let (account, set_account) = signal(Option::<Account>::None);
+    let (held, set_held) = signal(Option::<Holdings>::None);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (note, set_note) = signal(Option::<String>::None);
 
@@ -72,6 +73,14 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     };
 
     load();
+
+    // What is yours on this server, which the account itself does not carry: it is
+    // counted where it is asked for, and this is the screen that asks.
+    spawn_local(async move {
+        if let Ok(counted) = api::holdings(&me.get_value()).await {
+            set_held.set(Some(counted));
+        }
+    });
 
     // Changing your own name changes what every call here asks about, so the held
     // name follows it. Without that, saving twice would ask about somebody who no
@@ -103,6 +112,8 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
                 <p class="quiet lead">{t!("profile.profile_lead")}</p>
             </div>
         </header>
+
+        <Listened held />
 
         {move || match account.get() {
             None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
@@ -571,15 +582,77 @@ fn Figures(
     }
 }
 
-/// One figure over what it counts, with a dash until the answer arrives.
+/// What you have on this server, in four figures.
+///
+/// About the listening rather than about the account: what opens it is on the access
+/// screen, said in the same four boxes, and the two figures a rail already carries
+/// would be a third place to read them. These are the ones nothing else says.
+///
+/// Bookmarks are not among them. A bookmark is where an hour long recording was left
+/// off, so the figure is how many are unfinished — which is not something anybody
+/// collects, and reads as a reproach next to three things that are.
 #[component]
-fn Tally(label: String, figure: Signal<Option<String>>) -> impl IntoView {
+fn Listened(held: ReadSignal<Option<Holdings>>) -> impl IntoView {
+    let counted = move |of: fn(&Holdings) -> i64| {
+        Signal::derive(move || held.get().map(|held| thousands(of(&held))))
+    };
+
+    view! {
+        <div class="counts">
+            <Tally
+                label=t!("profile.plays").to_string()
+                figure=counted(|held| held.plays)
+                icon=Icon::Plays
+            />
+            <Tally
+                label=t!("profile.favourites").to_string()
+                figure=counted(|held| held.favourites)
+                icon=Icon::Favourites
+            />
+            <Tally
+                label=t!("profile.ratings").to_string()
+                figure=counted(|held| held.ratings)
+                icon=Icon::Ratings
+            />
+            <Tally
+                label=t!("profile.playlists").to_string()
+                figure=counted(|held| held.playlists)
+                icon=Icon::Playlists
+            />
+        </div>
+    }
+}
+
+/// One figure over what it counts, with a dash until the answer arrives.
+///
+/// The glyph, where there is one, goes on the label line at the size of the label:
+/// it is part of the word rather than a mark beside the number, which is what the
+/// four figures on the overview settled. Two of the figures on the access screen are
+/// spans of time and have nothing to draw, so there it is left off altogether rather
+/// than drawn on half a row.
+#[component]
+fn Tally(
+    label: String,
+    figure: Signal<Option<String>>,
+    #[prop(optional)] icon: Option<Icon>,
+) -> impl IntoView {
     view! {
         <div class="count">
             <span class="figure">
                 {move || figure.get().unwrap_or_else(|| MISSING.to_string())}
             </span>
-            <span class="quiet">{label}</span>
+            {match icon {
+                Some(icon) => {
+                    view! {
+                        <span class="quiet named-figure">
+                            <Glyph icon />
+                            {label}
+                        </span>
+                    }
+                        .into_any()
+                }
+                None => view! { <span class="quiet">{label}</span> }.into_any(),
+            }}
         </div>
     }
 }

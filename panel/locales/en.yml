@@ -288,6 +288,12 @@ profile:
   unchanged: Leave empty to keep it
   username: Username
   you: "You"
+  # The four figures of what you have here. Written again rather than shared with
+  # `accounts`, where they are what deleting somebody else would cost.
+  plays: "Plays"
+  favourites: "Favourites"
+  ratings: "Ratings"
+  playlists: "Playlists"
 
 access:
   lead: "A key is how a client plays your music. A session is a browser logged in to this panel. They are separate: revoking one never touches the other."
