@@ -54,7 +54,13 @@ pub fn Unbuilt(heading: String) -> impl IntoView {
 /// the row it belongs to and both of these rows sit in something that clips —
 /// a box that scrolls sideways, or a column half a screen wide — and anything
 /// overflowing a scrolling box is cut off by it. Fixed escapes that; the price is
-/// working out where to put it, which is one rectangle read off the button.
+/// working out where to put it, which is one rectangle read off the button and the
+/// height of the window.
+///
+/// It opens downward where there is room and upward where there is not, and what
+/// still does not fit scrolls inside it. Fixed to the viewport means a menu running
+/// off the bottom cannot be scrolled to: the last rows of a long list would offer
+/// items nobody could reach.
 ///
 /// Any click inside the menu closes it, after whatever was clicked has run. So an
 /// item is written as the thing it does and nothing has to remember to shut the
@@ -69,8 +75,10 @@ pub fn Dots(
     children: ChildrenFn,
 ) -> impl IntoView {
     let (open, set_open) = signal(false);
-    // Where the menu goes, in viewport coordinates.
-    let (at, set_at) = signal((0.0, 0.0));
+    // Where the menu goes, as the declarations that put it there: which edge it hangs
+    // from depends on the room around the button, so it is worked out here rather
+    // than written in the stylesheet.
+    let (at, set_at) = signal(String::new());
 
     let toggle = move |event: web_sys::MouseEvent| {
         if let Some(button) = event
@@ -78,7 +86,32 @@ pub fn Dots(
             .and_then(|target| target.dyn_into::<web_sys::HtmlElement>().ok())
         {
             let rect = button.get_bounding_client_rect();
-            set_at.set((rect.bottom() + 4.0, rect.right()));
+
+            let window = web_sys::window()
+                .and_then(|window| window.inner_height().ok())
+                .and_then(|height| height.as_f64())
+                .unwrap_or(0.0);
+
+            let below = window - rect.bottom();
+            let above = rect.top();
+
+            // Whichever side has more room, and never taller than that room: a menu
+            // that would run past the edge scrolls instead.
+            let side = if below >= above {
+                format!(
+                    "top: {}px; max-height: {}px",
+                    rect.bottom() + 4.0,
+                    room(below)
+                )
+            } else {
+                format!(
+                    "bottom: {}px; max-height: {}px",
+                    window - rect.top() + 4.0,
+                    room(above)
+                )
+            };
+
+            set_at.set(format!("{side}; right: calc(100vw - {}px)", rect.right()));
         }
 
         set_open.update(|shown| *shown = !*shown);
@@ -99,14 +132,7 @@ pub fn Dots(
             // Under the menu and over the page, so it catches every click except the
             // ones meant for the menu itself.
             <div class="veil" on:click=move |_| set_open.set(false)></div>
-            <div
-                class="menu afloat"
-                style=move || {
-                    let (top, right) = at.get();
-                    format!("top: {top}px; right: calc(100vw - {right}px)")
-                }
-                on:click=move |_| set_open.set(false)
-            >
+            <div class="menu afloat" style=at on:click=move |_| set_open.set(false)>
                 {children()}
             </div>
         </Show>
@@ -152,6 +178,11 @@ pub fn thousands(count: i64) -> String {
     }
 
     if count < 0 { format!("-{out}") } else { out }
+}
+
+/// What is left of a span of room once the menu has been given air at both ends.
+fn room(space: f64) -> f64 {
+    (space - 16.0).max(0.0)
 }
 
 /// How long ago a moment was, said the way somebody would say it.

@@ -632,26 +632,14 @@ select.narrow { width: 200px; }
 
 /* Upward, because there is no room below: this is the last thing in the column.
  * Inset from both edges rather than hung off one, so it reads as belonging to the
- * block underneath it rather than to the window's edge. */
+ * block underneath it rather than to the window's edge — and no minimum width, since
+ * what it has to fit inside is a 240px column. */
 .upward {
   position: absolute;
   left: 14px;
   right: 14px;
   bottom: calc(100% + 8px);
   z-index: 3;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
-  box-shadow: 0 10px 30px light-dark(rgb(0 0 0 / 12%), rgb(0 0 0 / 35%));
-}
-
-.upward a, .upward .menu-item {
-  padding: 8px 10px;
-  border-radius: 5px;
-  font-size: 14px;
 }
 
 /* The one entry that is not a place to go. Its colour has to survive the rule
@@ -1052,20 +1040,30 @@ button:disabled { opacity: 0.6; cursor: default; }
   z-index: 2;
 }
 
-/* Hangs off the button rather than sitting in the flow, so opening it moves
- * nothing else on the page. */
-.menu {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  right: 0;
-  z-index: 3;
-  min-width: 13rem;
+/* The box a menu comes in, wherever it opens from: the dots at the end of a row, the
+ * scan button, the account block at the foot of the column. One box, because they
+ * are one thing — a raised surface with a short list on it — and the popover in the
+ * column was the only one that had been brought to the drawing. */
+.menu, .upward {
   display: flex;
   flex-direction: column;
-  padding: 0.35rem;
-  border-radius: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   background: var(--paper);
-  box-shadow: 0 2px 12px light-dark(rgb(0 0 0 / 18%), rgb(0 0 0 / 55%));
+  box-shadow: 0 10px 30px light-dark(rgb(0 0 0 / 12%), rgb(0 0 0 / 35%));
+}
+
+/* Hangs off the button rather than sitting in the flow, so opening it moves
+ * nothing else on the page. Wide enough for the longest entry any of them has, and
+ * whatever still does not fit scrolls inside the menu rather than off the window. */
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 3;
+  min-width: 230px;
+  overflow-y: auto;
 }
 
 /* One rule for an entry in any of them. The popover that opens upward from the
@@ -1075,12 +1073,14 @@ button:disabled { opacity: 0.6; cursor: default; }
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.6rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: 4px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 5px;
   color: inherit;
   text-align: left;
+  /* In this order: `font` is shorthand and would take the size back out. */
   font: inherit;
+  font-size: 14px;
   background: transparent;
   border: none;
   margin: 0;
@@ -1096,13 +1096,11 @@ button:disabled { opacity: 0.6; cursor: default; }
 .explained {
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.1rem;
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
+  gap: 2px;
 }
 
 .menu-note {
-  font-size: 0.8rem;
+  font-size: 12px;
   color: var(--quiet);
 }
 
@@ -2183,6 +2181,10 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * rectangle. */
 .menu.afloat {
   position: fixed;
+  /* Whichever edge it hangs from is set inline, once the room either side of the
+   * button is known. `auto` here is what lets the upward case leave `top` alone:
+   * with both edges set, a fixed box is stretched between them instead. */
+  top: auto;
   text-align: left;
 }
 

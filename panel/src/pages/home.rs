@@ -188,7 +188,7 @@ fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
     let cpu = Signal::derive(move || {
         resources
             .get()
-            .map_or_else(|| MISSING.to_string(), |read| percentage(read.cpu))
+            .map_or_else(|| super::MISSING.to_string(), |read| percentage(read.cpu))
     });
     let cpu_bar = Signal::derive(move || resources.get().map(|read| read.cpu / 100.0));
     let cores = Signal::derive(move || {
@@ -201,7 +201,7 @@ fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
     let memory = Signal::derive(move || {
         resources
             .get()
-            .map_or_else(|| MISSING.to_string(), |read| bytes(read.memory))
+            .map_or_else(|| super::MISSING.to_string(), |read| bytes(read.memory))
     });
     let memory_bar = Signal::derive(move || {
         let read = resources.get()?;
@@ -456,10 +456,6 @@ fn when(scan: ReadSignal<Option<Status>>) -> String {
         Some(status) => ago(&status),
     }
 }
-
-/// Stands in for a figure nothing has reported yet. An em dash rather than a zero,
-/// which would be a measurement.
-const MISSING: &str = "—";
 
 /// A share, to one decimal. More would be a figure that changes every two seconds
 /// in digits nobody is reading, and none at all would sit at zero through
