@@ -17,7 +17,7 @@
 //! rights. Between them they guarantee there is always somebody left who can
 //! administer the server.
 
-use super::{Dots, said, since};
+use super::{Dots, Setting, on_day, said, since};
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
 use leptos::html::Dialog;
@@ -27,7 +27,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use rust_i18n::t;
 use std::cmp::Ordering;
-use tocata::types::{Account, AccountChanges, Identity, Library, NewAccount};
+use tocata::types::{Account, AccountChanges, Holdings, Identity, Library, NewAccount};
 
 /// Who there is, one row each.
 ///
@@ -277,7 +277,11 @@ pub fn Accounts(who: Identity, on_expired: Callback<()>) -> impl IntoView {
 
         <Adding adding set_adding on_added=Callback::new(move |_| load()) on_expired />
         <NewPassword account=setting set_account=set_setting act />
-        <Removing account=removing set_account=set_removing act />
+        <Removing
+            account=removing
+            set_account=set_removing
+            remove=Callback::new(move |name| act.run((Deed::Delete, name)))
+        />
     }
 }
 
@@ -596,29 +600,73 @@ fn NewPassword(
 
 /// Deleting somebody's account, confirmed by writing their name.
 ///
-/// The two figures are the part nobody remembers: a confirmation that only asks
-/// whether you are sure is asking somebody to agree to something they were not told.
-/// And the name has to be typed, because this is the one action here that cannot be
-/// undone — a mis-aimed click on a row is exactly what it is guarding against.
+/// What is lost is counted and listed, because a confirmation that only asks whether
+/// you are sure is asking somebody to agree to something they were not told. The
+/// sessions and the keys are the obvious half; the rest — what somebody starred,
+/// rated, played, made and bookmarked — is the half nobody thinks of, and it is the
+/// half that cannot be handed back.
+///
+/// Only the figures that are not zero. A list of seven noughts says the same thing
+/// as one line saying there is nothing else, and takes seven lines to say it.
+///
+/// The name has to be typed as well. This is the one action here that cannot be
+/// undone, and a mis-aimed click on a row is exactly what it guards against.
 #[component]
 fn Removing(
     account: ReadSignal<Option<Account>>,
     set_account: WriteSignal<Option<Account>>,
-    act: Callback<(Deed, String)>,
+    /// What removing means to whoever opened this: a row that goes from a list, or a
+    /// screen with nothing left on it.
+    remove: Callback<String>,
 ) -> impl IntoView {
     let dialog: NodeRef<Dialog> = NodeRef::new();
     let (typed, set_typed) = signal(String::new());
+    let (held, set_held) = signal(Option::<Holdings>::None);
 
     Effect::new(move |_| {
         let Some(element) = dialog.get() else { return };
 
-        if account.get().is_some() {
-            set_typed.set(String::new());
-            let _ = element.show_modal();
-        } else {
-            element.close();
+        match account.get() {
+            // Counted when the question is asked rather than carried around by every
+            // row of the list: seven counts apiece to show none of them is what makes
+            // a listing slow.
+            Some(whose) => {
+                set_typed.set(String::new());
+                set_held.set(None);
+                let _ = element.show_modal();
+
+                spawn_local(async move {
+                    if let Ok(counted) = api::holdings(&whose.username).await {
+                        set_held.set(Some(counted));
+                    }
+                });
+            }
+            None => element.close(),
         }
     });
+
+    // In the order somebody would think of them: what opens the account, then what
+    // they did with it.
+    let losses = move || {
+        let held = held.get()?;
+
+        let counted = [
+            (t!("accounts.sessions_short").to_string(), held.sessions),
+            (t!("accounts.keys_short").to_string(), held.keys),
+            (t!("accounts.favourites").to_string(), held.favourites),
+            (t!("accounts.ratings").to_string(), held.ratings),
+            (t!("accounts.plays").to_string(), held.plays),
+            (t!("accounts.playlists").to_string(), held.playlists),
+            (t!("accounts.bookmarks").to_string(), held.bookmarks),
+        ];
+
+        Some(
+            counted
+                .into_iter()
+                .filter(|(_, how_many)| *how_many > 0)
+                .collect::<Vec<_>>(),
+        )
+    };
 
     let matches = move || {
         account
@@ -626,10 +674,10 @@ fn Removing(
             .is_some_and(|whose| typed.get().trim() == whose.username)
     };
 
-    let remove = move |_| {
+    let confirmed = move |_| {
         let Some(whose) = account.get() else { return };
 
-        act.run((Deed::Delete, whose.username));
+        remove.run(whose.username);
         set_account.set(None);
     };
 
@@ -646,16 +694,34 @@ fn Removing(
                 </h2>
                 <p class="sheet-lead">{t!("accounts.remove_note")}</p>
 
-                <dl class="facts">
-                    <div>
-                        <dt>{t!("accounts.sessions_short")}</dt>
-                        <dd>{move || account.get().map(|whose| whose.sessions)}</dd>
-                    </div>
-                    <div>
-                        <dt>{t!("accounts.keys_short")}</dt>
-                        <dd>{move || account.get().map(|whose| whose.keys)}</dd>
-                    </div>
-                </dl>
+                {move || match losses() {
+                    // Still being counted. Nothing is said in the meantime: a list
+                    // that appeared a moment later under a sentence about deleting
+                    // things would be read as something that had just happened.
+                    None => ().into_any(),
+                    Some(losses) if losses.is_empty() => {
+                        view! { <p class="sheet-lead instead">{t!("accounts.holds_nothing")}</p> }
+                            .into_any()
+                    }
+                    Some(losses) => {
+                        view! {
+                            <dl class="facts">
+                                {losses
+                                    .into_iter()
+                                    .map(|(what, how_many)| {
+                                        view! {
+                                            <div>
+                                                <dt>{what}</dt>
+                                                <dd>{super::thousands(how_many)}</dd>
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </dl>
+                        }
+                            .into_any()
+                    }
+                }}
 
                 <div class="sheet-content">
                     <label>
@@ -686,7 +752,7 @@ fn Removing(
                     type="button"
                     class="pill solid undoing"
                     disabled=move || !matches()
-                    on:click=remove
+                    on:click=confirmed
                 >
                     {t!("accounts.remove_yes")}
                 </button>
@@ -835,10 +901,22 @@ fn Adding(
 
 /// One account under administration.
 ///
-/// Somebody else's, always. Opening your own from the list lands on your own
-/// account instead, which is not the same screen and should not be: what is
-/// administration about somebody else — what they may reach, cutting them off,
-/// deleting them — is either meaningless or forbidden about yourself.
+/// Somebody else's, always. Opening your own from the list lands on your own account
+/// instead, which is not the same screen and should not be: what is administration
+/// about somebody else — what they may reach, cutting them off, deleting them — is
+/// either meaningless or forbidden about yourself.
+///
+/// Written in the third person throughout, and it shows nothing that is the owner's
+/// alone: no list of their keys, no list of their sessions, and not their scrobbling
+/// preference. What an administrator gets is the counts and the two blunt
+/// instruments. Knowing that somebody's third key is called "phone" is not
+/// administration, and a screen that showed it would be reading somebody's post.
+///
+/// Nothing here asks for a password either. The server asks for the current one
+/// when the account being changed is the one asking, and this screen is never that.
+///
+/// Only an administrator ever sees it — the route says so — so nothing inside asks
+/// again.
 #[component]
 pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     let params = use_params_map();
@@ -846,6 +924,7 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
 
     let (account, set_account) = signal(Option::<Account>::None);
     let (libraries, set_libraries) = signal(Vec::<Library>::new());
+    let (removing, set_removing) = signal(Option::<Account>::None);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (note, set_note) = signal(Option::<String>::None);
 
@@ -856,6 +935,7 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     // saying where you are.
     {
         let me = who.username.clone();
+        let navigate = navigate.clone();
         Effect::new(move |_| {
             if named() == me {
                 navigate(crate::layout::MINE_PATH, Default::default());
@@ -863,17 +943,15 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
         });
     }
 
-    let reload = {
-        move || {
-            let looking = named();
-            spawn_local(async move {
-                match api::account(&looking).await {
-                    Ok(found) => set_account.set(Some(found)),
-                    Err(Failure::Unauthenticated) => on_expired.run(()),
-                    Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
-                }
-            });
-        }
+    let reload = move || {
+        let looking = named();
+        spawn_local(async move {
+            match api::account(&looking).await {
+                Ok(found) => set_account.set(Some(found)),
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
+            }
+        });
     };
 
     // Follows the URL, so going from one account to another redraws rather than
@@ -883,57 +961,65 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
         reload();
     });
 
-    // Only an administrator may list them, and only an administrator is offered
-    // the restriction, so asking otherwise would be a call answered with 403.
-    if who.admin {
+    spawn_local(async move {
+        if let Ok(list) = api::libraries().await {
+            set_libraries.set(list);
+        }
+    });
+
+    let cut = Callback::new(move |what: Cut| {
+        let looking = named();
+        set_failure.set(None);
+        set_note.set(None);
+
         spawn_local(async move {
-            if let Ok(list) = api::libraries().await {
-                set_libraries.set(list);
+            let outcome = match what {
+                Cut::Sessions => api::close_sessions(&looking)
+                    .await
+                    .map(|done| t!("accounts.closed", count = done.closed).to_string()),
+                Cut::Keys => api::revoke_keys(&looking)
+                    .await
+                    .map(|done| t!("accounts.revoked", count = done.revoked).to_string()),
+            };
+
+            match outcome {
+                // Counted by the server, so the figures are read back rather than
+                // adjusted here.
+                Ok(said) => {
+                    set_note.set(Some(said));
+                    reload();
+                }
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => set_failure.set(Some(said(&why))),
             }
         });
-    }
-
-    let cut = {
-        Callback::new(move |what: Cut| {
-            let looking = named();
-            set_failure.set(None);
-            set_note.set(None);
-
-            spawn_local(async move {
-                let outcome = match what {
-                    Cut::Sessions => api::close_sessions(&looking)
-                        .await
-                        .map(|done| t!("accounts.closed", count = done.closed).to_string()),
-                    Cut::Keys => api::revoke_keys(&looking)
-                        .await
-                        .map(|done| t!("accounts.revoked", count = done.revoked).to_string()),
-                };
-
-                match outcome {
-                    // Counted by the server, so the figures are read back rather
-                    // than adjusted here.
-                    Ok(said) => {
-                        set_note.set(Some(said));
-                        reload();
-                    }
-                    Err(Failure::Unauthenticated) => on_expired.run(()),
-                    Err(why) => set_failure.set(Some(said(&why))),
-                }
-            });
-        })
-    };
+    });
 
     let save = {
+        // Taken here rather than inside the task: what `use_navigate` reads is the
+        // router's context, and by the time an answer comes back there is no telling
+        // whose context is in force.
+        let navigate = navigate.clone();
+
         Callback::new(move |changes: AccountChanges| {
             let looking = named();
+            let navigate = navigate.clone();
             set_failure.set(None);
             set_note.set(None);
 
             spawn_local(async move {
                 match api::change_account(&looking, changes).await {
+                    // The name is one of the things that may have changed, and the URL
+                    // is made of it, so the screen follows: left where it was it would
+                    // name somebody who no longer exists.
                     Ok(fresh) => {
+                        let renamed = fresh.username != looking;
                         set_note.set(Some(t!("common.saved").to_string()));
-                        set_account.set(Some(fresh));
+                        set_account.set(Some(fresh.clone()));
+
+                        if renamed {
+                            navigate(&format!("/accounts/{}", fresh.username), Default::default());
+                        }
                     }
                     Err(Failure::Unauthenticated) => on_expired.run(()),
                     Err(why) => set_failure.set(Some(said(&why))),
@@ -942,63 +1028,77 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
         })
     };
 
-    let restrict = {
-        Callback::new(move |chosen: Vec<i64>| {
-            let looking = named();
-            set_failure.set(None);
+    // No save button of its own: a tick is the whole of the change, and it is stored
+    // as it is made. What a Save under a list of boxes would add is a state where the
+    // boxes say one thing and the server another.
+    let restrict = Callback::new(move |chosen: Vec<i64>| {
+        let looking = named();
+        set_failure.set(None);
 
-            spawn_local(async move {
-                match api::restrict(&looking, chosen).await {
-                    Ok(fresh) => set_account.set(Some(fresh)),
-                    Err(Failure::Unauthenticated) => on_expired.run(()),
-                    Err(why) => set_failure.set(Some(said(&why))),
-                }
-            });
-        })
-    };
+        spawn_local(async move {
+            match api::restrict(&looking, chosen).await {
+                Ok(fresh) => set_account.set(Some(fresh)),
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => set_failure.set(Some(said(&why))),
+            }
+        });
+    });
 
-    let admin = who.admin;
+    let gone = Callback::new(move |name: String| {
+        set_failure.set(None);
+
+        let navigate = navigate.clone();
+        spawn_local(async move {
+            match api::remove_account(&name).await {
+                // Nothing left on this screen, so it goes back to the list rather
+                // than sitting on the account that is no longer there.
+                Ok(()) => navigate("/accounts", Default::default()),
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => set_failure.set(Some(said(&why))),
+            }
+        });
+    });
 
     view! {
         <p class="back">
             <A href="/accounts">{t!("accounts.all")}</A>
         </p>
 
-        {move || {
-            match account.get() {
-                None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
-                Some(account) => {
-                    let username = account.username.clone();
-                    view! {
-                        <div class="titled">
-                            <div>
-                                <h1>{account.username.clone()}</h1>
-                                <p class="quiet lead">
-                                    {account
-                                        .email
-                                        .clone()
-                                        .unwrap_or_else(|| t!("accounts.no_email").to_string())}
-                                </p>
-                            </div>
+        {move || match account.get() {
+            None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
+            Some(account) => {
+                view! {
+                    <header class="titled">
+                        <div>
+                            <h1>{account.username.clone()}</h1>
+                            <p class="quiet lead">{whose_lead(&account)}</p>
                         </div>
 
-                        <div class="panes">
-                            <Who account=account.clone() admin save />
-                            <Access account admin cut libraries restrict />
+                        // The one thing on this screen that cannot be undone, and the
+                        // only reason it is up here with the title rather than at the
+                        // foot of a section: it is about the account as a whole, which
+                        // is what the title names.
+                        <button
+                            class="pill risky"
+                            on:click={
+                                let account = account.clone();
+                                move |_| set_removing.set(Some(account.clone()))
+                            }
+                        >
+                            {t!("accounts.remove")}
+                        </button>
+                    </header>
+
+                    <div class="two">
+                        <div class="forms">
+                            <Theirs account=account.clone() save />
+                            <Reach account=account.clone() libraries restrict />
                         </div>
 
-                        // Named from the account that was read rather than from the
-                        // URL, so going from one account to another cannot leave
-                        // this pointing at the one before: the router reuses this
-                        // screen instead of building it again, and a name taken once
-                        // when it was built would stay taken.
-                        //
-                        // Never your own. The server refuses that, and what it is
-                        // protecting is a server that still has an administrator.
-                        <Danger username on_expired />
-                    }
-                        .into_any()
+                        <TheirAccess account cut libraries />
+                    </div>
                 }
+                    .into_any()
             }
         }}
 
@@ -1006,7 +1106,30 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
         {move || {
             failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
         }}
+
+        <Removing account=removing set_account=set_removing remove=gone />
     }
+}
+
+/// Which they are, when they arrived and whether anybody has used the account since.
+/// Three facts on one line, because none of them is worth a row of its own and
+/// together they answer what somebody opening this screen wants to know first.
+fn whose_lead(account: &Account) -> String {
+    let role = if account.admin {
+        t!("accounts.administrator")
+    } else {
+        t!("accounts.listener")
+    };
+
+    let seen = match account.last_seen_at.as_deref() {
+        Some(at) => t!("accounts.seen_when", when = since(at)).to_string(),
+        None => t!("accounts.never_seen_long").to_string(),
+    };
+
+    format!(
+        "{role} · {} · {seen}",
+        t!("accounts.added_when", day = on_day(&account.created_at))
+    )
 }
 
 /// Which of the two blunt instruments.
@@ -1016,18 +1139,18 @@ enum Cut {
     Keys,
 }
 
-/// Who they are: what can be changed about the account itself.
+/// The account itself: the name, the address, what they are and a password they are
+/// not told.
 ///
-/// Somebody else's, always — your own profile is its own screen, with its own rules
-/// about what has to be proved. Which is why nothing here asks for a password: an
-/// administrator does not have this one, and the server does not ask them for it.
+/// One form and one save. Not one save per field, and not a save per keystroke
+/// either: a name and an address are read back to be checked before they are stored,
+/// which is the difference from the ticks further down.
 #[component]
-fn Who(account: Account, admin: bool, save: Callback<AccountChanges>) -> impl IntoView {
+fn Theirs(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
     let (username, set_username) = signal(account.username.clone());
     let (email, set_email) = signal(account.email.clone().unwrap_or_default());
     let (password, set_password) = signal(String::new());
-    let (is_admin, set_is_admin) = signal(account.admin);
-    let (scrobbling, set_scrobbling) = signal(account.scrobbling);
+    let (admin, set_admin) = signal(account.admin);
 
     let submit = move |event: web_sys::SubmitEvent| {
         event.prevent_default();
@@ -1038,13 +1161,12 @@ fn Who(account: Account, admin: bool, save: Callback<AccountChanges>) -> impl In
             username: Some(username.get().trim().to_string()),
             email: Some(email.get().trim().to_string()),
             password: (!password.is_empty()).then_some(password),
-            // Only an administrator may set this at all, so anybody else sends
-            // nothing rather than sending what it already is.
-            admin: admin.then_some(is_admin.get()),
-            scrobbling: Some(scrobbling.get()),
-            // Nothing to prove: the server asks for the current password only when
-            // the account being changed is the one asking, and this screen is never
-            // that.
+            admin: Some(admin.get()),
+            // Theirs to decide, and this screen never shows it: what somebody does
+            // with their own plays is not administration.
+            scrobbling: None,
+            // Nothing to prove. The server asks for the current password only when
+            // the account being changed is the one asking.
             current_password: None,
         });
 
@@ -1052,279 +1174,241 @@ fn Who(account: Account, admin: bool, save: Callback<AccountChanges>) -> impl In
     };
 
     view! {
-        <section class="pane">
-            <h2>{t!("accounts.who")}</h2>
+        <h2 class="part">{t!("accounts.who")}</h2>
 
-            <form class="stacked" autocomplete="off" on:submit=submit>
-                <div class="field">
-                    <label for="name">{t!("accounts.username")}</label>
+        <form autocomplete="off" on:submit=submit>
+            <div class="settings">
+                <Setting label=t!("accounts.username").to_string()>
                     <input
-                        id="name"
                         required
                         prop:value=username
                         on:input:target=move |e| set_username.set(e.target().value())
                     />
-                </div>
+                </Setting>
 
-                <div class="field">
-                    <label for="mail">{t!("accounts.email")}</label>
+                <Setting label=t!("accounts.email").to_string()>
                     <input
-                        id="mail"
                         type="email"
+                        autocomplete="off"
                         prop:value=email
                         on:input:target=move |e| set_email.set(e.target().value())
                     />
-                </div>
+                </Setting>
 
-                <div class="field">
-                    <label for="pass">{t!("accounts.new_password")}</label>
+                // Two words rather than a tick, because the two are a choice between
+                // states and not a thing to be switched on: a box labelled
+                // "administers the server" says what it does and not what the other
+                // answer would be.
+                <Setting label=t!("accounts.role").to_string() why=t!("accounts.admin_warning")>
+                    <div class="options">
+                        <button
+                            type="button"
+                            class="option"
+                            class:chosen=move || !admin.get()
+                            aria-pressed=move || (!admin.get()).to_string()
+                            on:click=move |_| set_admin.set(false)
+                        >
+                            {t!("accounts.listener")}
+                        </button>
+                        <button
+                            type="button"
+                            class="option"
+                            class:chosen=admin
+                            aria-pressed=move || admin.get().to_string()
+                            on:click=move |_| set_admin.set(true)
+                        >
+                            {t!("accounts.administrator")}
+                        </button>
+                    </div>
+                </Setting>
+
+                <Setting
+                    label=t!("accounts.set_password_row").to_string()
+                    why=t!("accounts.password_lead")
+                >
                     <input
-                        id="pass"
                         type="password"
                         autocomplete="new-password"
                         placeholder=t!("accounts.unchanged")
                         prop:value=password
                         on:input:target=move |e| set_password.set(e.target().value())
                     />
-                    <span class="hint quiet">{t!("accounts.password_note")}</span>
-                </div>
+                </Setting>
+            </div>
 
-                // Together, and closer to each other than to the fields above:
-                // between two switches there is nothing to explain, so the space
-                // that separates a label from its own note only separates these
-                // from each other for no reason.
-                <div class="checks">
-                    <label class="checkbox">
-                        <input
-                            type="checkbox"
-                            prop:checked=scrobbling
-                            on:change:target=move |e| set_scrobbling.set(e.target().checked())
-                        />
-                        {t!("accounts.scrobbling")}
-                    </label>
-
-                    // Offered only to an administrator. Never on their own account
-                    // either, which this screen guarantees by never being their own.
-                    <Show when=move || admin>
-                        <label class="checkbox">
-                            <input
-                                type="checkbox"
-                                prop:checked=is_admin
-                                on:change:target=move |e| set_is_admin.set(e.target().checked())
-                            />
-                            {t!("accounts.is_admin")}
-                        </label>
-                    </Show>
-                </div>
-                <p class="row ends">
-                    <button type="submit" class="pill solid">{t!("common.save")}</button>
-                </p>
-            </form>
-        </section>
+            <div class="saving">
+                <button type="submit" class="pill solid">{t!("profile.save_changes")}</button>
+            </div>
+        </form>
     }
 }
 
-/// What this account can reach, and what it is reaching with.
+/// Which libraries this account may see.
 ///
-/// One pane, because they are the same question asked twice: which libraries it
-/// may see, and which credentials are currently open on it. Two headings for that
-/// was two names for one idea.
+/// Stored as each box is ticked, which is why there is no Save under them. A box is
+/// the whole of its own change and it is already showing the answer; a button under
+/// the grid would only be a way to leave the boxes disagreeing with the server.
+///
+/// Every box ticked is stored as no restriction at all rather than as a list of all
+/// of them, so a library added tomorrow is reachable by everybody who was not
+/// restricted — which is what "no restriction" has to keep meaning.
 #[component]
-fn Access(
+fn Reach(
     account: Account,
-    admin: bool,
-    cut: Callback<Cut>,
     libraries: ReadSignal<Vec<Library>>,
     restrict: Callback<Vec<i64>>,
 ) -> impl IntoView {
-    let sessions = account.sessions;
-    let keys = account.keys;
     let allowed = RwSignal::new(account.libraries.clone());
 
     view! {
-        <section class="pane">
-            <h2>{t!("accounts.access")}</h2>
+        <h2 class="part">{t!("accounts.reach_heading")}</h2>
+        <p class="hint quiet">{t!("accounts.reach_note")}</p>
 
-            // Which libraries, only for an administrator: it is the one thing here
-            // that is a setting rather than a fact, and only they may change it.
-            <Show when=move || admin>
-                <h3>{t!("accounts.reach")}</h3>
-                <p class="hint quiet">
-                    {move || {
-                        if allowed.get().is_empty() {
-                            t!("accounts.reach_all")
-                        } else {
-                            t!("accounts.reach_some")
-                        }
-                    }}
-                </p>
+        <div class="ticks">
+            {move || {
+                libraries
+                    .get()
+                    .into_iter()
+                    .map(|library| {
+                        let id = library.id;
+                        let ticked = move || {
+                            let allowed = allowed.get();
+                            allowed.is_empty() || allowed.contains(&id)
+                        };
 
-                <div class="checks">
-                    {move || {
-                        libraries
-                            .get()
-                            .into_iter()
-                            .map(|library| {
-                                let id = library.id;
-                                let ticked = move || {
-                                    let allowed = allowed.get();
-                                    allowed.is_empty() || allowed.contains(&id)
-                                };
-
-                                view! {
-                                    <label class="checkbox">
-                                        <input
-                                            type="checkbox"
-                                            prop:checked=ticked
-                                            on:change:target=move |event| {
-                                                // Ticking from "all" means naming
-                                                // the rest: an empty list is not a
-                                                // subset to add to, it is the
-                                                // absence of a restriction.
-                                                let mut chosen = allowed.get();
-                                                if chosen.is_empty() {
-                                                    chosen = libraries
-                                                        .get()
-                                                        .iter()
-                                                        .map(|held| held.id)
-                                                        .collect();
-                                                }
-                                                if event.target().checked() {
-                                                    if !chosen.contains(&id) {
-                                                        chosen.push(id);
-                                                    }
-                                                } else {
-                                                    chosen.retain(|held| *held != id);
-                                                }
-                                                // Every one ticked is the same as
-                                                // no restriction, and saying it
-                                                // that way keeps it true as
-                                                // libraries are added.
-                                                if chosen.len() == libraries.get().len() {
-                                                    chosen.clear();
-                                                }
-                                                allowed.set(chosen.clone());
-                                                restrict.run(chosen);
+                        view! {
+                            // A library switched off is out of reach for everybody, so
+                            // the row says so and goes quiet — and stays tickable,
+                            // because switching it back on is somebody else's screen
+                            // and this restriction outlives it.
+                            <label class="tick" class:off=!library.enabled>
+                                <input
+                                    type="checkbox"
+                                    prop:checked=ticked
+                                    on:change:target=move |event| {
+                                        // Ticking from "all" means naming the rest: an
+                                        // empty list is not a subset to add to, it is
+                                        // the absence of a restriction.
+                                        let mut chosen = allowed.get();
+                                        if chosen.is_empty() {
+                                            chosen = libraries
+                                                .get()
+                                                .iter()
+                                                .map(|held| held.id)
+                                                .collect();
+                                        }
+                                        if event.target().checked() {
+                                            if !chosen.contains(&id) {
+                                                chosen.push(id);
                                             }
-                                        />
-                                        {library.name}
-                                    </label>
-                                }
-                            })
-                            .collect_view()
-                    }}
-                </div>
-            </Show>
+                                        } else {
+                                            chosen.retain(|held| *held != id);
+                                        }
+                                        if chosen.len() == libraries.get().len() {
+                                            chosen.clear();
+                                        }
+                                        allowed.set(chosen.clone());
+                                        restrict.run(chosen);
+                                    }
+                                />
 
-            <h3>{t!("accounts.open_now")}</h3>
+                                <span class="what">
+                                    {library.name}
+                                    <span class="path">
+                                        {if library.enabled {
+                                            library.path.clone()
+                                        } else {
+                                            format!("{} · {}", library.path, t!("libraries.off"))
+                                        }}
+                                    </span>
+                                </span>
 
-            // Two columns shared by both rows rather than two rows each with its
-            // own, so the buttons come out the same width without anybody naming
-            // one. Whichever label is longest decides, in any language.
-            //
-            // Each row carries its own note. One note under both of them was read
-            // as belonging to the second, which is where it sat, while it talked
-            // about the first.
-            <div class="paired">
-                <span>
-                    {t!("accounts.sessions", count = sessions)}
-                    <span class="hint quiet">{t!("accounts.sessions_note")}</span>
-                </span>
-                <span class="acts">
-                    <Show when=move || { sessions > 0 }>
-                        <button class="pill risky" on:click=move |_| cut.run(Cut::Sessions)>
-                            {t!("accounts.close_all")}
-                        </button>
-                    </Show>
-                </span>
-
-                <span>
-                    {t!("accounts.keys", count = keys)}
-                    <span class="hint quiet">{t!("accounts.keys_note")}</span>
-                </span>
-                <span class="acts">
-                    <Show when=move || { keys > 0 }>
-                        <button class="pill risky" on:click=move |_| cut.run(Cut::Keys)>
-                            {t!("accounts.revoke_all")}
-                        </button>
-                    </Show>
-                </span>
-            </div>
-        </section>
+                                <span class="figure">{super::thousands(library.tracks)}</span>
+                            </label>
+                        }
+                    })
+                    .collect_view()
+            }}
+        </div>
     }
 }
 
-/// Deleting an account, asked for twice.
+/// What is open on the account, and the two ways to close it.
+///
+/// The counts and the dates, never the things they count: an administrator acts on
+/// somebody's access in bulk, and the per-key detail stays with whoever holds the
+/// key. Which is also why the two buttons are the only actions here — there is no
+/// list to act on one row of.
 #[component]
-fn Danger(username: String, on_expired: Callback<()>) -> impl IntoView {
-    let (confirming, set_confirming) = signal(false);
-    let (failure, set_failure) = signal(Option::<String>::None);
-    let (busy, set_busy) = signal(false);
+fn TheirAccess(
+    account: Account,
+    cut: Callback<Cut>,
+    libraries: ReadSignal<Vec<Library>>,
+) -> impl IntoView {
+    let sessions = account.sessions;
+    let keys = account.keys;
+    let restricted = account.libraries.len();
 
-    let who = StoredValue::new(username);
-
-    let remove = move |_| {
-        set_busy.set(true);
-        set_failure.set(None);
-
-        spawn_local(async move {
-            match api::remove_account(&who.get_value()).await {
-                // Nothing left to show here, so it goes back to the list.
-                Ok(()) => {
-                    if let Some(window) = web_sys::window() {
-                        let _ = window.location().set_href("/accounts");
-                    }
-                }
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(why) => {
-                    set_failure.set(Some(said(&why)));
-                    set_confirming.set(false);
-                }
-            }
-            set_busy.set(false);
-        });
+    let reach = move || match (restricted, libraries.get().len()) {
+        (0, _) => t!("accounts.every_library").to_string(),
+        (some, 0) => some.to_string(),
+        (some, all) => t!("profile.reach_some", some = some, all = all).to_string(),
     };
 
     view! {
-        <section class="pane wide">
-            <h2>{t!("accounts.remove")}</h2>
-            <p class="hint quiet">{t!("accounts.remove_note")}</p>
+        <aside class="rail">
+            <h2 class="part">{t!("accounts.access")}</h2>
+            <dl class="facts">
+                <div>
+                    <dt>{t!("accounts.sessions_short")}</dt>
+                    <dd>{sessions}</dd>
+                </div>
+                <div>
+                    <dt>{t!("accounts.keys_short")}</dt>
+                    <dd>{keys}</dd>
+                </div>
+                <div>
+                    <dt>{t!("accounts.reach")}</dt>
+                    <dd>{reach}</dd>
+                </div>
+                <div>
+                    <dt>{t!("accounts.last_seen")}</dt>
+                    <dd>
+                        {match account.last_seen_at.as_deref() {
+                            Some(at) => since(at),
+                            None => t!("accounts.never_seen").to_string(),
+                        }}
+                    </dd>
+                </div>
+                <div>
+                    <dt>{t!("accounts.password_set")}</dt>
+                    <dd>{since(&account.password_set_at)}</dd>
+                </div>
+            </dl>
 
-            <p class="row">
-                <Show
-                    when=move || confirming.get()
-                    fallback=move || {
+            // Offered only when there is something to stop. Two buttons that would
+            // close nothing are two ways to be told nothing happened.
+            <div class="doings">
+                {(sessions > 0)
+                    .then(|| {
                         view! {
-                            <button
-                                class="pill risky"
-                                disabled=busy
-                                on:click=move |_| set_confirming.set(true)
-                            >
-                                <Glyph icon=Icon::Remove />
-                                {t!("accounts.remove")}
+                            <button class="pill" on:click=move |_| cut.run(Cut::Sessions)>
+                                {t!("accounts.close_theirs")}
                             </button>
                         }
-                    }
-                >
-                    <span class="confirm">
-                        <span>{t!("accounts.remove_sure")}</span>
-                        <button class="pill solid undoing" disabled=busy on:click=remove>
-                            {t!("accounts.remove")}
-                        </button>
-                        <button
-                            class="link"
-                            disabled=busy
-                            on:click=move |_| set_confirming.set(false)
-                        >
-                            {t!("common.cancel")}
-                        </button>
-                    </span>
-                </Show>
-            </p>
+                    })}
+                {(keys > 0)
+                    .then(|| {
+                        view! {
+                            <button class="pill" on:click=move |_| cut.run(Cut::Keys)>
+                                {t!("accounts.revoke_theirs")}
+                            </button>
+                        }
+                    })}
+            </div>
 
-            {move || {
-                failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
-            }}
-        </section>
+            {(sessions > 0 || keys > 0)
+                .then(|| view! { <p class="hint quiet">{t!("accounts.cutting_note")}</p> })}
+        </aside>
     }
 }

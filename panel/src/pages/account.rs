@@ -25,7 +25,7 @@
 //! An administrator opening their own account from the list lands here too, because
 //! there is no version of this that is administration.
 
-use super::{Dots, MISSING, lapse, on_day, said, since, when};
+use super::{Dots, MISSING, Setting, lapse, on_day, said, since, when};
 use crate::accent::{self, Accent};
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
@@ -266,31 +266,6 @@ fn Lately(#[prop(into)] label: Signal<String>, children: Children) -> impl IntoV
             <span>{move || label.get()}</span>
             <span>{children()}</span>
         </li>
-    }
-}
-
-/// A label, what it is for, and whatever sets it.
-///
-/// Two children exactly: the stylesheet gives the first the label column and the
-/// second the control, and lets the second drop under the first when the row runs
-/// out of width.
-#[component]
-fn Setting(
-    label: String,
-    #[prop(optional, into)] why: String,
-    /// The row that answers for all the others, said in the accent.
-    #[prop(optional)]
-    asked: bool,
-    children: Children,
-) -> impl IntoView {
-    view! {
-        <div class="setting" class:asked=asked>
-            <div>
-                <span>{label}</span>
-                {(!why.is_empty()).then(|| view! { <span class="why">{why}</span> })}
-            </div>
-            <div>{children()}</div>
-        </div>
     }
 }
 

@@ -116,9 +116,9 @@ fn Figures(
                 <dl class="facts">
                     <Row label=t!("home.size").to_string() value=bytes(stats.total_size) />
                     <Row label=t!("home.duration").to_string() value=length(stats.total_duration) />
-                    <Row label=t!("home.playlists").to_string() value=thousands(stats.playlists) />
-                    <Row label=t!("home.missing").to_string() value=thousands(stats.missing) />
-                    <Row label=t!("home.libraries").to_string() value=thousands(stats.libraries) />
+                    <Row label=t!("home.playlists").to_string() value=super::thousands(stats.playlists) />
+                    <Row label=t!("home.missing").to_string() value=super::thousands(stats.missing) />
+                    <Row label=t!("home.libraries").to_string() value=super::thousands(stats.libraries) />
                 </dl>
             </section>
 
@@ -128,8 +128,8 @@ fn Figures(
                     <Row label=t!("home.version").to_string() value=stats.version />
                     <Row label=t!("home.database").to_string() value=bytes(stats.database_size) />
                     <Row label=t!("home.last_scan").to_string() value=when(scan) />
-                    <Row label=t!("home.accounts").to_string() value=thousands(stats.users) />
-                    <Row label=t!("home.keys").to_string() value=thousands(stats.keys) />
+                    <Row label=t!("home.accounts").to_string() value=super::thousands(stats.users) />
+                    <Row label=t!("home.keys").to_string() value=super::thousands(stats.keys) />
                 </dl>
             </section>
         </div>
@@ -155,7 +155,7 @@ fn Figures(
 fn Count(figure: i64, label: String, icon: Icon) -> impl IntoView {
     view! {
         <div class="count">
-            <span class="figure">{thousands(figure)}</span>
+            <span class="figure">{super::thousands(figure)}</span>
             <span class="quiet named-figure">
                 <Glyph icon />
                 {label}
@@ -338,7 +338,7 @@ fn LastScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
 }
 
 fn counted(status: Option<Status>, of: fn(&Status) -> u64) -> String {
-    thousands(status.as_ref().map(of).unwrap_or_default() as i64)
+    super::thousands(status.as_ref().map(of).unwrap_or_default() as i64)
 }
 
 /// One figure over its name.
@@ -445,22 +445,6 @@ fn ago(status: &Status) -> String {
     } else {
         ago
     }
-}
-
-/// Grouped with a space, which every language this speaks agrees on and no
-/// language mistakes for a decimal point.
-fn thousands(count: i64) -> String {
-    let digits = count.abs().to_string();
-    let mut out = String::new();
-
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push('\u{202f}');
-        }
-        out.push(digit);
-    }
-
-    if count < 0 { format!("-{out}") } else { out }
 }
 
 /// Powers of two, and the unit spelled the way the standard spells it. Not

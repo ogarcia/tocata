@@ -82,7 +82,15 @@ body {
 [data-accent="crimson"] { --accent: var(--accent-crimson); }
 [data-accent="plum"] { --accent: var(--accent-plum); }
 
-a { color: var(--accent); }
+/* Nothing here is underlined. A link in this panel is a word in the accent, and
+ * every place that wants one had been turning the underline off for itself — the
+ * popover, the rail, the row back to a list — which is three rules saying what one
+ * says. What underlines is a name in a list, on hover, where the underline is the
+ * answer to "is this clickable". */
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
 
 /* --- the frame ----------------------------------------------------------- */
 
@@ -123,7 +131,6 @@ a { color: var(--accent); }
   font-weight: 500;
   letter-spacing: -0.01em;
   color: inherit;
-  text-decoration: none;
   flex: none;
 }
 
@@ -164,7 +171,6 @@ a { color: var(--accent); }
   border-left: 2px solid transparent;
   color: var(--quiet);
   font-size: 14.5px;
-  text-decoration: none;
 }
 
 .side nav a:hover { color: var(--ink); }
@@ -446,7 +452,6 @@ h1 {
 /* No underline, pointed at or not. A link here is said with the accent, and the
  * underline is what the browser draws when nobody has decided anything — the same
  * reason the actions in a library's row lost theirs. */
-.rail .onward a { text-decoration: none; }
 
 /* On a phone. Sixteen pixels is not a taste: anything smaller and iOS zooms the page
  * when the field takes focus, and a page that zooms on focus is a page that has to be
@@ -1022,9 +1027,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 
 /* One rule for an entry in any of them. The popover that opens upward from the
- * account block had a rule of its own with the padding and the size in it and
- * neither the colour nor the decoration, so its three links came out accented and
- * underlined — a browser's idea of a link, in the middle of a menu. */
+ * account block had a rule of its own with the padding and the size in it and not
+ * the colour, so its three links came out accented in the middle of a menu. */
 .menu a, .menu-item, .upward a {
   display: flex;
   align-items: center;
@@ -1033,7 +1037,6 @@ button:disabled { opacity: 0.6; cursor: default; }
   padding: 0.45rem 0.6rem;
   border-radius: 4px;
   color: inherit;
-  text-decoration: none;
   text-align: left;
   font: inherit;
   background: transparent;
@@ -1286,16 +1289,6 @@ button:disabled { opacity: 0.6; cursor: default; }
   gap: 0.4rem;
   color: var(--accent);
 }
-
-/* Buttons in a row rather than stacked the way a form stacks them. */
-/* Space above only. Whatever holds it decides how much, and there is never any
- * below because a row of buttons is the last thing in its box. */
-.row { display: flex; gap: 0.5rem; margin-top: 1.25rem; }
-
-/* Against the right hand edge, with the one that does the thing furthest over:
- * that corner is where a pointer ends up. */
-.row.ends { justify-content: flex-end; }
-.row button { margin: 0; }
 
 /* A path is long, arbitrary and not worth breaking the layout over. */
 .path {
@@ -1597,6 +1590,88 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   text-wrap: pretty;
 }
 
+/* --- what an account may reach ------------------------------------------- */
+
+/* A box per library, in as many columns as fit. Never stretched across a wide
+ * screen: a row whose tick is at the left margin and whose count is nine hundred
+ * pixels away is a row nobody can read across. */
+.ticks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0 56px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+/* The tick, what it is, and how much of it there is. Three columns, so the counts
+ * line up down the grid however long a name is. */
+.tick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.tick input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* The name at the size of ordinary text and in ordinary ink. Inside a `label`
+ * neither is the default: a label is small and quiet, which is right for the word
+ * beside a checkbox and wrong for the name of the thing being ticked. */
+.tick .what {
+  min-width: 0;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* One line and cut off at the end, which is the opposite of what a path does
+ * everywhere else here: in a grid this narrow a wrapped path would make one row
+ * taller than the three beside it. */
+.tick .path {
+  display: block;
+  font-size: 12px;
+  /* Said here because the name above it is in ink and a path inherits from it: what
+   * a path is, everywhere in the panel, is the quiet line under the name. */
+  color: var(--quiet);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tick .figure {
+  font-size: 13px;
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A library switched off is out of reach for everybody, so the row says so and goes
+ * quiet — and stays tickable, because the restriction outlives it being switched
+ * back on. */
+.tick.off { opacity: 0.55; }
+
+/* The rail's own actions, one under the other and each as wide as the rail: there
+ * are two of them and neither is the answer to the other. */
+.rail .doings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rail .doings .pill {
+  width: 100%;
+  justify-content: center;
+}
+
+.rail .hint { margin-top: 10px; }
+
 /* --- the ways into an account -------------------------------------------- */
 
 /* Two lists that belong together: side by side while there is room for both, one
@@ -1763,21 +1838,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   font-size: 14px;
 }
 
-.tail a {
-  white-space: nowrap;
-  text-decoration: none;
-}
-
-/* Asked in place, on the card holding what is about to go, rather than in a box
- * in the middle of the screen that would cover it. */
-.confirm {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-
-.confirm > span { font-size: 0.9rem; }
+.tail a { white-space: nowrap; }
 
 /* Beside a form field or an action, saying what it wants or why it is not
  * offered. */
@@ -1792,19 +1853,8 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * already is, without moving anything. */
 input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
-/* The password that guards the fields above it. Set apart, because everything
- * above is what is being asked for and this is the asking answered — and the two
- * read as one list otherwise. */
 /* A note under a heading, with room before whatever it introduces. */
 .pane > .hint { margin-bottom: 1rem; }
-
-/* Two or three things you can do, together at one end of something. */
-.acts {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
 
 /* --- the dialogue -------------------------------------------------------- */
 
@@ -1939,6 +1989,11 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   border-top: 1px solid var(--line);
 }
 
+/* A sentence standing where that list would have been, and set off from the lead by
+ * as much as the list would have been: without it the two paragraphs read as one,
+ * and the second answers a question the first did not ask. */
+.instead { margin-top: 24px; }
+
 /* Tighter than elsewhere: a dialogue is 440 pixels wide and what it says about what
  * it is handing over is a footnote to the thing itself. */
 .sheet .facts > * {
@@ -2063,7 +2118,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .named {
   color: var(--ink);
   font-weight: 500;
-  text-decoration: none;
 }
 
 .named:hover { text-decoration: underline; }
@@ -2096,41 +2150,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 /* Back to the list, above the heading, small enough not to compete with it. */
 .back { margin-bottom: 0.5rem; font-size: 0.9rem; }
 
-/* One pane that spans both columns of the grid, for what does not pair with
- * anything. */
-.pane.wide { grid-column: 1 / -1; margin-top: 0.75rem; }
-
-/* Pairs of label and action, in two columns shared by every row. The buttons come
- * out the same width because the column is as wide as the widest of them, which is
- * the same reason a table's columns line up. */
-.paired {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 0.7rem 1rem;
-}
-
-.paired .acts { justify-content: stretch; }
-.paired button { width: 100%; margin: 0; }
-
-/* Name over note in the left column, both centred against the button on the
- * right, so the three read as one row. */
-.paired > span:not(.acts) {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.paired .hint { margin: 0; }
-
-/* Switches read as a set, so they sit closer together than fields do. A field
- * needs room for the note under it; a switch is its own label and needs none. */
-.checks {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
 /* The box before its words, both clickable, and the cursor saying so. */
 .checkbox {
   display: flex;
@@ -2147,13 +2166,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   margin: 0;
   padding: 0;
   accent-color: var(--accent);
-}
-
-/* A form inside a pane: fields stacked, gap doing the spacing. */
-.stacked {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
 }
 
 /* The one moment a key can be read. Given room, and set in the typeface that

@@ -125,14 +125,10 @@ accounts:
   add_lead: "Puede entrar desde el primer momento. Las bibliotecas se le limitan después, si hace falta."
   heading: Cuentas
   wrong_password: "Esa no es tu contraseña actual"
-  sessions_note: "Le cierra el panel en todos sus navegadores."
-  keys_note: "Cambiar la contraseña no las revoca."
-  open_now: "Abierto ahora"
   sessions_short: "Sesiones"
   keys_short: "Claves"
   remove: "Eliminar la cuenta"
   remove_note: "Se lleva la cuenta y todo lo que solo era suyo: sus sesiones, sus claves, sus favoritos, valoraciones, reproducciones, listas y marcadores."
-  remove_sure: "¿Eliminarla con todo lo suyo?"
   lead: Quién puede llegar a la colección.
   add: Añadir cuenta
   username: Usuario
@@ -144,18 +140,10 @@ accounts:
   who: La cuenta
   new_password: Contraseña nueva
   unchanged: Vacío para dejarla como está
-  password_note: Cambiarla cierra sus otras sesiones del panel. Las claves de API siguen valiendo.
-  scrobbling: Enviar las reproducciones a un servicio de scrobbling
   access: Acceso
-  sessions: "%{count} sesiones del panel abiertas"
-  keys: "%{count} claves de API"
-  close_all: Cerrarlas todas
-  revoke_all: Revocarlas todas
   closed: "%{count} sesiones cerradas"
   revoked: "%{count} claves revocadas"
   reach: Bibliotecas
-  reach_all: Todas las bibliotecas activas. Desmarca una para restringir esta cuenta.
-  reach_some: Solo las marcadas. Márcalas todas para levantar la restricción.
   taken: Ese nombre ya está en uso
   invalid: Algo de lo introducido no es válido
   not_allowed: El servidor no lo permite
@@ -188,6 +176,12 @@ accounts:
   revoke_theirs: "Revocar sus claves"
   remove_menu: "Eliminar la cuenta…"
   remove_yes: "Eliminarla"
+  favourites: "Favoritos"
+  ratings: "Valoraciones"
+  plays: "Reproducciones"
+  playlists: "Listas de reproducción"
+  bookmarks: "Marcadores"
+  holds_nothing: "No cuelga nada más de esta cuenta."
   remove_this: "¿Eliminar la cuenta de %{name}?"
   type_name: "Escribe %{name} para confirmar"
   password_lead: "No se le avisa: dísela tú. Al cambiarla se le cierran las sesiones del panel."
@@ -195,6 +189,18 @@ accounts:
   now_admin: "%{name} ya administra el servidor"
   now_listener: "%{name} ya no administra el servidor"
   removed: "Se ha eliminado %{name}"
+
+  # Administrar una cuenta ajena. En tercera persona, y sin nada que solo sea de
+  # su dueño: ni sus claves, ni sus sesiones, ni lo que hace con lo que escucha.
+  admin_warning: "Un administrador llega a todas las bibliotecas y a todas las cuentas, incluida la tuya."
+  set_password_row: "Poner una contraseña nueva"
+  reach_heading: "A qué puede llegar"
+  reach_note: "Márcalas todas para levantar la restricción del todo; una biblioteca apagada queda fuera del alcance de todo el mundo."
+  added_when: "añadida el %{day}"
+  seen_when: "vista %{when}"
+  never_seen_long: "sin usar todavía"
+  password_set: "Contraseña puesta"
+  cutting_note: "Cerrar las sesiones le saca del panel en todos sus navegadores. Revocar las claves detiene los clientes que reproducen su música."
 
 keys:
   issue_lead: "Para un cliente que entra con una clave en lugar de con tu contraseña."

@@ -222,6 +222,12 @@ pub async fn restrict(username: &str, libraries: Vec<i64>) -> Result<Account, Fa
     .await
 }
 
+/// What only this account has, counted. Asked when something is about to say what
+/// deleting it would cost.
+pub async fn holdings(username: &str) -> Result<tocata::types::Holdings, Failure> {
+    read(get(&format!("/users/{username}/holdings"))?).await
+}
+
 /// The keys an account holds, without the keys themselves.
 pub async fn keys(username: &str) -> Result<Vec<Key>, Failure> {
     read(get(&format!("/users/{username}/keys"))?).await

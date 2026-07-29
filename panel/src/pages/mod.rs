@@ -113,6 +113,47 @@ pub fn Dots(
     }
 }
 
+/// A label, what it is for, and whatever sets it.
+///
+/// Two children exactly: the stylesheet gives the first the label column and the
+/// second the control, and lets the second drop under the first when the row runs
+/// out of width.
+#[component]
+pub fn Setting(
+    label: String,
+    #[prop(optional, into)] why: String,
+    /// The row that answers for all the others, said in the accent.
+    #[prop(optional)]
+    asked: bool,
+    children: Children,
+) -> impl IntoView {
+    view! {
+        <div class="setting" class:asked=asked>
+            <div>
+                <span>{label}</span>
+                {(!why.is_empty()).then(|| view! { <span class="why">{why}</span> })}
+            </div>
+            <div>{children()}</div>
+        </div>
+    }
+}
+
+/// Grouped with a space, which every language this speaks agrees on and no
+/// language mistakes for a decimal point.
+pub fn thousands(count: i64) -> String {
+    let digits = count.abs().to_string();
+    let mut out = String::new();
+
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push('\u{202f}');
+        }
+        out.push(digit);
+    }
+
+    if count < 0 { format!("-{out}") } else { out }
+}
+
 /// How long ago a moment was, said the way somebody would say it.
 ///
 /// Relative rather than absolute wherever the point is recency: "2 h ago" is what

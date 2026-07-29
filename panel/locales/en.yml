@@ -129,14 +129,10 @@ accounts:
   add_lead: "They can sign in straight away. Which libraries they may reach is set afterwards, if it needs setting."
   heading: Accounts
   wrong_password: "That is not your current password"
-  sessions_note: "Logs them out of the panel in every browser."
-  keys_note: "Changing a password does not revoke these."
-  open_now: "Open now"
   sessions_short: "Sessions"
   keys_short: "Keys"
   remove: "Delete the account"
   remove_note: "Takes the account and everything only it had: its sessions, its keys, its favourites, ratings, play counts, playlists and bookmarks."
-  remove_sure: "Delete it and everything of theirs?"
   lead: Who can reach the collection.
   add: Add an account
   username: Username
@@ -148,18 +144,10 @@ accounts:
   who: The account
   new_password: New password
   unchanged: Leave empty to keep it
-  password_note: Changing it closes their other panel sessions. API keys keep working.
-  scrobbling: Pass plays on to a scrobbling service
   access: Access
-  sessions: "%{count} panel sessions open"
-  keys: "%{count} API keys"
-  close_all: Close them all
-  revoke_all: Revoke them all
   closed: "%{count} sessions closed"
   revoked: "%{count} keys revoked"
   reach: Libraries
-  reach_all: Every library that is switched on. Untick one to restrict this account.
-  reach_some: Only the ones ticked. Tick them all to lift the restriction.
   taken: That name is taken
   invalid: Something in there is not valid
   not_allowed: The server would not allow that
@@ -192,6 +180,12 @@ accounts:
   revoke_theirs: "Revoke their keys"
   remove_menu: "Delete the account…"
   remove_yes: "Delete it"
+  favourites: "Favourites"
+  ratings: "Ratings"
+  plays: "Plays"
+  playlists: "Playlists"
+  bookmarks: "Bookmarks"
+  holds_nothing: "Nothing else hangs off this account."
   remove_this: "Delete %{name}'s account?"
   type_name: "Type %{name} to confirm"
   password_lead: "They are not told: tell them yourself. Changing it closes their panel sessions."
@@ -199,6 +193,19 @@ accounts:
   now_admin: "%{name} now administers the server"
   now_listener: "%{name} no longer administers the server"
   removed: "%{name} is gone"
+
+  # Administering somebody else's account. In the third person, and with nothing
+  # that is the owner's alone: not their keys, not their sessions, not what they do
+  # with what they listen to.
+  admin_warning: "An administrator can reach every library and every account, yours included."
+  set_password_row: "Set a new password"
+  reach_heading: "What they may reach"
+  reach_note: "Tick every library to lift the restriction altogether; a library switched off later is out of reach for everybody."
+  added_when: "added %{day}"
+  seen_when: "last seen %{when}"
+  never_seen_long: "never used yet"
+  password_set: "Password set"
+  cutting_note: "Closing sessions logs them out of the panel everywhere. Revoking keys stops the clients that play their music."
 
 keys:
   issue_lead: "For a client that signs in with a key instead of with your password."
