@@ -237,13 +237,21 @@ pub async fn rotate_key(username: &str, id: i64) -> Result<tocata::types::Issued
     read(post(&format!("/users/{username}/keys/{id}/rotate"), &())?).await
 }
 
-pub async fn revoke_key(username: &str, id: i64) -> Result<(), Failure> {
+/// Withdraws a key. Whatever holds it stops working, and the key stays in the
+/// listing, revoked, until it is removed.
+pub async fn revoke_key(username: &str, id: i64) -> Result<Key, Failure> {
+    read(post(&format!("/users/{username}/keys/{id}/revoke"), &())?).await
+}
+
+/// Takes a revoked or expired key out of the listing. The server refuses one that
+/// still works, which is what makes the two steps two steps.
+pub async fn remove_key(username: &str, id: i64) -> Result<(), Failure> {
     plain(delete(&format!("/users/{username}/keys/{id}"))?).await
 }
 
-/// Cuts an account off from every client holding a key.
+/// Cuts an account off from every client holding a key. The rows stay, revoked.
 pub async fn revoke_keys(username: &str) -> Result<Revoked, Failure> {
-    read(delete(&format!("/users/{username}/keys"))?).await
+    read(post(&format!("/users/{username}/keys/revoke"), &())?).await
 }
 
 /// The panel logins an account has open.
@@ -255,7 +263,7 @@ pub async fn close_session(username: &str, id: i64) -> Result<(), Failure> {
     plain(delete(&format!("/users/{username}/sessions/{id}"))?).await
 }
 
-/// Closes all of them, this one included when the account is yours.
+/// Closes every one of them except the one asking, so this never logs you out.
 pub async fn close_sessions(username: &str) -> Result<Closed, Failure> {
     read(delete(&format!("/users/{username}/sessions"))?).await
 }

@@ -25,7 +25,7 @@
 //! An administrator opening their own account from the list lands here too, because
 //! there is no version of this that is administration.
 
-use super::{said, when};
+use super::{MISSING, lapse, on_day, said, since, when};
 use crate::accent::{self, Accent};
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
@@ -147,7 +147,7 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
 /// each fills its own lines as it lands.
 #[component]
 fn Rail(account: Account, on_expired: Callback<()>) -> impl IntoView {
-    let (since, set_since) = signal(Option::<String>::None);
+    let (started, set_started) = signal(Option::<String>::None);
     let (used, set_used) = signal(Option::<(String, String)>::None);
     let (all, set_all) = signal(Option::<usize>::None);
 
@@ -157,7 +157,7 @@ fn Rail(account: Account, on_expired: Callback<()>) -> impl IntoView {
         // Whichever of them is this one. The server marks it, because only the server
         // knows which token arrived.
         if let Ok(logins) = api::sessions(&me.get_value()).await {
-            set_since.set(
+            set_started.set(
                 logins
                     .into_iter()
                     .find(|one| one.current)
@@ -211,7 +211,9 @@ fn Rail(account: Account, on_expired: Callback<()>) -> impl IntoView {
                 <Fact label=t!("profile.api_keys").to_string()>{account.keys.to_string()}</Fact>
                 <Fact label=t!("profile.reach").to_string()>{move || reach()}</Fact>
                 <Fact label=t!("profile.this_session").to_string()>
-                    {move || since.get().map(|at| when(&at)).unwrap_or_else(|| MISSING.to_string())}
+                    {move || {
+                        started.get().map(|at| when(&at)).unwrap_or_else(|| MISSING.to_string())
+                    }}
                 </Fact>
             </dl>
 
@@ -267,9 +269,6 @@ fn Lately(#[prop(into)] label: Signal<String>, children: Children) -> impl IntoV
         </li>
     }
 }
-
-/// Stands in for a moment nothing has reported yet.
-const MISSING: &str = "—";
 
 /// A label, what it is for, and whatever sets it.
 ///
@@ -496,19 +495,177 @@ fn Listening(account: Account, save: Callback<AccountChanges>) -> impl IntoView 
 /// Both are yours to look at one at a time, which is the difference from what an
 /// administrator sees: they get to cut you off, and cutting somebody off does not
 /// need to know that your third key is called "phone".
+///
+/// Two lists rather than two tables. Each row is a name and one line under it
+/// joining what a table gave three columns to, which is what lets the two lists
+/// sit side by side: a key and a login are the same shape, and the shape is a
+/// heading with a sentence under it.
+///
+/// The lists are loaded here and the figures over them are read out of the very
+/// same lists. A count asked of the server separately would be a second answer to
+/// a question already on the screen, and the two would disagree the moment
+/// something was revoked in another tab.
 #[component]
 pub fn Access(who: Identity, on_expired: Callback<()>) -> impl IntoView {
+    let (keys, set_keys) = signal(Option::<Vec<tocata::types::Key>>::None);
+    let (logins, set_logins) = signal(Option::<Vec<tocata::types::Login>>::None);
+    let (changed, set_changed) = signal(Option::<String>::None);
+
+    let me = StoredValue::new(who.username.clone());
+
+    // The one thing on this screen that neither list knows: when the password was
+    // last set. It is a figure here and a line at the foot of the sessions, and
+    // changing it is on the other screen, which is where the link goes.
+    spawn_local(async move {
+        if let Ok(account) = api::account(&me.get_value()).await {
+            set_changed.set(Some(account.password_set_at));
+        }
+    });
+
     view! {
-        <div class="titled">
+        <header class="titled">
             <div>
                 <h1>{t!("nav.access")}</h1>
                 <p class="quiet lead">{t!("access.lead")}</p>
             </div>
-        </div>
+        </header>
 
-        <MyKeys username=who.username.clone() on_expired />
-        <MySessions username=who.username on_expired />
+        <Figures keys logins changed />
+
+        <div class="lists">
+            <MyKeys username=who.username.clone() keys set_keys on_expired />
+            <MySessions username=who.username logins set_logins changed on_expired />
+        </div>
     }
+}
+
+/// The four figures across the top: what still opens the account, and how long it
+/// has been since either of the two things that do was used.
+///
+/// Durations rather than dates, and short ones. "5 h" over "since a key was used"
+/// answers the question somebody came here with; the date it happened is in the
+/// row that says which key it was.
+#[component]
+fn Figures(
+    keys: ReadSignal<Option<Vec<tocata::types::Key>>>,
+    logins: ReadSignal<Option<Vec<tocata::types::Login>>>,
+    changed: ReadSignal<Option<String>>,
+) -> impl IntoView {
+    // The ones that still open something. Revoked and expired keys stay in the
+    // listing on purpose, so counting rows would count keys that do nothing.
+    let working = move || {
+        keys.get().map(|list| {
+            list.iter()
+                .filter(|key| standing(key) == Standing::Live)
+                .count()
+                .to_string()
+        })
+    };
+
+    let open = move || logins.get().map(|list| list.len().to_string());
+
+    // The most recent use across every key, whichever key that was: the figure is
+    // how long the clients have been quiet, and one of several being busy is the
+    // answer for all of them.
+    let used = move || {
+        keys.get().and_then(|list| {
+            list.iter()
+                .filter_map(|key| key.last_used_at.clone())
+                .max()
+                .map(|at| lapse(&at))
+        })
+    };
+
+    let password = move || changed.get().map(|at| lapse(&at));
+
+    view! {
+        <div class="counts">
+            <Tally
+                label=t!("access.keys_in_use").to_string()
+                figure=Signal::derive(working)
+            />
+            <Tally
+                label=t!("access.sessions_open").to_string()
+                figure=Signal::derive(open)
+            />
+            <Tally label=t!("access.since_used").to_string() figure=Signal::derive(used) />
+            <Tally
+                label=t!("access.since_password").to_string()
+                figure=Signal::derive(password)
+            />
+        </div>
+    }
+}
+
+/// One figure over what it counts, with a dash until the answer arrives.
+#[component]
+fn Tally(label: String, figure: Signal<Option<String>>) -> impl IntoView {
+    view! {
+        <div class="count">
+            <span class="figure">
+                {move || figure.get().unwrap_or_else(|| MISSING.to_string())}
+            </span>
+            <span class="quiet">{label}</span>
+        </div>
+    }
+}
+
+/// Which of three states a key is in, which is what decides both what its row
+/// offers and what the line under its name says.
+///
+/// Revoked beats expired. A key that was withdrawn and then ran out was withdrawn,
+/// and the moment worth reporting is the one somebody caused.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// It opens the account. The only state with anything left to stop.
+    Live,
+    /// Its date has passed. It stopped on its own, so there is nothing to revoke
+    /// and it can go straight out of the listing.
+    Expired,
+    /// Withdrawn, and final: there is no way back to a key that works, only the
+    /// way out.
+    Revoked,
+}
+
+fn standing(key: &tocata::types::Key) -> Standing {
+    if key.revoked_at.is_some() {
+        Standing::Revoked
+    } else if key.expired {
+        Standing::Expired
+    } else {
+        Standing::Live
+    }
+}
+
+/// The line under a key's name: when it was last used, what it does about
+/// expiring, and either when it was made or that it is finished.
+///
+/// Joined rather than laid out. What each part says depends on the state, and
+/// three columns for it would be three columns two of which are usually empty.
+fn key_line(key: &tocata::types::Key) -> String {
+    let used = match key.last_used_at.as_deref() {
+        Some(at) => t!("keys.used", when = since(at)).to_string(),
+        None => t!("keys.unused").to_string(),
+    };
+
+    let made = || t!("keys.created", when = since(&key.created_at)).to_string();
+    let dead = || t!("keys.dead").to_string();
+
+    // Read off the two timestamps rather than off the state above, because three of
+    // the four branches have a moment to say and this is where it is in hand.
+    let (until, note) = match (key.revoked_at.as_deref(), key.expires_at.as_deref()) {
+        (Some(at), _) => (
+            t!("keys.revoked_when", when = since(at)).to_string(),
+            dead(),
+        ),
+        (None, Some(at)) if key.expired => {
+            (t!("keys.ran_out", day = on_day(at)).to_string(), dead())
+        }
+        (None, Some(at)) => (t!("keys.expires", day = on_day(at)).to_string(), made()),
+        (None, None) => (t!("keys.forever").to_string(), made()),
+    };
+
+    [used, until, note].join(" · ")
 }
 
 /// How the panel looks and speaks to you.
@@ -712,7 +869,8 @@ fn accent_label(accent: &str) -> String {
     }
 }
 
-/// Your own keys: making them, rotating them, taking them away.
+/// Your own keys: making them, rotating them, withdrawing them, and finally
+/// taking them out of the list.
 ///
 /// A key is readable once, when it is made and when it is rotated. What the
 /// database keeps is a hash, so there is no second chance to look at it.
@@ -722,9 +880,17 @@ fn accent_label(accent: &str) -> String {
 /// appeared and disappeared — moving everything under it — and a piece of state
 /// somebody had to remember to clear when the key it belonged to was revoked.
 /// A dialogue closes, and closing it is the clearing.
+///
+/// Every row keeps its menu, where a session gets a single word. A session can
+/// only be closed; a key can be rotated as well as withdrawn, and the way to
+/// offer two things is not to put one of them behind the other's name.
 #[component]
-fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
-    let (keys, set_keys) = signal(Option::<Vec<tocata::types::Key>>::None);
+fn MyKeys(
+    username: String,
+    keys: ReadSignal<Option<Vec<tocata::types::Key>>>,
+    set_keys: WriteSignal<Option<Vec<tocata::types::Key>>>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
     let (asking, set_asking) = signal(false);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (busy, set_busy) = signal(false);
@@ -763,17 +929,30 @@ fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
                     Err(why) => set_failure.set(Some(said(&why))),
                 },
                 KeyAction::Revoke => match api::revoke_key(&who.get_value(), id).await {
-                    Ok(()) => load(),
+                    Ok(_) => load(),
                     Err(Failure::Unauthenticated) => on_expired.run(()),
                     Err(why) => set_failure.set(Some(said(&why))),
+                },
+                KeyAction::Remove => match api::remove_key(&who.get_value(), id).await {
+                    Ok(()) => load(),
+                    Err(Failure::Unauthenticated) => on_expired.run(()),
+                    // A conflict here is the server saying the key still works,
+                    // which the row it was pressed on did not offer: it takes
+                    // another tab having brought the key back into use.
+                    Err(why) => set_failure.set(Some(match &why {
+                        Failure::Refused(code) if code == "conflict" => {
+                            t!("keys.revoke_first").to_string()
+                        }
+                        other => said(other),
+                    })),
                 },
             }
             set_busy.set(false);
         });
     });
 
-    // Asked for twice, because it is every client at once and the list it empties
-    // is the only place their names were.
+    // Asked for twice, because it is every client at once and there is no
+    // unrevoking: what it stops has to be given a new key to start again.
     let revoke_all = move |_| {
         set_busy.set(true);
         set_cutting.set(false);
@@ -789,78 +968,82 @@ fn MyKeys(username: String, on_expired: Callback<()>) -> impl IntoView {
         });
     };
 
-    // Only worth offering for more than one. With a single key it is the same
-    // action as the one already in its row, under a name that sounds bigger.
-    let several = move || keys.get().is_some_and(|list| list.len() > 1);
+    // The ones it would actually stop, which is also what it says: with one key
+    // left working it is the action already in that key's own row, under a name
+    // that sounds bigger.
+    let working = move || {
+        keys.get().map_or(0, |list| {
+            list.iter()
+                .filter(|key| standing(key) == Standing::Live)
+                .count()
+        })
+    };
+
+    let several = move || working() > 1;
 
     view! {
-        <section class="pane wide">
-            <div class="pane-head">
-                <div>
-                    <h2>{t!("keys.heading")}</h2>
-                    <p class="hint quiet">{t!("keys.lead")}</p>
-                </div>
-                <span class="acts">
-                    <Show when=move || several() && !cutting.get()>
-                        <button
-                            class="pill risky"
-                            disabled=busy
-                            on:click=move |_| set_cutting.set(true)
-                        >
-                            {t!("profile.revoke_all")}
-                        </button>
-                    </Show>
-                    <Show when=move || cutting.get()>
-                        <span class="confirm">
-                            <span>{t!("keys.revoke_sure")}</span>
-                            <button class="pill solid undoing" disabled=busy on:click=revoke_all>
-                                {t!("keys.revoke")}
-                            </button>
-                            <button
-                                class="link"
-                                disabled=busy
-                                on:click=move |_| set_cutting.set(false)
-                            >
-                                {t!("common.cancel")}
-                            </button>
-                        </span>
-                    </Show>
-                    <button class="pill solid" on:click=move |_| set_asking.set(true)>
-                        <Glyph icon=Icon::Add />
-                        {t!("keys.issue")}
-                    </button>
-                </span>
+        <section class="pane">
+            // The action that adds to the list, beside the name of the list. A pill
+            // here would be the loudest thing in a column of hairlines, and what it
+            // opens is a dialogue that asks for two words.
+            <div class="parted">
+                <h2>{t!("keys.heading")}</h2>
+                <button class="offer" on:click=move |_| set_asking.set(true)>
+                    <Glyph icon=Icon::Add />
+                    {t!("keys.issue")}
+                </button>
             </div>
+            <p class="hint quiet">{t!("keys.lead")}</p>
 
             {move || match keys.get() {
                 None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
                 Some(list) if list.is_empty() => {
-                    view! { <p class="quiet">{t!("keys.none")}</p> }.into_any()
+                    view! { <p class="nothing">{t!("keys.none")}</p> }.into_any()
                 }
                 Some(list) => {
                     view! {
-                        <div class="scrolls">
-                            <table class="listing">
-                                <thead>
-                                    <tr>
-                                        <th>{t!("keys.label")}</th>
-                                        <th>{t!("keys.until")}</th>
-                                        <th>{t!("keys.last_use")}</th>
-                                        <th class="figure">{t!("keys.actions")}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {list
-                                        .into_iter()
-                                        .map(|key| view! { <KeyRow key act busy /> })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
+                        <ul class="ways keyed">
+                            {list
+                                .into_iter()
+                                .map(|key| view! { <KeyRow key act busy /> })
+                                .collect_view()}
+                        </ul>
                     }
                         .into_any()
                 }
             }}
+
+            // At the foot of the list rather than at the top of it: what makes
+            // somebody reach for this is having read the list and found a name they
+            // no longer trust. Phrased as the question that brings them here, so the
+            // answer beside it can be the plain word for what it does.
+            <Show when=several>
+                <p class="after">
+                    <Show
+                        when=move || cutting.get()
+                        fallback=move || {
+                            view! {
+                                <span>{t!("keys.lost_device")}</span>
+                                <button
+                                    class="link risky"
+                                    disabled=busy
+                                    on:click=move |_| set_cutting.set(true)
+                                >
+                                    {t!("keys.revoke_all", count = working())}
+                                </button>
+                            }
+                        }
+                    >
+                        <span>{t!("keys.revoke_all_sure")}</span>
+                        <button class="link risky" disabled=busy on:click=revoke_all>
+                            {t!("keys.revoke_all_yes")}
+                        </button>
+                        <button class="link" disabled=busy on:click=move |_| set_cutting.set(false)>
+                            {t!("common.cancel")}
+                        </button>
+                    </Show>
+                </p>
+            </Show>
 
             {move || {
                 failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
@@ -1115,9 +1298,18 @@ fn NewKeySheet(
 enum KeyAction {
     Rotate,
     Revoke,
+    Remove,
 }
 
-/// One key as a row, with its actions behind the dots.
+/// One key as a row: the glyph, its name, the sentence under it, and its actions
+/// behind the dots.
+///
+/// What the menu offers is what the key's state leaves to be done. A working key
+/// can be given a new secret or withdrawn; one that has stopped working, whether
+/// it was withdrawn or ran out, can only go. Removing is never offered beside
+/// revoking, because the two are the same step twice and the order is the point:
+/// the row is where the key's name is, and the name is the only thing a revocation
+/// can be checked against afterwards.
 #[component]
 fn KeyRow(
     key: tocata::types::Key,
@@ -1129,12 +1321,14 @@ fn KeyRow(
     let (at, set_at) = signal((0.0, 0.0));
 
     let id = key.id;
-    let expired = key.expired;
+    let state = standing(&key);
+    let line = key_line(&key);
+    let label = key.label;
 
-    // Fixed to the viewport rather than positioned inside the cell, because the
-    // box around the table scrolls sideways and anything that overflows a
-    // scrolling box is clipped by it. Fixed escapes that; the price is working out
-    // where to put it, which is one rectangle.
+    // Fixed to the viewport rather than hung off the row, because the menu is
+    // taller than the row it belongs to and the column it sits in is the narrow
+    // one. Fixed escapes whatever might clip it; the price is working out where to
+    // put it, which is one rectangle.
     let toggle = move |event: web_sys::MouseEvent| {
         if let Some(button) = event
             .current_target()
@@ -1148,29 +1342,25 @@ fn KeyRow(
     };
 
     view! {
-        <tr class:off=move || expired>
-            <td>{key.label}</td>
-            <td class="quiet">
-                {key
-                    .expires_at
-                    .as_deref()
-                    .map(|at| {
-                        if expired {
-                            t!("keys.expired", when = when(at)).to_string()
-                        } else {
-                            when(at)
-                        }
-                    })
-                    .unwrap_or_else(|| t!("keys.forever").to_string())}
-            </td>
-            <td class="quiet">
-                {key
-                    .last_used_at
-                    .as_deref()
-                    .map(when)
-                    .unwrap_or_else(|| t!("keys.unused").to_string())}
-            </td>
-            <td class="figure">
+        <li class:off=move || state != Standing::Live>
+            <span class="mark">
+                <Glyph icon=Icon::Key />
+            </span>
+
+            <span class="what">
+                {label}
+                {match state {
+                    Standing::Live => ().into_any(),
+                    Standing::Expired => {
+                        view! { <span class="tag">{t!("keys.is_expired")}</span> }.into_any()
+                    }
+                    Standing::Revoked => {
+                        view! { <span class="tag">{t!("keys.is_revoked")}</span> }.into_any()
+                    }
+                }}
+            </span>
+
+            <span class="doing">
                 <button
                     class="dots"
                     title=t!("keys.actions")
@@ -1190,40 +1380,69 @@ fn KeyRow(
                             format!("top: {top}px; right: calc(100vw - {right}px)")
                         }
                     >
-                        <button
-                            class="menu-item"
-                            on:click=move |_| {
-                                set_open.set(false);
-                                act.run((KeyAction::Rotate, id));
-                            }
-                        >
-                            <Glyph icon=Icon::Rotate />
-                            {t!("keys.rotate")}
-                        </button>
-                        <button
-                            class="menu-item"
-                            on:click=move |_| {
-                                set_open.set(false);
-                                act.run((KeyAction::Revoke, id));
-                            }
-                        >
-                            <Glyph icon=Icon::Remove />
-                            {t!("keys.revoke")}
-                        </button>
+                        <Show when=move || state == Standing::Live>
+                            <button
+                                class="menu-item"
+                                on:click=move |_| {
+                                    set_open.set(false);
+                                    act.run((KeyAction::Rotate, id));
+                                }
+                            >
+                                <Glyph icon=Icon::Rotate />
+                                {t!("keys.rotate")}
+                            </button>
+                            <button
+                                class="menu-item"
+                                on:click=move |_| {
+                                    set_open.set(false);
+                                    act.run((KeyAction::Revoke, id));
+                                }
+                            >
+                                <Glyph icon=Icon::Remove />
+                                {t!("keys.revoke")}
+                            </button>
+                        </Show>
+
+                        <Show when=move || state != Standing::Live>
+                            <button
+                                class="menu-item"
+                                on:click=move |_| {
+                                    set_open.set(false);
+                                    act.run((KeyAction::Remove, id));
+                                }
+                            >
+                                <Glyph icon=Icon::Remove />
+                                {t!("keys.remove")}
+                            </button>
+                        </Show>
                     </div>
                 </Show>
-            </td>
-        </tr>
+            </span>
+
+            <span class="said">{line}</span>
+        </li>
     }
 }
 
 /// Your own panel sessions, and closing them.
 ///
-/// The same table as the keys above, because the values are the same shape: two
-/// dates and one thing you can do about them.
+/// The same rows as the keys beside them, because the two are the same shape: a
+/// name, one line saying since when and until when, and one thing to do about it.
+/// A session has only ever had the one, so it is a word in the row rather than a
+/// word behind a menu.
+///
+/// The column ends with the password, because that is what somebody who came here
+/// to shut a browser out thinks of next — and it is a line saying when it changed
+/// and a link to the screen that changes it, not a form. Two screens with the same
+/// field on them is two places to get it wrong.
 #[component]
-fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
-    let (sessions, set_sessions) = signal(Option::<Vec<tocata::types::Login>>::None);
+fn MySessions(
+    username: String,
+    logins: ReadSignal<Option<Vec<tocata::types::Login>>>,
+    set_logins: WriteSignal<Option<Vec<tocata::types::Login>>>,
+    changed: ReadSignal<Option<String>>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
     let (failure, set_failure) = signal(Option::<String>::None);
     let (busy, set_busy) = signal(false);
 
@@ -1232,7 +1451,7 @@ fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
     let load = move || {
         spawn_local(async move {
             match api::sessions(&who.get_value()).await {
-                Ok(list) => set_sessions.set(Some(list)),
+                Ok(list) => set_logins.set(Some(list)),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
             }
@@ -1256,107 +1475,137 @@ fn MySessions(username: String, on_expired: Callback<()>) -> impl IntoView {
         });
     };
 
-    // Every one of them, this one included, which is why it needs no confirming
-    // beyond what it says: it is the log out button with a wider reach, and the
-    // worst it can do is make somebody log in again.
-    let close_all = move |_| {
+    // Every one of them except this one, which is why it needs no confirming: this
+    // is the screen somebody is doing it from, and the only thing that should take
+    // them out of it is the button that says Log out. The worst it can do is make
+    // somebody log in again somewhere they are not sitting.
+    let close_others = move |_| {
         set_busy.set(true);
         set_failure.set(None);
 
         spawn_local(async move {
             match api::close_sessions(&who.get_value()).await {
-                Ok(_) => on_expired.run(()),
+                Ok(_) => load(),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(why) => {
-                    set_failure.set(Some(said(&why)));
-                    set_busy.set(false);
-                }
+                Err(why) => set_failure.set(Some(said(&why))),
             }
+            set_busy.set(false);
         });
     };
 
-    let several = move || sessions.get().is_some_and(|list| list.len() > 1);
+    let several = move || logins.get().is_some_and(|list| list.len() > 1);
 
     view! {
-        <section class="pane wide">
-            <div class="pane-head">
-                <div>
-                    <h2>{t!("sessions.heading")}</h2>
-                    <p class="hint quiet">{t!("sessions.lead")}</p>
-                </div>
-                <Show when=several>
-                    <button class="pill risky" disabled=busy on:click=close_all>
-                        {t!("profile.close_mine")}
-                    </button>
-                </Show>
-            </div>
+        <section class="pane">
+            <h2>{t!("sessions.heading")}</h2>
+            <p class="hint quiet">{t!("sessions.lead")}</p>
 
-            {move || match sessions.get() {
+            {move || match logins.get() {
                 None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
-                Some(list) => {
+                Some(mut list) => {
+                    // This browser first, whatever the server's order was. It is the
+                    // row somebody looks for to check they are reading the right list,
+                    // and the one row that must not move about: the others are told
+                    // apart by their dates, and it is told apart by being yours.
+                    //
+                    // A stable sort, so the rest stay as they came — oldest login
+                    // first, which is the order the server lists them in.
+                    list.sort_by_key(|login| !login.current);
+
                     view! {
-                        <div class="scrolls">
-                            <table class="listing">
-                                <thead>
-                                    <tr>
-                                        <th>{t!("sessions.last_seen")}</th>
-                                        <th>{t!("sessions.expires")}</th>
-                                        <th class="figure">{t!("keys.actions")}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {list
-                                        .into_iter()
-                                        .map(|login| {
-                                            let id = login.id;
-                                            let current = login.current;
-                                            view! {
-                                                <tr>
-                                                    <td>
-                                                        {when(&login.last_seen_at)}
-                                                        {if current {
-                                                            view! {
-                                                                <span class="badge">
-                                                                    {t!("sessions.this_one")}
-                                                                </span>
-                                                            }
-                                                                .into_any()
-                                                        } else {
-                                                            ().into_any()
-                                                        }}
-                                                    </td>
-                                                    <td class="quiet">{when(&login.expires_at)}</td>
-                                                    <td class="figure">
-                                                        <button
-                                                            class="link"
-                                                            disabled=busy
-                                                            on:click=move |_| close((
-                                                                id,
-                                                                current,
-                                                            ))
-                                                        >
-                                                            {if current {
-                                                                t!("sessions.log_out")
-                                                            } else {
-                                                                t!("sessions.close")
-                                                            }}
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            }
-                                        })
-                                        .collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
+                        <ul class="ways">
+                            {list
+                                .into_iter()
+                                .map(|login| {
+                                    let id = login.id;
+                                    let current = login.current;
+                                    view! {
+                                        <li>
+                                            <span class="what">
+                                                {if current {
+                                                    t!("sessions.this_browser")
+                                                } else {
+                                                    t!("sessions.another_browser")
+                                                }}
+                                                {current
+                                                    .then(|| {
+                                                        view! {
+                                                            <span class="badge">
+                                                                {t!("sessions.this_one")}
+                                                            </span>
+                                                        }
+                                                    })}
+                                            </span>
+
+                                            <span class="doing">
+                                                <button
+                                                    class="link"
+                                                    disabled=busy
+                                                    on:click=move |_| close((id, current))
+                                                >
+                                                    {if current {
+                                                        t!("sessions.log_out")
+                                                    } else {
+                                                        t!("sessions.close")
+                                                    }}
+                                                </button>
+                                            </span>
+
+                                            // Since when, for the one being used, and
+                                            // when it was last used for one that is
+                                            // not: what somebody wants of a browser
+                                            // they are not sitting at is how long ago
+                                            // it was.
+                                            <span class="said">
+                                                {if current {
+                                                    t!(
+                                                        "sessions.since",
+                                                        when = since(&login.created_at),
+                                                    )
+                                                } else {
+                                                    t!(
+                                                        "sessions.seen",
+                                                        when = since(&login.last_seen_at),
+                                                    )
+                                                }} " · "
+                                                {t!(
+                                                    "sessions.expires_on",
+                                                    day = on_day(&login.expires_at),
+                                                )}
+                                            </span>
+                                        </li>
+                                    }
+                                })
+                                .collect_view()}
+                        </ul>
                     }
                         .into_any()
                 }
             }}
 
+            <Show when=several>
+                <p class="after">
+                    <span>{t!("sessions.elsewhere")}</span>
+                    <button class="link risky" disabled=busy on:click=close_others>
+                        {t!("sessions.close_others")}
+                    </button>
+                </p>
+            </Show>
+
             {move || {
                 failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
             }}
+
+            <h2>{t!("access.password")}</h2>
+            <p class="tail">
+                <span>
+                    {move || match changed.get() {
+                        Some(at) => t!("access.password_changed", when = since(&at)).to_string(),
+                        None => MISSING.to_string(),
+                    }}
+                </span>
+                <A href=crate::layout::MINE_PATH>{t!("access.change_password")}</A>
+            </p>
         </section>
     }
 }

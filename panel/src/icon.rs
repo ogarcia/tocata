@@ -29,6 +29,7 @@ pub enum Icon {
     Remove,
     More,
     Rotate,
+    Key,
     Account,
     Menu,
     LogOut,
@@ -50,6 +51,7 @@ impl Icon {
             Self::More => include_str!("../icons/more.svg"),
             // The same two arrows as a scan: both mean "go round again".
             Self::Rotate => include_str!("../icons/scan.svg"),
+            Self::Key => include_str!("../icons/key.svg"),
             Self::Account => include_str!("../icons/account.svg"),
             Self::Menu => include_str!("../icons/menu.svg"),
             Self::LogOut => include_str!("../icons/logout.svg"),

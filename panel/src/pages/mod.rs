@@ -53,23 +53,53 @@ pub fn Unbuilt(heading: String) -> impl IntoView {
 /// Abbreviated on purpose: "3 min" needs no plural, and rust-i18n has no
 /// pluralisation to lean on even if it did.
 pub fn since(iso: &str) -> String {
-    let then = js_sys::Date::parse(iso);
-    if then.is_nan() {
-        return iso.to_string();
-    }
-
-    let seconds = ((js_sys::Date::now() - then) / 1000.0).max(0.0);
-
-    if seconds < 60.0 {
-        t!("home.moments").to_string()
-    } else if seconds < 3600.0 {
-        t!("home.minutes", count = (seconds / 60.0).floor()).to_string()
-    } else if seconds < 86_400.0 {
-        t!("home.hours", count = (seconds / 3600.0).floor()).to_string()
-    } else {
-        t!("home.days", count = (seconds / 86_400.0).floor()).to_string()
+    match elapsed(iso) {
+        None => iso.to_string(),
+        Some(seconds) if seconds < 60.0 => t!("ago.moments").to_string(),
+        Some(seconds) if seconds < 3600.0 => {
+            t!("ago.minutes", count = (seconds / 60.0).floor()).to_string()
+        }
+        Some(seconds) if seconds < 86_400.0 => {
+            t!("ago.hours", count = (seconds / 3600.0).floor()).to_string()
+        }
+        Some(seconds) => t!("ago.days", count = (seconds / 86_400.0).floor()).to_string(),
     }
 }
+
+/// The same span with the "ago" left off, for a figure standing over a label that
+/// has already said what happened.
+///
+/// "Hace 5 h" set at twenty eight pixels reads as a sentence somebody shouted. The
+/// figures on a screen are quantities, and the quantity here is five hours.
+pub fn lapse(iso: &str) -> String {
+    match elapsed(iso) {
+        None => MISSING.to_string(),
+        Some(seconds) if seconds < 60.0 => t!("ago.just_now").to_string(),
+        Some(seconds) if seconds < 3600.0 => {
+            t!("ago.short_minutes", count = (seconds / 60.0).floor()).to_string()
+        }
+        Some(seconds) if seconds < 86_400.0 => {
+            t!("ago.short_hours", count = (seconds / 3600.0).floor()).to_string()
+        }
+        Some(seconds) => t!("ago.short_days", count = (seconds / 86_400.0).floor()).to_string(),
+    }
+}
+
+/// Seconds between then and now, or `None` if that was not a moment.
+///
+/// Never negative. A clock a few seconds ahead of the server's would otherwise turn
+/// "just now" into a span into the future, which reads as a mistake because it is
+/// one — just not the reader's.
+fn elapsed(iso: &str) -> Option<f64> {
+    let then = js_sys::Date::parse(iso);
+
+    (!then.is_nan()).then(|| ((js_sys::Date::now() - then) / 1000.0).max(0.0))
+}
+
+/// Stands in for a value nothing has reported yet, or a moment that cannot be
+/// worked out. A dash rather than a zero: none of these is a quantity, and zero is
+/// an answer where this is the absence of one.
+pub const MISSING: &str = "—";
 
 /// A timestamp the way the reader's own machine writes one.
 pub fn when(iso: &str) -> String {
@@ -81,6 +111,23 @@ pub fn when(iso: &str) -> String {
 
     moment
         .to_locale_string(&crate::locale::current(), &js_sys::Object::new())
+        .into()
+}
+
+/// The day, without the hour it fell on.
+///
+/// What an expiry is: a key is given until a date, and a client that stops working
+/// at midnight has not been told anything useful by "23:59:59". The same goes for a
+/// session, whose thirty days end on a day.
+pub fn on_day(iso: &str) -> String {
+    let moment = js_sys::Date::new(&iso.into());
+
+    if moment.get_time().is_nan() {
+        return iso.to_string();
+    }
+
+    moment
+        .to_locale_date_string(&crate::locale::current(), &js_sys::Object::new())
         .into()
 }
 

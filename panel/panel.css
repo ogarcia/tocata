@@ -1420,6 +1420,177 @@ table { border-collapse: collapse; }
   .acting { justify-content: flex-start; }
 }
 
+/* --- the ways into an account -------------------------------------------- */
+
+/* Two lists that belong together: side by side while there is room for both, one
+ * under the other when there is not, and no media query deciding which. The keys
+ * take the wider share — a key has a name somebody chose and a menu at the end of
+ * its row, a session has neither. */
+.lists {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 44px 56px;
+  margin-top: 44px;
+}
+
+.lists > :first-child {
+  flex: 3 1 480px;
+  min-width: 0;
+}
+
+.lists > :last-child {
+  flex: 2 1 340px;
+  min-width: 0;
+}
+
+/* A heading with the one action that adds to what is under it, on the same line:
+ * the two are words, not blocks, which is why they line up on their baselines. */
+.parted {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  /* The four pixels a heading has under it on its own, since the heading in here
+   * gives them up to sit on a line with the action. */
+  margin-bottom: 4px;
+}
+
+.parted h2 { margin: 0; }
+
+/* A second heading in the same column stands well clear of the list above it,
+ * which is what says that list ended. */
+.pane h2 ~ h2 { margin-top: 40px; }
+
+/* The action that adds to a list, in the accent and written as a word. A pill here
+ * would be the loudest thing in a column of hairlines, and what it opens is a
+ * dialogue that asks two questions. */
+.offer {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.offer .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* One way into the account: a key, or a browser. Two lines rather than a row of
+ * columns, because these dates are prose — "used 5 h ago · never expires · made
+ * 14 May 2026" is read across, not compared down a column — and prose is what
+ * fits when two lists have half a screen each.
+ *
+ * The action is a cell of its own spanning both lines, so it stays against the
+ * right and level with the name whatever the sentence under it says. */
+.ways {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.ways > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The keys wear a glyph, in a column narrow enough to read as an indent rather
+ * than as a column. It is what tells the two lists apart at a glance once they are
+ * beside each other. */
+.ways.keyed > li { grid-template-columns: 20px minmax(0, 1fr) auto; }
+
+.ways .mark {
+  grid-row: span 2;
+  align-self: center;
+  color: var(--quiet);
+}
+
+.ways .mark .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.ways .what {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  font-size: 16px;
+}
+
+.ways .doing {
+  grid-row: span 2;
+  align-self: center;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.ways .said {
+  font-size: 13px;
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+.ways.keyed .said { grid-column: 2; }
+
+/* A key that no longer opens anything. Quiet, and neither struck through nor gone:
+ * it is the row that says what was withdrawn, which is the whole reason revoking
+ * is not deleting. */
+.ways > li.off .what { color: var(--quiet); }
+
+.ways > li.off .mark { opacity: 0.5; }
+
+/* What has become of the thing named beside it, in one word. */
+.tag {
+  font-size: 12px;
+  color: var(--alarm);
+}
+
+/* The question at the foot of a list, with its answer next to it. At the foot and
+ * never at the top: what makes somebody reach for this is having read the list. */
+.after {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+/* One line between two rules: something this screen has to say and another screen
+ * changes. The same field on two screens is two places to get it wrong. */
+.tail {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.tail a {
+  white-space: nowrap;
+  text-decoration: none;
+}
+
 /* Asked in place, on the card holding what is about to go, rather than in a box
  * in the middle of the screen that would cover it. */
 .confirm {
@@ -1457,21 +1628,6 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-
-/* A heading with the actions that belong to the whole section, the same shape as
- * the one at the top of a screen. */
-.pane-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
-}
-
-.pane-head h2 { margin: 0; }
-.pane-head .hint { margin: 0.25rem 0 0; }
-.pane-head button { margin: 0; }
 
 /* --- the dialogue -------------------------------------------------------- */
 

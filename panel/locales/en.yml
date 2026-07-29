@@ -70,10 +70,19 @@ home:
   memory: Memory
   cores: of %{count} cores
   of_total: of %{total}
+
+# How long ago. A section of its own because half the panel says it: library rows,
+# key rows, session rows and the last scan. The short ones are for a figure
+# standing over its label, where the "ago" is already understood.
+ago:
   moments: just now
   minutes: "%{count} min ago"
   hours: "%{count} h ago"
   days: "%{count} d ago"
+  just_now: now
+  short_minutes: "%{count} min"
+  short_hours: "%{count} h"
+  short_days: "%{count} d"
 
 scan:
   start: Scan
@@ -161,32 +170,51 @@ keys:
   issue_lead: "For a client that signs in with a key instead of with your password."
   never: "never"
   heading: "API keys"
-  revoke_sure: "Revoke every one of them?"
   made: "Your new key"
-  last_use: "Last used"
   actions: "Actions"
   rotate: "Rotate"
-  lead: "For clients that authenticate with a key instead of your password. Revoking one stops that client and leaves the others alone."
+  lead: "One per client, so that revoking one stops that client alone. A key is shown once, when it is made."
   none: "No keys yet"
   label: "What it is for"
   label_default: "phone"
   issue: "Make a key"
   until: "Expires on"
   until_note: "Left empty it never expires, which is what a music player wants: nothing can renew one for you."
-  forever: "never expires"
-  expired: "expired %{when}"
-  unused: "never used"
-  revoke: "Revoke"
   once: "Copy it now. It is not stored and will not be shown again."
+  # The line under a key's name, joined from three of these.
+  used: "Used %{when}"
+  unused: "Never used"
+  forever: "never expires"
+  expires: "expires %{day}"
+  ran_out: "expired %{day}"
+  revoked_when: "revoked %{when}"
+  created: "made %{when}"
+  dead: "it can no longer play anything"
+  is_expired: "expired"
+  is_revoked: "revoked"
+  # Withdrawing, and then tidying up. Two words on purpose: revoking is what stops
+  # a client, and not everybody reads it as the end of the key.
+  revoke: "Revoke"
+  remove: "Remove"
+  revoke_first: "Revoke the key before removing it"
+  lost_device: "Losing a device?"
+  revoke_all: "Revoke all %{count} keys"
+  revoke_all_sure: "Revoke every one of them? There is no way back."
+  revoke_all_yes: "Revoke them"
 
 sessions:
   heading: "Panel sessions"
-  last_seen: "Last seen"
-  expires: "Expires"
-  lead: "Where you are logged in to this panel. Nothing here affects the clients that play your music."
-  this_one: "this one"
+  lead: "Browsers logged in to this panel. Closing one does not stop any music."
+  this_browser: "This browser"
+  another_browser: "Another browser"
+  this_one: "you are here"
+  since: "Since %{when}"
+  seen: "Last seen %{when}"
+  expires_on: "expires %{day}"
   close: "Close"
   log_out: "Log out"
+  elsewhere: "Somewhere you should not be?"
+  close_others: "Close every other session"
 
 # Your own account. Deliberately not sharing a word with `accounts`, which is
 # the administrator's vocabulary: the same field means a different thing when it
@@ -204,7 +232,6 @@ profile:
   key_used: "Key \"%{name}\" used"
   key_never_used: "No key used yet"
   password_changed: "Password changed"
-  close_mine: Close them all, this one included
   confirm_with_password: "Confirm the changes with your current password"
   email: Email address
   listening: "Listening"
@@ -212,7 +239,6 @@ profile:
   new_password: New password
   profile_lead: "Who you are on this server."
   repeat_password: "Repeat the new password"
-  revoke_all: Revoke them all
   role: "Role"
   save_changes: "Save the changes"
   scrobbling: Pass plays on to a scrobbling service
@@ -223,7 +249,14 @@ profile:
   you: "You"
 
 access:
-  lead: "The keys clients hold and the logins you have open here."
+  lead: "A key is how a client plays your music. A session is a browser logged in to this panel. They are separate: revoking one never touches the other."
+  keys_in_use: "Keys in use"
+  sessions_open: "Sessions open"
+  since_used: "Since a key was used"
+  since_password: "Since the password changed"
+  password: "Your password"
+  password_changed: "Changed %{when}"
+  change_password: "Change it in Profile"
 
 prefs:
   lead: "How the panel looks and speaks to you. Kept with your account, so it follows you to another browser."

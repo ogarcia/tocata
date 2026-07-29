@@ -66,10 +66,19 @@ home:
   memory: Memoria
   cores: de %{count} núcleos
   of_total: de %{total}
+
+# Cuánto hace. Sección propia porque lo usa media interfaz: filas de bibliotecas,
+# de claves, de sesiones y el último escaneo. Las cortas son para una cifra que va
+# sobre su etiqueta, donde el «hace» ya se sobreentiende.
+ago:
   moments: ahora mismo
   minutes: hace %{count} min
   hours: hace %{count} h
   days: hace %{count} d
+  just_now: ahora
+  short_minutes: "%{count} min"
+  short_hours: "%{count} h"
+  short_days: "%{count} d"
 
 scan:
   start: Escanear
@@ -157,32 +166,51 @@ keys:
   issue_lead: "Para un cliente que entra con una clave en lugar de con tu contraseña."
   never: "no caduca"
   heading: "Claves de API"
-  revoke_sure: "¿Revocarlas todas?"
   made: "Tu clave nueva"
-  last_use: "Último uso"
   actions: "Acciones"
   rotate: "Rotar"
-  lead: "Para los clientes que se autentican con una clave en lugar de tu contraseña. Revocar una detiene ese cliente y deja los demás en paz."
+  lead: "Una por cliente, para que revocar una detenga solo a ese cliente. La clave se muestra una vez, al crearla."
   none: "Todavía no hay claves"
   label: "Para qué es"
   label_default: "móvil"
   issue: "Crear clave"
   until: "Caduca el"
   until_note: "Vacío no caduca nunca, que es lo que quiere un reproductor: nada puede renovarla por ti."
-  forever: "no caduca"
-  expired: "caducó %{when}"
-  unused: "sin usar"
-  revoke: "Revocar"
   once: "Cópiala ahora. No se guarda y no se mostrará otra vez."
+  # La línea que va bajo el nombre de una clave, unida a partir de tres de estas.
+  used: "Usada %{when}"
+  unused: "Sin usar"
+  forever: "no caduca"
+  expires: "caduca el %{day}"
+  ran_out: "caducó el %{day}"
+  revoked_when: "revocada %{when}"
+  created: "creada %{when}"
+  dead: "ya no puede reproducir nada"
+  is_expired: "caducada"
+  is_revoked: "revocada"
+  # Retirarla y luego recoger la fila. Dos palabras a propósito: revocar es lo que
+  # detiene al cliente, y no todo el mundo lo lee como el final de la clave.
+  revoke: "Revocar"
+  remove: "Eliminar"
+  revoke_first: "Revócala antes de eliminarla"
+  lost_device: "¿Has perdido un dispositivo?"
+  revoke_all: "Revocar las %{count} claves"
+  revoke_all_sure: "¿Revocarlas todas? No hay vuelta atrás."
+  revoke_all_yes: "Revocarlas"
 
 sessions:
   heading: "Sesiones del panel"
-  last_seen: "Última vez"
-  expires: "Caduca"
-  lead: "Dónde tienes sesión abierta en este panel. Nada de esto afecta a los clientes que reproducen tu música."
-  this_one: "esta"
+  lead: "Navegadores con sesión abierta en este panel. Cerrar una no detiene ninguna música."
+  this_browser: "Este navegador"
+  another_browser: "Otro navegador"
+  this_one: "estás aquí"
+  since: "Desde %{when}"
+  seen: "Vista %{when}"
+  expires_on: "caduca el %{day}"
   close: "Cerrar"
   log_out: "Salir"
+  elsewhere: "¿Hay alguna donde no debería?"
+  close_others: "Cerrar las demás sesiones"
 
 # Your own account. Deliberately not sharing a word with `accounts`, which is
 # the administrator's vocabulary: the same field means a different thing when it
@@ -200,7 +228,6 @@ profile:
   key_used: "Clave «%{name}» usada"
   key_never_used: "Ninguna clave usada"
   password_changed: "Contraseña cambiada"
-  close_mine: Cerrarlas todas, incluida esta
   confirm_with_password: "Confirma los cambios con tu contraseña actual"
   email: Correo electrónico
   listening: "Escuchas"
@@ -208,7 +235,6 @@ profile:
   new_password: Contraseña nueva
   profile_lead: "Quién eres en este servidor."
   repeat_password: "Repite la nueva contraseña"
-  revoke_all: Revocarlas todas
   role: "Rol"
   save_changes: "Guardar los cambios"
   scrobbling: Enviar las reproducciones a un servicio de scrobbling
@@ -219,7 +245,14 @@ profile:
   you: "Tú"
 
 access:
-  lead: "Las claves que tienen los clientes y las sesiones que tienes abiertas aquí."
+  lead: "Una clave es con lo que un cliente reproduce tu música. Una sesión es un navegador con este panel abierto. Son independientes: revocar una nunca toca a la otra."
+  keys_in_use: "Claves en uso"
+  sessions_open: "Sesiones abiertas"
+  since_used: "Desde el último uso"
+  since_password: "Desde el cambio de contraseña"
+  password: "Tu contraseña"
+  password_changed: "Cambiada %{when}"
+  change_password: "Cambiarla en Perfil"
 
 prefs:
   lead: "Cómo se ve y en qué idioma habla el panel. Se guardan con tu cuenta, así que te siguen a otro navegador."
