@@ -22,7 +22,7 @@
 
 use super::error::ApiError;
 use super::session::{Administrator, Panel};
-use crate::types::{Account, AccountChanges, ErrorBody, LibraryAccess, NewAccount};
+use crate::types::{Account, AccountChanges, ErrorBody, Holdings, LibraryAccess, NewAccount};
 use crate::{auth, db, session, user};
 use axum::Json;
 use axum::extract::{Path, State};
@@ -390,6 +390,95 @@ pub async fn change(
     Ok(Json(load(&pool, name_now).await?))
 }
 
+/// What an account holds
+///
+/// The counts of everything that would go with it: sessions, keys, favourites,
+/// ratings, plays, playlists and bookmarks. Yours, or anybody's if you administer
+/// the server.
+///
+/// Its own call rather than seven more columns on the account, because a listing of
+/// ten accounts would count seventy things to show none of them. This is what a
+/// confirmation asks for at the moment it has something to warn about — a dialogue
+/// that only asks whether you are sure is asking somebody to agree to something
+/// they were not told.
+#[utoipa::path(
+    get,
+    path = "/users/{username}/holdings",
+    tag = "users",
+    params(("username" = String, Path, description = "Whose account")),
+    responses(
+        (status = 200, description = "What only this account has", body = Holdings),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Somebody else's account", body = ErrorBody),
+        (status = 404, description = "No such account", body = ErrorBody),
+    )
+)]
+pub async fn holdings(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+) -> Result<Json<Holdings>, ApiError> {
+    self_or_admin(&panel, &username)?;
+
+    let user_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
+        .bind(&username)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "looking up an account"))?
+        .ok_or(ApiError::NotFound)?;
+
+    // One statement rather than seven round trips, and every figure a count over an
+    // indexed column. The identifier is bound once per subselect because that is
+    // what a `?` is: the alternative is a numbered placeholder, which would make the
+    // statement shorter and the reading of it harder.
+    let row: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM sessions WHERE user_id = ? AND expires_at > ?),
+                (SELECT count(*) FROM api_keys WHERE user_id = ? AND revoked_at IS NULL),
+                (SELECT count(*) FROM user_track_stats
+                  WHERE user_id = ? AND starred_at IS NOT NULL)
+              + (SELECT count(*) FROM user_album_stats
+                  WHERE user_id = ? AND starred_at IS NOT NULL)
+              + (SELECT count(*) FROM user_artist_stats
+                  WHERE user_id = ? AND starred_at IS NOT NULL),
+                (SELECT count(*) FROM user_track_stats
+                  WHERE user_id = ? AND rating IS NOT NULL)
+              + (SELECT count(*) FROM user_album_stats
+                  WHERE user_id = ? AND rating IS NOT NULL)
+              + (SELECT count(*) FROM user_artist_stats
+                  WHERE user_id = ? AND rating IS NOT NULL),
+                (SELECT coalesce(sum(play_count), 0) FROM user_track_stats WHERE user_id = ?),
+                (SELECT count(*) FROM playlists WHERE owner_id = ?),
+                (SELECT count(*) FROM bookmarks WHERE user_id = ?)",
+    )
+    .bind(user_id)
+    .bind(db::now())
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "counting what an account holds"))?;
+
+    let (sessions, keys, favourites, ratings, plays, playlists, bookmarks) = row;
+
+    Ok(Json(Holdings {
+        sessions,
+        keys,
+        favourites,
+        ratings,
+        plays,
+        playlists,
+        bookmarks,
+    }))
+}
+
 /// Delete an account
 ///
 /// Takes the account and everything only it had: its sessions, its API keys, its
@@ -578,6 +667,116 @@ mod tests {
         let account = load(&pool, "someone").await.unwrap();
         assert_eq!(account.sessions, 1, "only the one that has not run out");
         assert_eq!(account.keys, 0);
+    }
+
+    /// What a confirmation has to be able to say before it destroys anything. The
+    /// three starred tables are counted as one figure, because "your favourites" is
+    /// one thing to whoever has them.
+    #[tokio::test]
+    async fn what_an_account_holds_is_counted_across_its_tables() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let at = db::now();
+
+        // A track needs a library and a folder to hang off, and the stats need the
+        // track: the counts are of rows that only exist against real music.
+        sqlx::query(
+            "INSERT INTO libraries (id, name, path, created_at, updated_at)
+             VALUES (1, 'music', '/music', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO folders (id, public_id, library_id, name, path, last_seen_scan)
+             VALUES (1, 'f1', 1, 'music', '/music', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tracks (id, public_id, library_id, folder_id, path, file_size,
+                                 file_modified_at, content_type, suffix, title, duration_ms,
+                                 last_seen_scan, created_at, updated_at)
+             VALUES (1, 'trk1', 1, 1, '/one.wav', 1, ?, 'audio/wav', 'wav', 'One', 180000,
+                     1, ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // Starred and rated and played, all on the one track.
+        sqlx::query(
+            "INSERT INTO user_track_stats (user_id, track_id, play_count, rating, starred_at)
+             VALUES (?, 1, 7, 4, ?)",
+        )
+        .bind(user_id)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO playlists (public_id, owner_id, name, created_at, updated_at)
+             VALUES ('pl1', ?, 'road trip', ?, ?)",
+        )
+        .bind(user_id)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO bookmarks (user_id, track_id, position_ms, created_at, updated_at)
+             VALUES (?, 1, 45000, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let panel = Panel {
+            id: 1,
+            user: User {
+                id: user_id,
+                username: "ana".to_string(),
+                is_admin: false,
+            },
+            expires_at: "2999-01-01T00:00:00Z".to_string(),
+        };
+
+        let Json(held) = holdings(panel, State(pool.clone()), Path("ana".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(held.favourites, 1, "one starred track and nothing else");
+        assert_eq!(held.ratings, 1);
+        assert_eq!(held.plays, 7, "times played, not rows");
+        assert_eq!(held.playlists, 1);
+        assert_eq!(held.bookmarks, 1);
+        assert_eq!(held.sessions, 0);
+        assert_eq!(held.keys, 0);
     }
 
     /// An account with three logins open, and a way to ask how many are left.

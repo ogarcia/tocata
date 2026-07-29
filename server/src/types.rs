@@ -266,6 +266,34 @@ pub struct Account {
     pub updated_at: String,
 }
 
+/// What only this account has, counted.
+///
+/// For the one question that needs it: what is lost by deleting the account. The
+/// figures are not on the account itself because a listing of ten accounts would
+/// count seven things apiece to show none of them — this is asked at the moment
+/// somebody is about to be told what they are about to destroy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Holdings {
+    /// Panel logins still open.
+    pub sessions: i64,
+    /// API keys that have not been revoked.
+    pub keys: i64,
+    /// Tracks, albums and artists starred, counted together: what somebody would
+    /// call their favourites is one figure to them, whatever it is three tables
+    /// here.
+    pub favourites: i64,
+    /// Ratings given, over the same three.
+    pub ratings: i64,
+    /// Times a track was played, which is the figure a listener would recognise.
+    /// Album and artist counts are the same plays counted again.
+    pub plays: i64,
+    /// Playlists they own. Shared ones go too: a playlist belongs to whoever made
+    /// it, and there is nobody to hand it to.
+    pub playlists: i64,
+    pub bookmarks: i64,
+}
+
 /// What it takes to create an account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NewAccount {
