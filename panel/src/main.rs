@@ -213,11 +213,20 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     />
                     <Route
                         path=path!("/accounts")
-                        view=move || {
-                            if admin {
-                                view! { <pages::accounts::Accounts on_expired=forget /> }.into_any()
-                            } else {
-                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                        view={
+                            let who = who.clone();
+                            move || {
+                                if admin {
+                                    view! {
+                                        <pages::accounts::Accounts
+                                            who=who.clone()
+                                            on_expired=forget
+                                        />
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                }
                             }
                         }
                     />

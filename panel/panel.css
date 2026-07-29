@@ -590,33 +590,21 @@ select.narrow { width: 200px; }
   cursor: pointer;
 }
 
-/* Tinted with the accent for somebody who administers the server and with plain
- * ink for somebody who does not. It is the one place the panel says which you are
- * without spelling it out, and it says it in the same colour as everything else
- * that is a state. */
 .whoami .avatar {
-  flex: none;
   width: 28px;
   height: 28px;
-  font-size: 12px;
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent);
 }
 
-.whoami.plain-role .avatar {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-  color: var(--quiet);
-}
-
-/* Two lines that must not push the chevron off the end, whatever the name is. */
-.whoami .who {
+/* Two lines that must not push what follows off the end, whatever the name is: the
+ * chevron in the sidebar, the badge and the columns in a row of the accounts. */
+.whoami .who, .roster .who {
   display: flex;
   flex-direction: column;
   min-width: 0;
   line-height: 1.25;
 }
 
-.whoami .who > * {
+.whoami .who > *, .roster .who > * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -659,8 +647,9 @@ select.narrow { width: 200px; }
  * above, which sets `inherit` for everything else in here. */
 .upward .leave { color: var(--alarm); }
 
-/* Between what you can go and see and the one thing that ends the session. */
-.upward hr {
+/* Between what you can go and see and what acts: the one thing that ends the
+ * session in the sidebar, and cutting somebody off in a row of the accounts. */
+.upward hr, .menu hr {
   height: 0;
   margin: 6px 4px;
   border: none;
@@ -980,19 +969,32 @@ button:disabled { opacity: 0.6; cursor: default; }
   .pill .chevron { transition: none; }
 }
 
+/* An account as a circle with its initial in it.
+ *
+ * Tinted with the accent for somebody who administers the server and with plain ink
+ * for somebody who does not. It is how the panel says which you are without
+ * spelling it out — in the sidebar, and down the accounts — and it says it in the
+ * same colour as everything else that is a state. */
 .avatar {
-  width: 2rem;
-  height: 2rem;
+  flex: none;
+  width: 30px;
+  height: 30px;
   padding: 0;
   margin: 0;
   border-radius: 50%;
   border: none;
-  background: var(--accent);
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   display: grid;
   place-items: center;
+}
+
+.avatar.plain {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--quiet);
 }
 
 /* Invisible, and only there while the menu is. It sits under the menu and over
@@ -1067,6 +1069,29 @@ button:disabled { opacity: 0.6; cursor: default; }
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Whose row this menu belongs to, over the things it can do to them. A menu that
+ * opens next to a pointer says nothing about which of eight rows it came from, and
+ * two of the items here cut somebody off. */
+.menu-who {
+  margin: 0;
+  padding: 8px 10px 6px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+/* How many it would take away, against the right of the item that would. */
+.menu-item .figure {
+  margin-left: auto;
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one that cannot be undone, in the colour everything destructive wears. It
+ * still opens a dialogue: the colour is a warning and not the guard. */
+.menu-item.risky { color: var(--alarm); }
 
 .badge {
   /* Inline flex and middle aligned: with padding and no baseline of its own, a
@@ -1291,8 +1316,6 @@ button:disabled { opacity: 0.6; cursor: default; }
  * make the message drift away from the field it belongs to. */
 form .failure, .sheet .failure { margin-top: 0.25rem; }
 
-table { border-collapse: collapse; }
-
 /* --- libraries ----------------------------------------------------------- */
 
 /* One row per library on three columns: what it is, how much of it there is, and
@@ -1418,6 +1441,160 @@ table { border-collapse: collapse; }
 
   .shelf .much, .shelf .doing { text-align: left; }
   .acting { justify-content: flex-start; }
+}
+
+/* --- who there is -------------------------------------------------------- */
+
+/* The search and the one action that belongs to the whole screen, at the other end
+ * of the title's line. It takes what width it can and gives it back first: what is
+ * on the left is a title, and a title that has to wrap so a search box can keep its
+ * three hundred pixels has been outvoted by a search box. */
+.finding {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
+}
+
+/* A field that is a line under a word, not a box. Same idiom as the fields in a
+ * dialogue, and for the same reason: the border around an input is a rectangle
+ * drawn to say "type here" where a rule and a glyph already say it. */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1 1 220px;
+  max-width: 320px;
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--line);
+  color: var(--quiet);
+  font-size: inherit;
+}
+
+.search .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+/* The browser's own cross on a search field, which is a different grey in every
+ * browser and a second thing to press where the field is already one word long. */
+.search input::-webkit-search-cancel-button { display: none; }
+
+.search:focus-within { color: var(--accent); }
+
+.search:focus-within, .search input:focus-visible {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+
+/* One row per account, and the heading row over them. The two share their columns
+ * by saying them twice in one rule rather than by `subgrid`, which would need the
+ * rows to be children of the same grid — and they are not: the rows are a list, and
+ * a list is a `ul` with `li` in it.
+ *
+ * The first column takes what is left and the others are floored, so every row's
+ * figures start where the heading says they will however long a name is. */
+.roster-head, .roster > li {
+  display: grid;
+  grid-template-columns:
+    minmax(200px, 3fr) minmax(110px, 1fr) minmax(130px, 1fr) minmax(110px, 1fr) 24px;
+  gap: 24px;
+  /* The twelve pixels the block outside is pulled out by, so a row's tint and its
+   * hairline run past the text on both sides while the text stays lined up with
+   * everything else on the screen. */
+  padding: 0 12px;
+  min-width: 740px;
+}
+
+.roster-head {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+.roster {
+  margin: 0;
+  /* A list starts forty pixels in unless it is told not to. Which is not an
+   * indent here: it is the first column of a grid, pushed out of line with the
+   * heading over it. */
+  padding: 0;
+  list-style: none;
+}
+
+.roster > li {
+  align-items: center;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.roster > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+/* Numbers under a heading that is also a number's, both against the right and both
+ * in tabular figures, so "1 · 1" and "12 · 3" line up on the dot. */
+.roster-head .figure, .roster .figure {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bleed itself, on the box that scrolls rather than on anything inside it:
+ * inside, the left twelve pixels can never be reached — a scroll offset is never
+ * negative — and the right twelve widen the content and ask for a scrollbar of
+ * their own. */
+.scrolls.bled { margin: 0 -12px; }
+
+/* The name and what is said about it, on one line. The name is what gives way when
+ * the column runs out, so the badge beside it never goes off the end. */
+.roster .whose {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.roster .whose .named {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster .account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Which they are, as a word. The colour is the same one the avatar beside it is
+ * tinted with, so the row says it twice in one glance rather than twice in two. */
+.roster .rank { color: var(--quiet); }
+
+.roster .rank.admin { color: var(--accent); }
+
+/* What the list adds up to, and how to open one. Under the rows, where somebody
+ * ends up. */
+.tally {
+  margin: 18px 0 0;
+  font-size: 13px;
+  color: var(--quiet);
+  text-wrap: pretty;
 }
 
 /* --- the ways into an account -------------------------------------------- */
@@ -1880,37 +2057,11 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 /* --- accounts ------------------------------------------------------------ */
 
-/* Short, uniform values in columns, which is what a table is for: reading down
- * one of them to compare, rather than reading each card to find the same field
- * again. */
-.listing { width: 100%; }
-
-.listing th, .listing td {
-  padding: 0.7rem 1.25rem 0.7rem 0;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  white-space: nowrap;
-}
-
-.listing th {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--quiet);
-}
-
-.listing tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.listing .figure { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* The last column shrinks to its content and its buttons fill it, so every button
- * in it is the width of the widest label — "Close" and "Log out" included. */
-.listing td:last-child { width: 1%; padding-right: 0; }
-.listing td:last-child button { width: 100%; }
-
-/* The link that names the row, with its icon on the same line. */
+/* The link that names a row. Ink rather than the accent, because a row is not a
+ * sentence with a link in it: what is coloured in this list is what says something —
+ * who administers, whose row is yours — and every name would be coloured. */
 .named {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
+  color: var(--ink);
   font-weight: 500;
   text-decoration: none;
 }
@@ -1930,23 +2081,13 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .dots:hover { color: var(--ink); }
 .dots:disabled { opacity: 0.4; }
 
-/* Fixed to the viewport, because the box around a table scrolls sideways and a
- * scrolling box clips whatever overflows it — which is what left this menu drawn
- * inside the table and cut off. Fixed is outside all of that; where to put it is
- * worked out from the button's own rectangle. */
+/* Fixed to the viewport, because a box that scrolls sideways clips whatever
+ * overflows it — which is what left this menu drawn inside the list and cut off.
+ * Fixed is outside all of that; where to put it is worked out from the button's own
+ * rectangle. */
 .menu.afloat {
   position: fixed;
   text-align: left;
-}
-
-/* A row for something that has expired: still there, plainly not current. */
-.listing tr.off td { opacity: 0.55; }
-
-/* An address can be long and is the one column here that may be cut. */
-.ellipsis {
-  max-width: 18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Wide content sideways inside its own box, never the whole page. */

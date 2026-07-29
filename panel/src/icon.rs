@@ -30,7 +30,7 @@ pub enum Icon {
     More,
     Rotate,
     Key,
-    Account,
+    Search,
     Menu,
     LogOut,
 }
@@ -52,7 +52,7 @@ impl Icon {
             // The same two arrows as a scan: both mean "go round again".
             Self::Rotate => include_str!("../icons/scan.svg"),
             Self::Key => include_str!("../icons/key.svg"),
-            Self::Account => include_str!("../icons/account.svg"),
+            Self::Search => include_str!("../icons/search.svg"),
             Self::Menu => include_str!("../icons/menu.svg"),
             Self::LogOut => include_str!("../icons/logout.svg"),
         }

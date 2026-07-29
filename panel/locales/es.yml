@@ -127,9 +127,7 @@ accounts:
   wrong_password: "Esa no es tu contraseña actual"
   sessions_note: "Le cierra el panel en todos sus navegadores."
   keys_note: "Cambiar la contraseña no las revoca."
-  all_libraries: todas
   open_now: "Abierto ahora"
-  admin_short: Admin
   sessions_short: "Sesiones"
   keys_short: "Claves"
   remove: "Eliminar la cuenta"
@@ -161,6 +159,42 @@ accounts:
   taken: Ese nombre ya está en uso
   invalid: Algo de lo introducido no es válido
   not_allowed: El servidor no lo permite
+
+  # El listado: una fila por cuenta, la tuya primero.
+  search: "Buscar cuentas"
+  none_found: "Ninguna cuenta coincide con eso"
+  role: "Rol"
+  last_seen: "Visto"
+  never_seen: "nunca"
+  sessions_keys: "Sesiones · claves"
+  administrator: "Administrador"
+  listener: "Oyente"
+  you: "eres tú"
+  every_library: "todas las bibliotecas"
+  some_libraries: "%{some} de %{all} bibliotecas"
+  one_account: "1 cuenta"
+  many_accounts: "%{count} cuentas"
+  one_admin: "1 administra"
+  many_admins: "%{count} administran"
+  name_opens: "El nombre abre la cuenta."
+  # El menú de una fila. De tu cuenta llevan a tus pantallas; de las demás, hacen.
+  more: "Más sobre %{name}"
+  open: "Abrir la cuenta"
+  my_access: "Tus claves y sesiones"
+  set_password: "Poner una contraseña nueva…"
+  make_admin: "Hacer administrador"
+  make_listener: "Hacer oyente"
+  close_theirs: "Cerrar sus sesiones"
+  revoke_theirs: "Revocar sus claves"
+  remove_menu: "Eliminar la cuenta…"
+  remove_yes: "Eliminarla"
+  remove_this: "¿Eliminar la cuenta de %{name}?"
+  type_name: "Escribe %{name} para confirmar"
+  password_lead: "No se le avisa: dísela tú. Al cambiarla se le cierran las sesiones del panel."
+  password_done: "Contraseña nueva para %{name}"
+  now_admin: "%{name} ya administra el servidor"
+  now_listener: "%{name} ya no administra el servidor"
+  removed: "Se ha eliminado %{name}"
 
 keys:
   issue_lead: "Para un cliente que entra con una clave en lugar de con tu contraseña."

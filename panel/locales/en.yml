@@ -131,9 +131,7 @@ accounts:
   wrong_password: "That is not your current password"
   sessions_note: "Logs them out of the panel in every browser."
   keys_note: "Changing a password does not revoke these."
-  all_libraries: all
   open_now: "Open now"
-  admin_short: Admin
   sessions_short: "Sessions"
   keys_short: "Keys"
   remove: "Delete the account"
@@ -165,6 +163,42 @@ accounts:
   taken: That name is taken
   invalid: Something in there is not valid
   not_allowed: The server would not allow that
+
+  # The listing: one row per account, yours first.
+  search: "Search accounts"
+  none_found: "No account matches that"
+  role: "Role"
+  last_seen: "Last seen"
+  never_seen: "never"
+  sessions_keys: "Sessions · keys"
+  administrator: "Administrator"
+  listener: "Listener"
+  you: "you"
+  every_library: "every library"
+  some_libraries: "%{some} of %{all} libraries"
+  one_account: "One account"
+  many_accounts: "%{count} accounts"
+  one_admin: "one administrator"
+  many_admins: "%{count} administrators"
+  name_opens: "A name opens the account."
+  # A row's menu. Yours points at your own screens; anybody else's acts.
+  more: "More for %{name}"
+  open: "Open the account"
+  my_access: "Your keys and sessions"
+  set_password: "Set a new password…"
+  make_admin: "Make an administrator"
+  make_listener: "Make a listener"
+  close_theirs: "Close their sessions"
+  revoke_theirs: "Revoke their keys"
+  remove_menu: "Delete the account…"
+  remove_yes: "Delete it"
+  remove_this: "Delete %{name}'s account?"
+  type_name: "Type %{name} to confirm"
+  password_lead: "They are not told: tell them yourself. Changing it closes their panel sessions."
+  password_done: "New password for %{name}"
+  now_admin: "%{name} now administers the server"
+  now_listener: "%{name} no longer administers the server"
+  removed: "%{name} is gone"
 
 keys:
   issue_lead: "For a client that signs in with a key instead of with your password."

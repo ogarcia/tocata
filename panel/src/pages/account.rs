@@ -25,7 +25,7 @@
 //! An administrator opening their own account from the list lands here too, because
 //! there is no version of this that is administration.
 
-use super::{MISSING, lapse, on_day, said, since, when};
+use super::{Dots, MISSING, lapse, on_day, said, since, when};
 use crate::accent::{self, Accent};
 use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
@@ -37,7 +37,6 @@ use leptos::task::spawn_local;
 use leptos_router::components::A;
 use rust_i18n::t;
 use tocata::types::{Account, AccountChanges, Identity, PreferenceChanges};
-use wasm_bindgen::JsCast;
 
 /// Who you are, in two forms rather than one.
 ///
@@ -1316,30 +1315,10 @@ fn KeyRow(
     act: Callback<(KeyAction, i64)>,
     busy: ReadSignal<bool>,
 ) -> impl IntoView {
-    let (open, set_open) = signal(false);
-    // Where the menu goes, in viewport coordinates.
-    let (at, set_at) = signal((0.0, 0.0));
-
     let id = key.id;
     let state = standing(&key);
     let line = key_line(&key);
     let label = key.label;
-
-    // Fixed to the viewport rather than hung off the row, because the menu is
-    // taller than the row it belongs to and the column it sits in is the narrow
-    // one. Fixed escapes whatever might clip it; the price is working out where to
-    // put it, which is one rectangle.
-    let toggle = move |event: web_sys::MouseEvent| {
-        if let Some(button) = event
-            .current_target()
-            .and_then(|target| target.dyn_into::<web_sys::HtmlElement>().ok())
-        {
-            let rect = button.get_bounding_client_rect();
-            set_at.set((rect.bottom() + 4.0, rect.right()));
-        }
-
-        set_open.update(|shown| *shown = !*shown);
-    };
 
     view! {
         <li class:off=move || state != Standing::Live>
@@ -1361,62 +1340,31 @@ fn KeyRow(
             </span>
 
             <span class="doing">
-                <button
-                    class="dots"
-                    title=t!("keys.actions")
-                    disabled=busy
-                    aria-expanded=move || open.get().to_string()
-                    on:click=toggle
-                >
-                    <Glyph icon=Icon::More />
-                </button>
+                <Dots title=t!("keys.actions").to_string() disabled=busy>
+                    <Show when=move || state == Standing::Live>
+                        <button
+                            class="menu-item"
+                            on:click=move |_| act.run((KeyAction::Rotate, id))
+                        >
+                            <Glyph icon=Icon::Rotate />
+                            {t!("keys.rotate")}
+                        </button>
+                        <button
+                            class="menu-item"
+                            on:click=move |_| act.run((KeyAction::Revoke, id))
+                        >
+                            <Glyph icon=Icon::Remove />
+                            {t!("keys.revoke")}
+                        </button>
+                    </Show>
 
-                <Show when=move || open.get()>
-                    <div class="veil" on:click=move |_| set_open.set(false)></div>
-                    <div
-                        class="menu afloat"
-                        style=move || {
-                            let (top, right) = at.get();
-                            format!("top: {top}px; right: calc(100vw - {right}px)")
-                        }
-                    >
-                        <Show when=move || state == Standing::Live>
-                            <button
-                                class="menu-item"
-                                on:click=move |_| {
-                                    set_open.set(false);
-                                    act.run((KeyAction::Rotate, id));
-                                }
-                            >
-                                <Glyph icon=Icon::Rotate />
-                                {t!("keys.rotate")}
-                            </button>
-                            <button
-                                class="menu-item"
-                                on:click=move |_| {
-                                    set_open.set(false);
-                                    act.run((KeyAction::Revoke, id));
-                                }
-                            >
-                                <Glyph icon=Icon::Remove />
-                                {t!("keys.revoke")}
-                            </button>
-                        </Show>
-
-                        <Show when=move || state != Standing::Live>
-                            <button
-                                class="menu-item"
-                                on:click=move |_| {
-                                    set_open.set(false);
-                                    act.run((KeyAction::Remove, id));
-                                }
-                            >
-                                <Glyph icon=Icon::Remove />
-                                {t!("keys.remove")}
-                            </button>
-                        </Show>
-                    </div>
-                </Show>
+                    <Show when=move || state != Standing::Live>
+                        <button class="menu-item" on:click=move |_| act.run((KeyAction::Remove, id))>
+                            <Glyph icon=Icon::Remove />
+                            {t!("keys.remove")}
+                        </button>
+                    </Show>
+                </Dots>
             </span>
 
             <span class="said">{line}</span>
