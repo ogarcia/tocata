@@ -35,6 +35,7 @@ type AccountRow = (
     bool,
     bool,
     String,
+    Option<String>,
     i64,
     i64,
     Option<String>,
@@ -50,6 +51,7 @@ impl From<AccountRow> for Account {
             admin,
             scrobbling,
             password_set_at,
+            last_seen_at,
             sessions,
             keys,
             libraries,
@@ -63,6 +65,7 @@ impl From<AccountRow> for Account {
             admin,
             scrobbling,
             password_set_at,
+            last_seen_at,
             sessions,
             keys,
             // group_concat gives back what we put in, so these parse or the
@@ -88,6 +91,7 @@ impl From<AccountRow> for Account {
 macro_rules! account_columns {
     () => {
         "SELECT u.username, u.email, u.is_admin, u.scrobbling_enabled, u.password_set_at,
+                u.last_seen_at,
                 (SELECT count(*) FROM sessions s
                   WHERE s.user_id = u.id AND s.expires_at > ?),
                 (SELECT count(*) FROM api_keys k

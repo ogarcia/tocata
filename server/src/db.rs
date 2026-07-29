@@ -16,6 +16,13 @@ pub fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+/// A moment either side of now, in the same shape. Negative offsets go back:
+/// what a session's expiry is made of, and what "older than five minutes" is
+/// compared against.
+pub fn from_now(offset: chrono::Duration) -> String {
+    (Utc::now() + offset).to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
 /// A moment written by somebody else, in the shape the schema stores, or `None`
 /// if it is not a moment at all.
 ///

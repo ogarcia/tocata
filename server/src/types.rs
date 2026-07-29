@@ -249,6 +249,11 @@ pub struct Account {
     /// change of address as readily as for a change of password.
     #[schema(example = "2026-05-14T09:12:00Z")]
     pub password_set_at: String,
+    /// Roughly when a request last arrived on this account, by any door. Null means
+    /// it has never been used. To the nearest few minutes, which is as precise as a
+    /// figure nobody reads twice a day needs to be.
+    #[schema(example = "2026-07-29T08:15:00Z")]
+    pub last_seen_at: Option<String>,
     /// Sessions logged in and not yet expired. What tells an administrator that
     /// an account is in use before they remove it.
     pub sessions: i64,

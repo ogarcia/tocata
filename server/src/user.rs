@@ -48,6 +48,8 @@ pub async fn authenticate_password(
     match row {
         Some((id, username, is_admin, hash)) => {
             if auth::verify_password(password, &hash) {
+                seen(pool, id).await?;
+
                 Ok(Some(User {
                     id,
                     username,
@@ -102,6 +104,37 @@ async fn lookup_api_key(pool: &SqlitePool, key: &str) -> Result<Option<(i64, Use
     }))
 }
 
+/// How stale an account's `last_seen_at` may get before it is written again. The
+/// same five minutes a session's own is written at, for the same reason.
+const SEEN_RESOLUTION_MINUTES: i64 = 5;
+
+/// Notes that an account was just used, by whichever door the request came in.
+///
+/// Every authenticated request passes through here, so the guard is in the
+/// statement rather than around it: the row only changes when the note has gone
+/// stale, and an update that matches nothing writes no page.
+///
+/// What it answers is the question an administrator has about an account they are
+/// thinking of removing — is anybody still using this? Neither the sessions nor the
+/// keys can answer it: a session expires and is swept, and a key that was never
+/// used says nothing about the password beside it.
+pub async fn seen(pool: &SqlitePool, user_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET last_seen_at = ?
+          WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)",
+    )
+    .bind(now())
+    .bind(user_id)
+    .bind(crate::db::from_now(-chrono::Duration::minutes(
+        SEEN_RESOLUTION_MINUTES,
+    )))
+    .execute(pool)
+    .await
+    .context("recording that an account was seen")?;
+
+    Ok(())
+}
+
 /// Notes that a key just let a request through, for the panel to show.
 async fn record_api_key_use(pool: &SqlitePool, key_id: i64) -> Result<()> {
     sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
@@ -121,6 +154,7 @@ pub async fn authenticate_api_key(pool: &SqlitePool, key: &str) -> Result<Option
     };
 
     record_api_key_use(pool, key_id).await?;
+    seen(pool, user.id).await?;
 
     Ok(Some(user))
 }
@@ -153,6 +187,7 @@ pub async fn authenticate_password_or_api_key(
     }
 
     record_api_key_use(pool, key_id).await?;
+    seen(pool, user.id).await?;
 
     Ok(Some(user))
 }
@@ -384,6 +419,73 @@ mod tests {
         let _ = authenticate_api_key(&pool, "ana's key").await.unwrap();
 
         assert!(last_used(&pool, "ana's key").await.is_none());
+    }
+
+    /// What an administrator is looking at when they wonder whether an account is
+    /// still in use. It has to survive the session being swept and the key never
+    /// having been used, so it is written on the account itself.
+    #[tokio::test]
+    async fn a_key_marks_the_account_as_seen() {
+        let pool = two_users_with_keys().await;
+
+        assert!(last_seen(&pool, "ana").await.is_none(), "created, unused");
+
+        authenticate_api_key(&pool, "ana's key").await.unwrap();
+
+        assert!(last_seen(&pool, "ana").await.is_some());
+        assert!(
+            last_seen(&pool, "bob").await.is_none(),
+            "and says nothing about anybody else"
+        );
+    }
+
+    /// The guard is in the statement, and it is what keeps a column nobody reads
+    /// twice a day from costing a write per request.
+    #[tokio::test]
+    async fn an_account_seen_a_moment_ago_is_not_written_again() {
+        let pool = two_users_with_keys().await;
+        let id = who(&pool, "ana").await;
+
+        // A moment inside the resolution, distinctive enough to recognise.
+        sqlx::query("UPDATE users SET last_seen_at = ? WHERE id = ?")
+            .bind(crate::db::from_now(-chrono::Duration::minutes(1)))
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let before = last_seen(&pool, "ana").await;
+        seen(&pool, id).await.unwrap();
+        assert_eq!(last_seen(&pool, "ana").await, before, "left alone");
+
+        // And once it has gone stale it moves.
+        sqlx::query("UPDATE users SET last_seen_at = '2020-01-01T00:00:00Z' WHERE id = ?")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        seen(&pool, id).await.unwrap();
+        assert_ne!(
+            last_seen(&pool, "ana").await.as_deref(),
+            Some("2020-01-01T00:00:00Z")
+        );
+    }
+
+    async fn last_seen(pool: &SqlitePool, username: &str) -> Option<String> {
+        sqlx::query_scalar("SELECT last_seen_at FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn who(pool: &SqlitePool, username: &str) -> i64 {
+        sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_one(pool)
+            .await
+            .unwrap()
     }
 
     /// Withdraws a key the way the API does, by writing the moment on it.

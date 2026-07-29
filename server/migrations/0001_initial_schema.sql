@@ -304,6 +304,14 @@ CREATE TABLE users (
     password_set_at    TEXT    NOT NULL
                        DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     email              TEXT,
+    -- Roughly when a request last arrived on this account, by any door: the panel,
+    -- a password over /rest, or an API key. Null means never — an account that was
+    -- created and has not been used since, which is the thing an administrator is
+    -- looking for when they wonder who is still listening.
+    --
+    -- Written at the same resolution as a session's `last_seen_at` and for the same
+    -- reason: a column read once in a while does not deserve a write per request.
+    last_seen_at       TEXT,
     is_admin           INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
     scrobbling_enabled INTEGER NOT NULL DEFAULT 1
                        CHECK (scrobbling_enabled IN (0, 1)),

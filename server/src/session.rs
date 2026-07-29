@@ -15,7 +15,7 @@ use crate::auth;
 use crate::db;
 use crate::user::User;
 use anyhow::{Context, Result};
-use chrono::{Duration, SecondsFormat, Utc};
+use chrono::Duration;
 use sqlx::SqlitePool;
 
 /// How long a login lasts. Absolute: see the schema for why it does not slide.
@@ -37,11 +37,6 @@ pub struct Session {
     pub expires_at: String,
 }
 
-/// A moment relative to now, in the shape the schema stores.
-fn from_now(offset: Duration) -> String {
-    (Utc::now() + offset).to_rfc3339_opts(SecondsFormat::Secs, true)
-}
-
 /// Logs somebody in, returning the token for their cookie and when it runs out.
 ///
 /// Expired rows are cleared here rather than on a timer: the table only grows
@@ -50,7 +45,7 @@ fn from_now(offset: Duration) -> String {
 pub async fn create(pool: &SqlitePool, user_id: i64) -> Result<(String, String)> {
     let token = auth::generate_token()?;
     let timestamp = db::now();
-    let expires_at = from_now(Duration::days(LIFETIME_DAYS));
+    let expires_at = db::from_now(Duration::days(LIFETIME_DAYS));
 
     sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
         .bind(&timestamp)
@@ -93,7 +88,7 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> Result<Option<Session>> 
     };
 
     // Only once it has gone stale, which is what the resolution is for.
-    if last_seen_at < from_now(-Duration::minutes(LAST_SEEN_RESOLUTION_MINUTES)) {
+    if last_seen_at < db::from_now(-Duration::minutes(LAST_SEEN_RESOLUTION_MINUTES)) {
         sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
             .bind(db::now())
             .bind(id)
@@ -101,6 +96,11 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> Result<Option<Session>> 
             .await
             .context("recording session use")?;
     }
+
+    // The account as well as the session. This one says which browser was here;
+    // the account's own says whether anybody is using it at all, which is what
+    // survives the session being swept.
+    crate::user::seen(pool, user_id).await?;
 
     Ok(Some(Session {
         id,
