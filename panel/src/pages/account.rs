@@ -1159,8 +1159,9 @@ fn NewKeySheet(
 
     // Straight to the clipboard, because the alternative is somebody selecting a
     // forty character string by hand at the one moment it can still be read. The
-    // word on the button changes and stays changed: there is nothing else to say
-    // afterwards, and a message that faded would be a message somebody missed.
+    // word on the button changes and stays changed for as long as the dialogue is
+    // open: there is nothing else to say afterwards, and a message that faded would
+    // be a message somebody missed.
     //
     // Nothing is said when it fails. The clipboard needs permission the browser may
     // not give, and the key is right there to be selected — `user-select: all` means
@@ -1177,10 +1178,14 @@ fn NewKeySheet(
         set_copied.set(true);
     };
 
+    // Closing is the clearing, and "Copied" is one of the things being cleared: it
+    // was said about a secret that no longer exists, and left standing it greeted the
+    // next key with the news that it had already been taken.
     let shut = move || {
         set_asking.set(false);
         set_rotated.set(None);
         set_made.set(None);
+        set_copied.set(false);
     };
 
     let submit = move |event: web_sys::SubmitEvent| {
