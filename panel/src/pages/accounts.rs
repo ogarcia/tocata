@@ -397,21 +397,27 @@ fn Row(
                 </span>
             </span>
 
-            <span class="rank" class:admin=admin>
-                {if admin { t!("accounts.administrator") } else { t!("accounts.listener") }}
-            </span>
+            // Three cells while the row is a row of a table, and one line of prose
+            // under the name once there is no room for four columns. The wrapper is
+            // `display: contents` on a wide screen, so the grid still sees the three
+            // of them and their columns still line up down the list.
+            <span class="about">
+                <span class="rank" class:admin=admin>
+                    {if admin { t!("accounts.administrator") } else { t!("accounts.listener") }}
+                </span>
 
-            <span class="figure quiet">{format!("{sessions} · {keys}")}</span>
+                <span class="figure quiet using">{format!("{sessions} · {keys}")}</span>
 
-            // Relative, because the question is whether anybody is still using the
-            // account and not on which afternoon they last did. Never used says so:
-            // an account nobody has signed into is what an administrator is looking
-            // for down this column.
-            <span class="figure quiet">
-                {match last_seen {
-                    Some(at) => since(&at),
-                    None => t!("accounts.never_seen").to_string(),
-                }}
+                // Relative, because the question is whether anybody is still using
+                // the account and not on which afternoon they last did. Never used
+                // says so: an account nobody has signed into is what an administrator
+                // is looking for down this column.
+                <span class="figure quiet seen">
+                    {match last_seen {
+                        Some(at) => since(&at),
+                        None => t!("accounts.never_seen").to_string(),
+                    }}
+                </span>
             </span>
 
             <Dots title=t!("accounts.more", name = name.get_value()).to_string() disabled=busy>

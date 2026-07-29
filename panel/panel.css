@@ -1544,13 +1544,13 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 .roster-head, .roster > li {
   display: grid;
   grid-template-columns:
-    minmax(200px, 3fr) minmax(110px, 1fr) minmax(130px, 1fr) minmax(110px, 1fr) 24px;
+    minmax(200px, 3fr) minmax(105px, 1fr) minmax(130px, 1fr) minmax(105px, 1fr) 24px;
   gap: 24px;
   /* The twelve pixels the block outside is pulled out by, so a row's tint and its
    * hairline run past the text on both sides while the text stays lined up with
    * everything else on the screen. */
   padding: 0 12px;
-  min-width: 740px;
+  min-width: 684px;
 }
 
 .roster-head {
@@ -1580,6 +1580,11 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 }
 
 .roster > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+/* Three cells of the grid, wrapped only so that they can become one line together
+ * when the columns go. On a wide screen the wrapper is not there as far as layout is
+ * concerned. */
+.roster .about { display: contents; }
 
 /* Numbers under a heading that is also a number's, both against the right and both
  * in tabular figures, so "1 · 1" and "12 · 3" line up on the dot. */
@@ -1620,6 +1625,57 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 .roster .rank { color: var(--quiet); }
 
 .roster .rank.admin { color: var(--accent); }
+
+/* One column, once four of them no longer fit.
+ *
+ * What decides the width is not the window: the four floors and their gaps come to
+ * 684 pixels, the column of sections takes 240 of whatever there is and the page's
+ * own padding another 112. Above that the row is a row of a table; below it the table
+ * would have to be dragged sideways to be read, and a list you have to drag is not a
+ * list — the scroll box is there so nothing breaks, not so that it gets used. Under
+ * 45rem the column of sections becomes a bar across the top, which gives the page
+ * back 200 pixels and still not enough for four columns, so one breakpoint covers
+ * both. */
+@media (max-width: 1040px) {
+  /* Headings over columns that are no longer there. */
+  .roster-head { display: none; }
+
+  .roster-head, .roster > li { min-width: 0; }
+
+  .roster > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 14px;
+    padding: 14px 12px;
+  }
+
+  .roster .account { grid-area: 1 / 1; }
+
+  /* Still at the end of the line the name is on, which is the line it belongs to. */
+  .roster .dots { grid-area: 1 / 2; }
+
+  /* What were three columns become one line of prose under the name, set at the size
+   * every second line in this panel is set at. */
+  .roster .about {
+    grid-area: 2 / 1 / 3 / 3;
+    /* In line with the name and the address, not with the edge of the row: the three
+     * of them are one block of text about one account, and this line started under
+     * the initial in its circle. Thirty pixels of circle and the twelve of its gap,
+     * which is what `.roster .account` sets. */
+    padding-left: 42px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 12px;
+    font-size: 13px;
+  }
+
+  .roster .about .figure { text-align: left; }
+
+  /* Two numbers with nothing written over them are two numbers. On a wide screen the
+   * pair sits under a heading that says which is which; stacked there is nowhere to
+   * put one, and both figures are on the account's own screen, one tap away. */
+  .roster .using { display: none; }
+}
 
 /* What the list adds up to, and how to open one. Under the rows, where somebody
  * ends up. */
