@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// Subdirectory of the data directory where image bytes go.
-const CACHE_DIRECTORY: &str = "artwork";
+pub const CACHE_DIRECTORY: &str = "artwork";
 
 /// File names that hold an album cover, in the order they are trusted. These are
 /// the conventions taggers and other music software have settled on.

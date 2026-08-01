@@ -602,3 +602,36 @@ CREATE TABLE settings (
     session_days      INTEGER NOT NULL CHECK (session_days > 0),
     updated_at        TEXT    NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- Maintenance
+-- ---------------------------------------------------------------------------
+
+-- What each maintenance job did, and when. One row per run, kept so that the
+-- panel can say "last run twelve days ago, removed 21" rather than offering a
+-- button with no memory behind it.
+--
+-- What a run found is one number on purpose. Every job counts something
+-- different — tracks removed, bytes reclaimed, files deleted, problems found —
+-- but every one of them counts something, and the job says what the number is
+-- of. A column per job, or a blob of JSON, would both be ways of not deciding
+-- that.
+CREATE TABLE job_runs (
+    id          INTEGER PRIMARY KEY,
+    -- Which job, as the name the API uses. Not a foreign key: the jobs are in
+    -- the program, not in a table, and a job that stops existing should leave
+    -- its history readable rather than take it along.
+    job         TEXT    NOT NULL,
+    started_at  TEXT    NOT NULL,
+    -- Null while it is still running, which is also what tells a run that was
+    -- interrupted by the server stopping from one that finished.
+    finished_at TEXT,
+    -- How much of whatever this job counts. Zero is a real answer: a check that
+    -- found nothing wrong is the answer somebody wanted.
+    affected    INTEGER NOT NULL DEFAULT 0,
+    error       TEXT
+);
+
+-- The panel asks for the last run of each job, and for the last few runs of
+-- anything, and both are this index read in one direction.
+CREATE INDEX job_runs_by_job ON job_runs (job, started_at DESC);

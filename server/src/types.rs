@@ -574,3 +574,78 @@ pub struct Removed {
     /// rows.
     pub artworks: i64,
 }
+
+/// A job somebody runs when something is off.
+///
+/// Named rather than numbered, because the name is what the API takes and what
+/// a run in the history is filed under, and both outlive any list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Job {
+    /// Removes for good what a scan marked absent.
+    Purge,
+    /// Gives back the space deletions left behind in the database.
+    Compact,
+    /// Puts the cover cache in order: deletes the cached files no row names any
+    /// more, and forgets that a cover was looked for and not found, so that the
+    /// next client to ask makes the server look again.
+    Covers,
+    /// Reads the database through, and says whether anything is wrong with it.
+    Check,
+}
+
+impl Job {
+    /// What the name looks like in a URL, and in the history.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Purge => "purge",
+            Self::Compact => "compact",
+            Self::Covers => "covers",
+            Self::Check => "check",
+        }
+    }
+}
+
+/// One run of one job.
+///
+/// What it found is a single number, and the job says what the number is of:
+/// tracks removed, bytes reclaimed, files deleted, lookups forgotten, problems
+/// found. Zero is an answer rather than the absence of one — a check that found
+/// nothing wrong is what somebody was hoping for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Run {
+    pub job: Job,
+    /// When it started.
+    #[schema(example = "2026-08-01T04:00:00Z")]
+    pub at: String,
+    /// False for a run the server stopped in the middle of, which is the only
+    /// way one ends without either a count or an error.
+    pub finished: bool,
+    pub affected: i64,
+    /// Why it could not be done — or, for the check, what it found wrong, since
+    /// that is the one job whose bad news is prose.
+    pub error: Option<String>,
+}
+
+/// A job as a screen needs it: what it is, what it would do if it ran now, and
+/// how it went last time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JobState {
+    pub job: Job,
+    /// How much this job would affect right now, in whatever it counts. None for
+    /// a job that changes nothing and so has nothing to warn about.
+    pub pending: Option<i64>,
+    pub last_run: Option<Run>,
+}
+
+/// The whole maintenance screen in one answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Maintenance {
+    /// Every job, in the order they are worth offering.
+    pub jobs: Vec<JobState>,
+    /// The last few runs of anything, newest first.
+    pub lately: Vec<Run>,
+}

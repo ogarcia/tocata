@@ -26,6 +26,8 @@ pub mod config;
 #[cfg(feature = "server")]
 pub mod db;
 #[cfg(feature = "server")]
+pub mod jobs;
+#[cfg(feature = "server")]
 pub mod lyrics;
 #[cfg(feature = "server")]
 pub mod panel;

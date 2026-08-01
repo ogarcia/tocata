@@ -1,23 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
-//! Asking for what a scan only marked to be removed for good.
+//! What a purge would cost, spelled out.
 //!
-//! The removing itself is in [`crate::purge`], which a scan also reaches when the
-//! collection has been given a quarantine. What is here is the two calls, and it
-//! is two on purpose: the first says what would go, in terms of the things that
-//! cannot be got back — a catalogue rebuilds itself on the next scan, a rating
-//! does not — and the second does it.
+//! Running one is `POST /jobs/purge`, like every other job, and what it counts
+//! there is tracks. This is the one thing that call cannot say: the favourites,
+//! the ratings and the playlist entries that go with those tracks and cannot be
+//! scanned back. It exists because the purge is the one job with a dialogue in
+//! front of it, and this is what the dialogue reads out.
 
 use super::error::ApiError;
-use super::session::{Administrator, Panel};
-use crate::config::Config;
-use crate::scanner::Progress;
-use crate::types::{ErrorBody, Loss, Removed};
+use super::session::Panel;
+use crate::types::{ErrorBody, Loss};
 use axum::Json;
 use axum::extract::State;
 use sqlx::SqlitePool;
-use std::sync::Arc;
 
 /// What a purge would remove
 ///
@@ -69,44 +66,4 @@ pub async fn preview(
         played,
         bookmarks,
     }))
-}
-
-/// Purge what is absent
-///
-/// Deletes every track marked absent, then everything left with nothing in it:
-/// empty folders, albums with no tracks, artists with neither, genres and moods
-/// nobody uses, and cover art nothing points at.
-///
-/// There is no undoing it short of a backup. Refused while a scan is running,
-/// since a scan is in the middle of deciding what is absent.
-#[utoipa::path(
-    post,
-    path = "/purge",
-    tag = "purge",
-    responses(
-        (status = 200, description = "What was removed", body = Removed),
-        (status = 401, description = "No valid session", body = ErrorBody),
-        (status = 403, description = "Not an administrator", body = ErrorBody),
-        (status = 409, description = "A scan is running", body = ErrorBody),
-    )
-)]
-pub async fn purge(
-    _admin: Administrator,
-    State(pool): State<SqlitePool>,
-    State(progress): State<Arc<Progress>>,
-    State(config): State<Arc<Config>>,
-) -> Result<Json<Removed>, ApiError> {
-    if progress.is_scanning() {
-        return Err(ApiError::Conflict(
-            "A scan is running; it is deciding what is absent",
-        ));
-    }
-
-    // No threshold: somebody asking for a purge means everything a scan has
-    // marked, whatever the quarantine says. That is what the dry run above
-    // counted, and what the dialogue asking them said.
-    crate::purge::absent(&pool, config.data_dir(), None)
-        .await
-        .map(Json)
-        .map_err(|e| ApiError::internal(e, "purging what is absent"))
 }

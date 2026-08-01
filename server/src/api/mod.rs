@@ -20,6 +20,7 @@
 mod error;
 mod events;
 mod health;
+mod jobs;
 mod keys;
 mod libraries;
 mod preferences;
@@ -87,7 +88,8 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "preferences", description = "How the panel looks and speaks, per account"),
         (name = "stats", description = "What there is, in figures"),
         (name = "resources", description = "What the server is costing the machine"),
-        (name = "purge", description = "Removing for good what a scan only marked"),
+        (name = "purge", description = "What removing what a scan marked would cost"),
+        (name = "jobs", description = "The maintenance jobs, and running one"),
     )
 )]
 struct Reference;
@@ -129,5 +131,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(preferences::change))
         .routes(routes!(stats::stats))
         .routes(routes!(resources::read))
-        .routes(routes!(purge::preview, purge::purge))
+        .routes(routes!(purge::preview))
+        .routes(routes!(jobs::list))
+        .routes(routes!(jobs::start))
 }

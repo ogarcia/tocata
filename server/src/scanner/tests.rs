@@ -757,3 +757,48 @@ async fn moving_a_library_needs_no_rescan() {
 
     fs::remove_dir_all(&elsewhere).unwrap();
 }
+
+/// Reading everything again has to forget that a cover was looked for and not
+/// found, or a cover added to a directory afterwards would never be seen: the
+/// server remembers the answer and stops opening the files.
+///
+/// And the quick scan has to leave that memory alone, since the whole point of it
+/// is to skip work.
+#[tokio::test]
+async fn reading_everything_again_forgets_the_covers_that_were_not_found() {
+    let pool = database().await;
+
+    for (id, found) in [(1, 0), (2, 1), (3, 0)] {
+        sqlx::query(
+            "INSERT INTO artwork_lookups (entity_type, entity_id, source, attempted_at, found)
+             VALUES ('album', ?, 'local', ?, ?)",
+        )
+        .bind(id)
+        .bind(db::now())
+        .bind(found)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // No library, so neither scan has a file to open. What is being tested
+    // happens before the walk.
+    scan_all(&pool, Mode::Incremental, &Progress::default())
+        .await
+        .unwrap();
+
+    assert_eq!(lookups(&pool).await, 3, "a quick scan remembers everything");
+
+    scan_all(&pool, Mode::Full, &Progress::default())
+        .await
+        .unwrap();
+
+    assert_eq!(lookups(&pool).await, 1, "only the one that found a cover");
+}
+
+async fn lookups(pool: &SqlitePool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM artwork_lookups")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}

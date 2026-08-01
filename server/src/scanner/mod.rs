@@ -138,6 +138,24 @@ pub async fn scan_all(
             .await
             .context("listing libraries")?;
 
+    // Reading everything again means trusting nothing that was known before, and
+    // one of the things known before is that an album had no cover anywhere. That
+    // answer is remembered so the server does not open the same twenty files on
+    // every request — which is right until somebody puts a cover.jpg beside the
+    // music, and then it is the reason nothing changes. Only on a full scan: the
+    // quick one exists to skip work, and this is work.
+    if mode == Mode::Full {
+        let forgotten = sqlx::query("DELETE FROM artwork_lookups WHERE found = 0")
+            .execute(pool)
+            .await
+            .context("forgetting the covers that were not found")?
+            .rows_affected();
+
+        if forgotten > 0 {
+            info!("will look again for {forgotten} covers that were not found before");
+        }
+    }
+
     let mut total = Outcome::default();
     for (id, path, name) in libraries {
         progress.entering(&name);
