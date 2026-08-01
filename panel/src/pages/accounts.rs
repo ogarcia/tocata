@@ -1205,7 +1205,7 @@ fn Theirs(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
                 // states and not a thing to be switched on: a box labelled
                 // "administers the server" says what it does and not what the other
                 // answer would be.
-                <Setting label=t!("accounts.role").to_string() why=t!("accounts.admin_warning")>
+                <Setting label=t!("accounts.role").to_string() why=t!("accounts.admin_warning").to_string()>
                     <div class="options">
                         <button
                             type="button"
@@ -1230,7 +1230,7 @@ fn Theirs(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
 
                 <Setting
                     label=t!("accounts.set_password_row").to_string()
-                    why=t!("accounts.password_lead")
+                    why=t!("accounts.password_lead").to_string()
                 >
                     <input
                         type="password"

@@ -12,7 +12,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tocata::types::{
     Account, AccountChanges, Closed, Credentials, Identity, Key, Library, LibraryAccess,
-    LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences, Revoked, Stats,
+    LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences, Revoked,
+    Settings, SettingsChanges, Stats,
 };
 use web_sys::RequestCredentials;
 
@@ -135,6 +136,18 @@ pub async fn set_preferences(changes: PreferenceChanges) -> Result<Preferences, 
 
 pub async fn stats() -> Result<Stats, Failure> {
     read(get("/stats")?).await
+}
+
+/// How the server behaves for everybody. Anybody may read them; only an
+/// administrator may write them.
+pub async fn settings() -> Result<Settings, Failure> {
+    read(get("/settings")?).await
+}
+
+/// Changes them. The screen sends every field at once, since it has one Save for
+/// the lot, but the call itself has no opinion about that.
+pub async fn set_settings(changes: SettingsChanges) -> Result<Settings, Failure> {
+    read(patch("/settings", &changes)?).await
 }
 
 /// Starts one. `full` reads every file again instead of trusting size and

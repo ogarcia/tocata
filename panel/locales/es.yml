@@ -300,6 +300,50 @@ access:
   password_changed: "Cambiada %{when}"
   change_password: "Cambiarla en Perfil"
 
+settings:
+  lead: "Cómo se comporta el servidor para todo el mundo. Tu aspecto y tu idioma están en Preferencias."
+  scanning: "Escaneo"
+  at_startup: "Al encender"
+  at_startup_why: "Un escaneo rápido cada vez que arranca el servidor."
+  at_startup_on: "Escanear al arrancar"
+  on_a_schedule: "A su hora"
+  on_a_schedule_why: "Un escaneo rápido, cada día, mientras no hay nadie escuchando."
+  every_day: "Todos los días a las"
+  what_is_gone: "Lo que ya no está"
+  keep_it: "No borrarlo"
+  after_a_while: "Pasado un tiempo"
+  at_once: "En cuanto falte"
+  # Lo que hace cada una de las tres respuestas, en una frase. Cambia con la
+  # respuesta elegida, porque las tres describen servidores distintos.
+  gone_kept: "Un escaneo nunca borra: marca lo que no encuentra, porque lo normal es un disco que no montó. Se quedan así hasta que pidas una limpieza."
+  gone_at_once: "El escaneo que las eche en falta se las lleva, junto con sus valoraciones y sus reproducciones."
+  gone_after: "Se quedan marcadas como ausentes mientras las buscas. %{after}, un escaneo se las lleva junto con sus valoraciones y sus reproducciones."
+  # El plazo escrito, para esa frase. Sin regla de plural: rust-i18n no tiene, así
+  # que cada uno es su propia clave.
+  after_a_day: "Después de un día"
+  after_a_week: "Después de una semana"
+  after_a_month: "Después de un mes"
+  after_a_year: "Después de un año"
+  after_days: "Después de %{count} días"
+  # Con la caja vacía, que es un estado por el que se pasa al cambiar el número.
+  after_unsaid: "Pasado ese tiempo"
+  # Las palabras que rodean la caja.
+  after: "Después de"
+  day: "día"
+  days_plain: "días"
+  collection: "La colección"
+  ignored_articles: "Artículos que no cuentan"
+  ignored_articles_why: "Palabras que se saltan al decidir por qué letra va un nombre, separadas por espacios: así «The Beatles» está en la B."
+  no_articles: "Ninguna"
+  sessions: "Las sesiones"
+  session_lifetime: "Cuánto duran"
+  session_lifetime_why: "Antes de que el panel vuelva a pedir la contraseña. Las que ya están abiertas conservan su fecha."
+  a_day: "Un día"
+  a_week: "Una semana"
+  a_month: "Un mes"
+  three_months: "Tres meses"
+  days: "%{count} días"
+
 prefs:
   lead: "Cómo se ve y en qué idioma habla el panel. Se guardan con tu cuenta, así que te siguen a otro navegador."
   theme: "Tema"

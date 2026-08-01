@@ -521,6 +521,74 @@ select.narrow { width: 200px; }
 
 .setting .hint { margin: 8px 0 0; }
 
+/* The blocks of the settings screen — the one screen made of several runs of rows
+ * that have nothing to do with one another, and so the one that would otherwise
+ * leave a wide empty band beside a single narrow column. Tracks that ask for 420
+ * pixels each: two columns where there is room for two, one where there is not,
+ * and no width in a media query. */
+.knobs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 44px 56px;
+}
+
+/* A run inside a column is as wide as its column. The cap a run carries is for a
+ * form standing on its own, and here it would leave the two columns different
+ * widths on a wide screen. */
+.knobs .settings { max-width: none; }
+
+/* Blocks that share a column because neither fills one: two headings over one row
+ * apiece, standing off each other by what the grid puts between its own rows.
+ * `start` so they sit at the top of the column rather than being spread down the
+ * height of the tallest one beside them. */
+.stack {
+  display: grid;
+  align-content: start;
+  gap: 44px;
+}
+
+/* A tick and the value it turns on, on one line: neither says anything without the
+ * other. A schedule with no hour is not a schedule, and an hour with the tick off
+ * is a note about what would happen. */
+.beside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+/* An hour is four characters and a figure, so it is as wide as it is and set in
+ * the face figures line up in. After the run's own field rule rather than before
+ * it: the two selectors weigh the same and the later one is the one that wins. */
+.settings input[type="time"] {
+  width: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+}
+
+/* Switched off it goes quiet rather than away: what it holds is what would happen
+ * if the tick came back. */
+.settings input[type="time"]:disabled { opacity: 0.5; }
+
+/* The phrase the middle answer needs, on the line under the three answers, with
+ * the field set into it rather than standing in front of a unit. Baselines, so the
+ * box sits on the same line the words do. */
+.hint.after {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* Room for three digits and no more. Centred because it is read as part of a
+ * sentence, and in figures that line up because the number under it changes as it
+ * is typed. */
+.settings input.count {
+  width: 3em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- the folding menu ---------------------------------------------------- */
 
 /* None of these exists on a wide screen: the column is simply there, and there is

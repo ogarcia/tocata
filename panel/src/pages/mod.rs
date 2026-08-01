@@ -18,6 +18,7 @@ pub mod account;
 pub mod accounts;
 pub mod home;
 pub mod libraries;
+pub mod settings;
 
 use crate::api::Failure;
 use crate::icon::{Glyph, Icon};
@@ -147,7 +148,13 @@ pub fn Dots(
 #[component]
 pub fn Setting(
     label: String,
-    #[prop(optional, into)] why: String,
+    /// What the row is for. A signal rather than a string because one row's answer
+    /// changes what the row means — the quarantine on Settings says how long
+    /// something stays marked, and the number is in the row itself — while every
+    /// other caller hands over a constant, which becomes a signal that never
+    /// fires.
+    #[prop(optional, into)]
+    why: Signal<String>,
     /// The row that answers for all the others, said in the accent.
     #[prop(optional)]
     asked: bool,
@@ -157,7 +164,9 @@ pub fn Setting(
         <div class="setting" class:asked=asked>
             <div>
                 <span>{label}</span>
-                {(!why.is_empty()).then(|| view! { <span class="why">{why}</span> })}
+                <Show when=move || !why.get().is_empty()>
+                    <span class="why">{move || why.get()}</span>
+                </Show>
             </div>
             <div>{children()}</div>
         </div>

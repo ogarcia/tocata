@@ -367,7 +367,7 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
 
                 <Setting
                     label=t!("profile.new_password").to_string()
-                    why=t!("profile.unchanged")
+                    why=t!("profile.unchanged").to_string()
                 >
                     <input
                         type="password"
@@ -452,7 +452,7 @@ fn Listening(account: Account, save: Callback<AccountChanges>) -> impl IntoView 
             <div class="settings">
                 <Setting
                     label=t!("profile.scrobbling").to_string()
-                    why=t!("profile.scrobbling_why")
+                    why=t!("profile.scrobbling_why").to_string()
                 >
                     <label class="checkbox">
                         <input

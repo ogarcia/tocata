@@ -252,7 +252,11 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     <Route
                         path=path!("/settings")
                         view=move || {
-                            view! { <Restricted admin heading=t!("nav.settings").to_string() /> }
+                            if admin {
+                                view! { <pages::settings::Settings on_expired=forget /> }.into_any()
+                            } else {
+                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                            }
                         }
                     />
                     <Route
@@ -293,7 +297,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 9] = [
+    const SOURCES: [&str; 10] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -303,6 +307,7 @@ mod tests {
         include_str!("pages/libraries.rs"),
         include_str!("pages/accounts.rs"),
         include_str!("pages/account.rs"),
+        include_str!("pages/settings.rs"),
     ];
 
     /// The stylesheet and the panel agree on which accent is the default.

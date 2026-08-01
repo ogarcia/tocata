@@ -305,6 +305,50 @@ access:
   password_changed: "Changed %{when}"
   change_password: "Change it in Profile"
 
+settings:
+  lead: "How the server behaves for everybody. Your own look and language are in Preferences."
+  scanning: "Scanning"
+  at_startup: "On starting"
+  at_startup_why: "A quick scan every time the server comes up."
+  at_startup_on: "Scan at startup"
+  on_a_schedule: "On a schedule"
+  on_a_schedule_why: "A quick scan, every day, while nobody is listening."
+  every_day: "Every day at"
+  what_is_gone: "What is gone"
+  keep_it: "Keep it"
+  after_a_while: "After a while"
+  at_once: "As soon as it goes"
+  # What each of the three answers does, in a sentence. It follows the answer,
+  # because the three describe different servers.
+  gone_kept: "A scan never deletes: it marks what it cannot find, because the usual reason is a disk that failed to mount. They stay that way until you ask for a clear-out."
+  gone_at_once: "The scan that finds them gone is the one that removes them, along with their ratings and play counts."
+  gone_after: "They stay marked as missing while you look for them. %{after}, a scan removes them, along with their ratings and play counts."
+  # The span written out, for that sentence. No plural rule: rust-i18n has none,
+  # so each of these is its own key.
+  after_a_day: "After a day"
+  after_a_week: "After a week"
+  after_a_month: "After a month"
+  after_a_year: "After a year"
+  after_days: "After %{count} days"
+  # With the box empty, which is a state somebody passes through.
+  after_unsaid: "After that long"
+  # The words around the box.
+  after: "After"
+  day: "day"
+  days_plain: "days"
+  collection: "The collection"
+  ignored_articles: "Articles that do not count"
+  ignored_articles_why: "Words skipped when deciding which letter a name files under, separated by spaces, so that \"The Beatles\" sits under B."
+  no_articles: "None"
+  sessions: "Sessions"
+  session_lifetime: "How long they last"
+  session_lifetime_why: "Before the panel asks for a password again. The ones already open keep the day they were given."
+  a_day: "A day"
+  a_week: "A week"
+  a_month: "A month"
+  three_months: "Three months"
+  days: "%{count} days"
+
 prefs:
   lead: "How the panel looks and speaks to you. Kept with your account, so it follows you to another browser."
   theme: "Theme"
