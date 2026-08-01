@@ -618,6 +618,7 @@ async fn load(pool: &SqlitePool, username: &str) -> Result<Account, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::A_MONTH;
     use crate::user::User;
 
     /// The session count is the one figure here that compares timestamps, and it
@@ -798,7 +799,7 @@ mod tests {
         .unwrap();
 
         for _ in 0..3 {
-            session::create(&pool, user_id).await.unwrap();
+            session::create(&pool, user_id, A_MONTH).await.unwrap();
         }
 
         let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
@@ -920,7 +921,7 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        session::create(&pool, admin_id).await.unwrap();
+        session::create(&pool, admin_id, A_MONTH).await.unwrap();
         let admin_session: i64 =
             sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ? LIMIT 1")
                 .bind(admin_id)

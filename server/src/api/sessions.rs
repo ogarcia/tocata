@@ -167,6 +167,7 @@ pub async fn close_all(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::A_MONTH;
     use crate::user::User;
 
     /// An account with three browsers logged in, one of which is asking.
@@ -186,7 +187,7 @@ mod tests {
         .unwrap();
 
         for _ in 0..3 {
-            session::create(&pool, user_id).await.unwrap();
+            session::create(&pool, user_id, A_MONTH).await.unwrap();
         }
 
         // The middle one, so that neither the first nor the last row surviving

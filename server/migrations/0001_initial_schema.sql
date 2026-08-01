@@ -575,10 +575,30 @@ CREATE TABLE scan_runs (
 -- with key/value every setting is text, every read is an untyped parse, and the
 -- schema stops saying which settings exist.
 CREATE TABLE settings (
-    id               INTEGER PRIMARY KEY CHECK (id = 1),
+    id                INTEGER PRIMARY KEY CHECK (id = 1),
     -- Words dropped when deciding which letter a name files under, separated by
     -- spaces. Stored the way OpenSubsonic reports them, and an article with a
     -- space in it would not work anyway: only the first word is compared.
-    ignored_articles TEXT    NOT NULL,
-    updated_at       TEXT    NOT NULL
+    ignored_articles  TEXT    NOT NULL,
+    -- Whether a quick scan runs every time the server starts. On by default,
+    -- since that is what a server that was off all night ought to do; off for a
+    -- library on a network share that takes an hour to walk.
+    scan_at_startup   INTEGER NOT NULL CHECK (scan_at_startup IN (0, 1)),
+    -- The minute of the local day a quick scan runs at, "HH:MM", or null for no
+    -- schedule at all. Local rather than UTC because it is chosen by somebody
+    -- who means "while I am asleep".
+    scan_at           TEXT             CHECK (scan_at IS NULL OR scan_at GLOB
+                                              '[0-2][0-9]:[0-5][0-9]'),
+    -- How many days a track stays marked absent before a scan clears it out for
+    -- good, or null to never clear it automatically. Zero means the scan that
+    -- finds a file gone is the one that removes it.
+    --
+    -- Absent is not the same as deleted: the usual reason a file is not there is
+    -- a disk that failed to mount, so the default is null and the purge stays a
+    -- thing somebody asks for.
+    absent_grace_days INTEGER          CHECK (absent_grace_days IS NULL
+                                              OR absent_grace_days >= 0),
+    -- How long a panel login lasts, in days. Absolute: see the sessions table.
+    session_days      INTEGER NOT NULL CHECK (session_days > 0),
+    updated_at        TEXT    NOT NULL
 );

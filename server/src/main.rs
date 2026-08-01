@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tocata::config::Config;
 use tocata::state::AppState;
-use tocata::{api, db, panel, resources, scanner, settings, subsonic, user};
+use tocata::{api, db, panel, resources, scanner, settings, subsonic, upkeep, user};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{oneshot, watch};
@@ -77,17 +77,14 @@ async fn main() -> Result<()> {
     // Only once the port is ours: starting a scan before knowing whether the
     // server can even listen would leave a half finished run behind every
     // failed start.
-    let initial = state.clone();
-    tokio::spawn(async move {
-        match scanner::scan_all(&initial.pool, scanner::Mode::Incremental, &initial.scan).await {
-            Ok(Some(outcome)) => info!(
-                "initial scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
-                outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
-            ),
-            Ok(None) => {}
-            Err(e) => tracing::error!("initial scan failed: {e:#}"),
-        }
-    });
+    if settings::load(&pool).await?.scan_at_startup {
+        let initial = state.clone();
+        tokio::spawn(async move {
+            upkeep::scan(&initial, scanner::Mode::Incremental).await;
+        });
+    }
+
+    tokio::spawn(upkeep::on_schedule(state.clone()));
 
     let mut interrupt =
         signal(SignalKind::interrupt()).context("installing the interrupt handler")?;

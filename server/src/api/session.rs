@@ -146,14 +146,21 @@ pub async fn log_in(
         return Err(ApiError::WrongCredentials);
     };
 
-    let (token, expires_at) = session::create(&pool, user.id)
+    // Read now rather than held anywhere: an administrator who shortens this
+    // means it for the next login, and the next login is this one.
+    let days = crate::settings::load(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "reading the settings"))?
+        .session_days;
+
+    let (token, expires_at) = session::create(&pool, user.id, days)
         .await
         .map_err(|e| ApiError::internal(e, "creating a session"))?;
 
     let identity = Identity::of(&pool, &user, expires_at).await?;
     let cookie = format!(
         "{COOKIE_NAME}={token}; Path={COOKIE_PATH}; HttpOnly; SameSite=Strict; Max-Age={}",
-        session::lifetime_seconds()
+        session::lifetime_seconds(days)
     );
 
     Ok(([(SET_COOKIE, cookie)], Json(identity)).into_response())

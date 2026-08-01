@@ -17,7 +17,6 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use std::sync::Arc;
-use tracing::{error, info};
 use utoipa::IntoParams;
 
 impl From<Snapshot> for Status {
@@ -106,16 +105,11 @@ pub async fn start(
         scanner::Mode::Incremental
     };
 
+    // Through upkeep rather than straight at the scanner, so that a scan asked
+    // for from the panel is followed by the same tidying as one nobody asked for.
     let spawned = state.clone();
     tokio::spawn(async move {
-        match scanner::scan_all(&spawned.pool, mode, &spawned.scan).await {
-            Ok(Some(outcome)) => info!(
-                "scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
-                outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
-            ),
-            Ok(None) => {}
-            Err(e) => error!("scan failed: {e:#}"),
-        }
+        crate::upkeep::scan(&spawned, mode).await;
     });
 
     Ok(StatusCode::ACCEPTED)

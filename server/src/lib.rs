@@ -30,6 +30,8 @@ pub mod lyrics;
 #[cfg(feature = "server")]
 pub mod panel;
 #[cfg(feature = "server")]
+pub mod purge;
+#[cfg(feature = "server")]
 pub mod resources;
 #[cfg(feature = "server")]
 pub mod scanner;
@@ -41,5 +43,7 @@ pub mod settings;
 pub mod state;
 #[cfg(feature = "server")]
 pub mod subsonic;
+#[cfg(feature = "server")]
+pub mod upkeep;
 #[cfg(feature = "server")]
 pub mod user;

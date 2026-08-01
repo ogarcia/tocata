@@ -18,9 +18,6 @@ use anyhow::{Context, Result};
 use chrono::Duration;
 use sqlx::SqlitePool;
 
-/// How long a login lasts. Absolute: see the schema for why it does not slide.
-const LIFETIME_DAYS: i64 = 30;
-
 /// How stale `last_seen_at` is allowed to get before it is written again.
 ///
 /// Recording every request would mean a write per request for a column nobody
@@ -39,13 +36,18 @@ pub struct Session {
 
 /// Logs somebody in, returning the token for their cookie and when it runs out.
 ///
+/// How long it lasts is told rather than decided here: it is a setting, and this
+/// module is the mechanism. Absolute, so a session already open keeps the day it
+/// was given even after somebody changes the setting — see the schema for why it
+/// does not slide.
+///
 /// Expired rows are cleared here rather than on a timer: the table only grows
 /// when somebody logs in, so that is the moment worth tidying, and a server
 /// nobody touches needs no upkeep at all.
-pub async fn create(pool: &SqlitePool, user_id: i64) -> Result<(String, String)> {
+pub async fn create(pool: &SqlitePool, user_id: i64, days: i64) -> Result<(String, String)> {
     let token = auth::generate_token()?;
     let timestamp = db::now();
-    let expires_at = db::from_now(Duration::days(LIFETIME_DAYS));
+    let expires_at = db::from_now(Duration::days(days));
 
     sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
         .bind(&timestamp)
@@ -146,10 +148,16 @@ pub async fn destroy_all(pool: &SqlitePool, user_id: i64, except: i64) -> Result
     Ok(done.rows_affected())
 }
 
-/// Seconds a freshly issued session is good for, for the cookie's `Max-Age`.
-pub fn lifetime_seconds() -> i64 {
-    Duration::days(LIFETIME_DAYS).num_seconds()
+/// The same span the cookie's `Max-Age` wants it in, so that the browser forgets
+/// the cookie on the day the row stops being accepted.
+pub fn lifetime_seconds(days: i64) -> i64 {
+    Duration::days(days).num_seconds()
 }
+
+/// A plain lifetime for the tests, here and in the API's. A test that wants a
+/// session wants a session, not an opinion about how long one lasts.
+#[cfg(test)]
+pub(crate) const A_MONTH: i64 = 30;
 
 #[cfg(test)]
 mod tests {
@@ -177,7 +185,7 @@ mod tests {
             .unwrap();
 
             for _ in 0..2 {
-                create(&pool, user_id).await.unwrap();
+                create(&pool, user_id, A_MONTH).await.unwrap();
             }
 
             ids.push(user_id);
@@ -192,6 +200,32 @@ mod tests {
             .fetch_one(pool)
             .await
             .unwrap()
+    }
+
+    /// A session runs out when it was told to, and an open one keeps the day it
+    /// was given: that is what makes shortening the setting safe to do while
+    /// people are logged in.
+    #[tokio::test]
+    async fn a_session_lasts_as_long_as_it_was_told() {
+        let (pool, ana, _) = two_users_logged_in_twice().await;
+
+        let (_, tomorrow) = create(&pool, ana, 1).await.unwrap();
+        let (_, next_month) = create(&pool, ana, A_MONTH).await.unwrap();
+
+        assert!(tomorrow > db::now());
+        assert!(tomorrow < db::from_now(Duration::days(2)));
+        assert!(next_month > tomorrow);
+
+        // The ones made before either of those still say a month, which is what
+        // they were made with.
+        let earliest: String =
+            sqlx::query_scalar("SELECT min(expires_at) FROM sessions WHERE user_id = ?")
+                .bind(ana)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(earliest, tomorrow, "only the short one is short");
     }
 
     #[tokio::test]

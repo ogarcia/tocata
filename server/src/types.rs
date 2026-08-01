@@ -419,9 +419,10 @@ pub struct KeyChanges {
 /// by `default` and the inner one swallows the null. Deserializing the inner
 /// value and wrapping it here means this only runs when the key was written, so
 /// what comes back is `Some(None)` for null and `None` for absent.
-fn mentioned<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+fn mentioned<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
+    T: Deserialize<'de>,
 {
     Option::deserialize(deserializer).map(Some)
 }
@@ -435,6 +436,20 @@ pub struct Settings {
     /// because a separator is a thing to get wrong and a list is not.
     #[schema(example = json!(["The", "El", "La", "Los", "Las"]))]
     pub ignored_articles: Vec<String>,
+    /// Whether a quick scan runs every time the server starts.
+    pub scan_at_startup: bool,
+    /// The minute of the local day a quick scan runs at, `HH:MM`, or null for no
+    /// schedule.
+    #[schema(example = "04:00")]
+    pub scan_at: Option<String>,
+    /// How many days something stays marked absent before a scan clears it out,
+    /// or null to never clear it automatically. Zero removes it as soon as a
+    /// scan finds it gone.
+    #[schema(example = 7)]
+    pub absent_grace_days: Option<i64>,
+    /// How long a panel login lasts, in days.
+    #[schema(example = 30)]
+    pub session_days: i64,
 }
 
 /// What may be changed. Anything left out is left alone.
@@ -445,6 +460,29 @@ pub struct SettingsChanges {
     /// is skipped, which is what a collection in a language without articles
     /// wants.
     pub ignored_articles: Option<Vec<String>>,
+    pub scan_at_startup: Option<bool>,
+    /// An hour of the local day, or null to stop scanning on a schedule. An
+    /// option inside an option, like every nullable field here: "never" and "not
+    /// mentioned" are different answers.
+    #[serde(
+        default,
+        deserialize_with = "mentioned",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(example = "04:00")]
+    pub scan_at: Option<Option<String>>,
+    /// A new quarantine, or null to stop clearing absent things automatically.
+    #[serde(
+        default,
+        deserialize_with = "mentioned",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(example = 7)]
+    pub absent_grace_days: Option<Option<i64>>,
+    /// Only sessions opened afterwards last this long. An open one keeps the
+    /// expiry it was given.
+    #[schema(example = 30)]
+    pub session_days: Option<i64>,
 }
 
 /// What the server is costing the machine, right now.
