@@ -305,6 +305,47 @@ access:
   password_changed: "Changed %{when}"
   change_password: "Change it in Profile"
 
+chores:
+  lead: "Jobs you run when something is off. Each one says when it last ran and what it found."
+  run: "Run it"
+  running: "Running…"
+  never: "Never run"
+  ran: "%{when}"
+  lately: "Lately"
+  nothing_yet: "Nothing has been run yet."
+
+  # Every job says what it will do, and says it differently when there is nothing
+  # to do: "removes the 0 tracks whose files are gone" is not a sentence anybody
+  # would write.
+  purge: "Clear what is gone"
+  purge_why: "Removes the %{count} tracks whose files are no longer on disk. Their ratings and play counts go with them."
+  purge_idle: "No track is missing. A scan marks what it cannot find, and this takes away what was marked."
+  compact: "Compact the database"
+  compact_why: "Gives back the space deletions left behind. The server answers nobody while it runs."
+  compact_idle: "Gives back the space deletions left behind. There is none to give back right now."
+  covers: "Put the covers in order"
+  covers_why: "Clears the %{count} things the cache should not be holding: cover files that belong to nothing any more, and albums the server looked in, found nothing and stopped looking in."
+  covers_idle: "Deletes covers that belong to nothing any more, and looks again where it found none. Nothing is left over right now."
+  check: "Check the database"
+  check_why: "Reads it from end to end and says whether anything is wrong. It changes nothing."
+
+  # What it came to last time, in the terms of each job.
+  removed: "removed %{count}"
+  reclaimed: "reclaimed %{size}"
+  deleted: "cleared %{count}"
+  sound: "nothing wrong"
+  problems: "%{count} problems"
+  size_and_free: "%{size} · about %{free} to reclaim"
+  size_only: "%{size} · nothing to reclaim"
+
+  # The dialogue in front of the one job that cannot be undone.
+  purge_this: "Clear what is gone?"
+  purge_note: "The missing tracks go, and everything that hung off them alone. It cannot be undone: the only thing that brings them back is their files returning to the disk and a scan finding them."
+  nothing_absent: "Nothing is marked as missing."
+  purge_yes: "Clear it"
+  tracks: "Tracks"
+  in_playlists: "In playlists"
+
 settings:
   lead: "How the server behaves for everybody. Your own look and language are in Preferences."
   scanning: "Scanning"

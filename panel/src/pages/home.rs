@@ -115,7 +115,7 @@ fn Figures(
             <section class="pane">
                 <h2>{t!("home.collection")}</h2>
                 <dl class="facts">
-                    <Row label=t!("home.size").to_string() value=bytes(stats.total_size) />
+                    <Row label=t!("home.size").to_string() value=super::bytes(stats.total_size) />
                     <Row label=t!("home.duration").to_string() value=length(stats.total_duration) />
                     <Row label=t!("home.playlists").to_string() value=super::thousands(stats.playlists) />
                     <Row label=t!("home.missing").to_string() value=super::thousands(stats.missing) />
@@ -127,7 +127,7 @@ fn Figures(
                 <h2>{t!("home.server")}</h2>
                 <dl class="facts">
                     <Row label=t!("home.version").to_string() value=stats.version />
-                    <Row label=t!("home.database").to_string() value=bytes(stats.database_size) />
+                    <Row label=t!("home.database").to_string() value=super::bytes(stats.database_size) />
                     <Row label=t!("home.last_scan").to_string() value=when(scan) />
                     <Row label=t!("home.accounts").to_string() value=super::thousands(stats.users) />
                     <Row label=t!("home.keys").to_string() value=super::thousands(stats.keys) />
@@ -199,9 +199,10 @@ fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
     });
 
     let memory = Signal::derive(move || {
-        resources
-            .get()
-            .map_or_else(|| super::MISSING.to_string(), |read| bytes(read.memory))
+        resources.get().map_or_else(
+            || super::MISSING.to_string(),
+            |read| super::bytes(read.memory),
+        )
     });
     let memory_bar = Signal::derive(move || {
         let read = resources.get()?;
@@ -215,7 +216,7 @@ fn Process(resources: ReadSignal<Option<Resources>>) -> impl IntoView {
         resources
             .get()
             .and_then(|read| read.memory_total)
-            .map(|total| t!("home.of_total", total = bytes(total)).to_string())
+            .map(|total| t!("home.of_total", total = super::bytes(total)).to_string())
             .unwrap_or_default()
     });
 
@@ -482,26 +483,6 @@ fn ago(status: &Status) -> String {
         format!("{ago} · {}", t!("scan.cancelled"))
     } else {
         ago
-    }
-}
-
-/// Powers of two, and the unit spelled the way the standard spells it. Not
-/// translated: a unit symbol is a symbol.
-fn bytes(count: i64) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-
-    let mut size = count as f64;
-    let mut unit = 0;
-
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-
-    if unit == 0 {
-        format!("{count} B")
-    } else {
-        format!("{size:.1} {}", UNITS[unit])
     }
 }
 

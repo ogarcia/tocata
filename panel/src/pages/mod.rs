@@ -18,6 +18,7 @@ pub mod account;
 pub mod accounts;
 pub mod home;
 pub mod libraries;
+pub mod maintenance;
 pub mod settings;
 
 use crate::api::Failure;
@@ -187,6 +188,26 @@ pub fn thousands(count: i64) -> String {
     }
 
     if count < 0 { format!("-{out}") } else { out }
+}
+
+/// Powers of two, and the unit spelled the way the standard spells it. Not
+/// translated: a unit symbol is a symbol.
+pub fn bytes(count: i64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+    let mut size = count as f64;
+    let mut unit = 0;
+
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{count} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
 }
 
 /// What is left of a span of room once the menu has been given air at both ends.

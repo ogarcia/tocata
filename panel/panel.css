@@ -589,6 +589,104 @@ select.narrow { width: 200px; }
   font-variant-numeric: tabular-nums;
 }
 
+/* --- the jobs on the maintenance screen ---------------------------------- */
+
+/* Two groups of jobs, in tracks of their own: a wide screen sets them side by
+ * side instead of stretching one column across fourteen hundred pixels, and a
+ * narrow one puts the second group under the first with its rows still together.
+ *
+ * The groups are what the grid lays out rather than the rows themselves. With
+ * four rows in one grid the columns would be filled across — clear, compact,
+ * covers, check — and the pairs that belong together would end up in different
+ * columns. */
+.chores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: 0 56px;
+}
+
+/* The rule across the top belongs to the group; every row closes itself. */
+.chores > .group { border-top: 1px solid var(--line); }
+
+.chore {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px 24px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.chore > div { min-width: 0; }
+
+.chore .what { display: block; }
+
+/* What the job will do, with the number it will do it to already in the
+ * sentence. `pretty` so a three line paragraph does not end on one word. */
+.chore .why {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+/* When it last ran and what it found then. In tabular figures, since these are
+ * read down the column as much as across the row. */
+.chore .ran {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What a check found, or what stopped a job: prose rather than a figure, and as
+ * many lines as it has. */
+.chore .wrong {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--alarm);
+  white-space: pre-line;
+}
+
+/* The same word on every row, so it never wraps and never changes width enough
+ * to make the column jump. */
+.chore .pill { white-space: nowrap; }
+
+/* The history stands off the jobs the way any second block stands off the first.
+ *
+ * Said as the heading that follows the set, like the one that follows a Save, and
+ * for the same reason beyond the meaning: `.part` sets `margin` as a shorthand
+ * further down this sheet, so a rule of one class would be overwritten by it
+ * whatever this one asked for. Two classes outweigh it and the order stops
+ * mattering. */
+.chores + .part { margin-top: 44px; }
+
+/* What has been run lately: what happened on the left, when on the right. */
+.lately {
+  margin: 14px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.lately > li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.lately .when {
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* --- the folding menu ---------------------------------------------------- */
 
 /* None of these exists on a wide screen: the column is simply there, and there is

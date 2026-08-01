@@ -262,22 +262,17 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     <Route
                         path=path!("/maintenance")
                         view=move || {
-                            view! { <Restricted admin heading=t!("nav.maintenance").to_string() /> }
+                            if admin {
+                                view! { <pages::maintenance::Maintenance on_expired=forget /> }
+                                    .into_any()
+                            } else {
+                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                            }
                         }
                     />
                 </Routes>
             </layout::Shell>
         </Router>
-    }
-}
-
-/// Keeps the rights check in one place rather than repeated at every route.
-#[component]
-fn Restricted(admin: bool, heading: String) -> impl IntoView {
-    if admin {
-        view! { <pages::Unbuilt heading /> }.into_any()
-    } else {
-        view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
     }
 }
 
@@ -297,7 +292,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 10] = [
+    const SOURCES: [&str; 11] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -308,6 +303,7 @@ mod tests {
         include_str!("pages/accounts.rs"),
         include_str!("pages/account.rs"),
         include_str!("pages/settings.rs"),
+        include_str!("pages/maintenance.rs"),
     ];
 
     /// The stylesheet and the panel agree on which accent is the default.

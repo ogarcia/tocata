@@ -287,6 +287,24 @@ pub async fn close_sessions(username: &str) -> Result<Closed, Failure> {
     read(delete(&format!("/users/{username}/sessions"))?).await
 }
 
+/// Every maintenance job, what each would do right now, and what has been run
+/// lately. One call, because the screen wants all of it at once.
+pub async fn jobs() -> Result<tocata::types::Maintenance, Failure> {
+    read(get("/jobs")?).await
+}
+
+/// Runs one and waits. A job that could not be done comes back as a run carrying
+/// the reason rather than as a failure here.
+pub async fn run_job(job: tocata::types::Job) -> Result<tocata::types::Run, Failure> {
+    read(post(&format!("/jobs/{}", job.name()), &())?).await
+}
+
+/// What a purge would cost, in the things that cannot be scanned back. Asked by
+/// the dialogue that stands in front of the one job that cannot be undone.
+pub async fn loss() -> Result<tocata::types::Loss, Failure> {
+    read(get("/purge")?).await
+}
+
 /// Asks the running scan to give up. What it had written is thrown away by the
 /// server, so this is not a pause.
 pub async fn cancel_scan() -> Result<(), Failure> {
