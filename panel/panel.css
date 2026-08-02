@@ -917,36 +917,177 @@ select.narrow { width: 200px; }
 
 /* --- the login ----------------------------------------------------------- */
 
-.entry {
+/* The moment between asking who is there and being told. Not the login screen and
+ * not the panel, so it wears neither. */
+.awaiting {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding: 16px;
 }
 
-.entry form {
-  width: min(20rem, 100%);
+/* The one screen with nothing around it — no column, no header, nowhere else to
+ * go.
+ *
+ * Two bands. `row-reverse` with the form first in the source is what puts the
+ * form on the right of a wide screen while leaving a narrow one reading them in
+ * the order they are written: form, then name. ⚠️ Not `wrap-reverse`, which would
+ * give the same order and lay the wrapped line above the scroll origin — where
+ * scrolling can never reach it, because a scroll offset is never negative.
+ *
+ * `box-sizing` on the bands and not only on the page, because the basis is
+ * resolved against the content box: without it the padding is added to 380 and
+ * two bands wrap while there was still room for both. */
+.entry {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+  align-content: stretch;
+  background: var(--paper);
+}
+
+.entry > * {
+  flex: 1 1 380px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  padding: clamp(28px, 5vw, 56px);
 }
 
-.entry h1 { margin: 0 0 1rem; text-align: center; }
+.entering { justify-content: center; }
+
+/* Wide enough for the longest label either language has, and no wider: a login
+ * form as wide as a monitor is a login form that looks mislaid. Centred in its
+ * own band, which is the one thing on this screen that is. */
+.entry form {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* Spaced by margins rather than by one gap on the form, because the rows are not
+ * all the same distance apart: the lead belongs to the heading above it and
+ * stands well clear of the first field, and the tick belongs to the button. */
+.entry h1 { font-size: 26px; }
+.entry .lead { margin: 0 0 30px; }
+.entry label { margin-bottom: 22px; }
+.entry .checkbox { margin-bottom: 28px; font-size: 14px; }
+
+/* The band that is not the form: the name at the top and, centred in what is left
+ * under it, the one line that says what this is. Nothing else — what a stranger
+ * can read here is the whole of what this page tells anybody who has not got in.
+ */
+.banner {
+  gap: clamp(28px, 5vh, 40px);
+  border-right: 1px solid var(--line);
+}
+
+/* The same name and glyph the sidebar carries, since this is where somebody sees
+ * it first and the two screens have to be the same program. */
+.banner .mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.banner .mark .icon {
+  width: 21px;
+  height: 21px;
+  color: var(--accent);
+}
+
+/* The only large type in the panel. It sets its own measure in characters rather
+ * than in pixels, so it breaks after the same words at every size, and the auto
+ * margins centre it in what is left under the name rather than dropping it to the
+ * foot. */
+.claim {
+  max-width: 15ch;
+  margin: auto 0;
+  font-size: clamp(32px, 4.4vw, 56px);
+  font-weight: 400;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+
+/* A label with something on its right: what the field is, and the one thing that
+ * can be done to it. */
+.lettered {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* Said as a word, underlined, because it is a choice between two words and a
+ * glyph on the line where the text goes is a target nobody can name. */
+.reveal {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.reveal:hover { color: var(--ink); }
+
+/* What went wrong, over the fields rather than on them. A rule down the left in
+ * the alarm colour and the faintest wash behind it: neither field is wrong on its
+ * own, and marking both would say which one to look at when the server
+ * deliberately did not. */
+.trouble {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 26px;
+  padding: 12px 14px;
+  border-left: 2px solid var(--alarm);
+  background: color-mix(in srgb, var(--alarm) 7%, transparent);
+  font-size: 14px;
+}
+
+.trouble .icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  color: var(--alarm);
+}
+
+/* The one button on the screen, at the width of the form and tall enough to be a
+ * target on a phone. */
+.pill.wide {
+  width: 100%;
+  min-height: 44px;
+}
+
+/* How somebody gets back in when they cannot. Below the button and behind a
+ * hairline, because it is not part of logging in — it is what to do instead. */
+.recovery {
+  margin: 26px 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--quiet);
+}
 
 /* --- the parts ----------------------------------------------------------- */
 
 
-label { font-size: 0.85rem; color: var(--quiet); }
-
-/* A label, its control and whatever explains it, as one thing. The gap inside is
- * small because they belong together; the gap between fields comes from the form
- * below and is larger, because they do not. One `gap` for both was what left a
- * note as far from its own field as from the next one. */
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
+label { font-size: 13px; color: var(--quiet); }
 
 .swatches {
   display: flex;
@@ -1011,7 +1152,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  gap: 6px;
   cursor: pointer;
 }
 
@@ -1308,12 +1449,12 @@ button:disabled { opacity: 0.6; cursor: default; }
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
-  margin-left: 0.5rem;
-  padding: 0.1rem 0.45rem;
+  margin-left: 8px;
+  padding: 2px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
-  font-size: 0.75rem;
+  font-size: 12px;
 }
 
 /* --- the icons ----------------------------------------------------------- */
@@ -1333,7 +1474,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 /* --- where you land ------------------------------------------------------ */
 
-.lead { margin: 0 0 1.75rem; }
+.lead { margin: 0 0 28px; }
 
 /* Four figures between two rules, divided by rules of their own. What was here
  * before was four cards, each with the number in one weight and a coloured disc
@@ -1492,13 +1633,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 .working {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 6px;
   color: var(--accent);
 }
 
 /* A path is long, arbitrary and not worth breaking the layout over. */
 .path {
-  font-size: 0.85rem;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -1507,13 +1648,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 /* Its own space, because with the browser's margins gone it would otherwise sit
  * against whatever it is complaining about. */
 .failure {
-  margin-top: 0.75rem;
+  margin-top: 12px;
   color: var(--alarm);
 }
 
 /* Inside a form the gap already spaces it, and a margin on top of that would
  * make the message drift away from the field it belongs to. */
-form .failure, .sheet .failure { margin-top: 0.25rem; }
+form .failure, .sheet .failure { margin-top: 4px; }
 
 /* --- libraries ----------------------------------------------------------- */
 
@@ -1878,8 +2019,8 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 }
 
 .tick input {
-  width: 1rem;
-  height: 1rem;
+  width: 16px;
+  height: 16px;
   margin: 0;
   accent-color: var(--accent);
 }
@@ -2104,7 +2245,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 /* Beside a form field or an action, saying what it wants or why it is not
  * offered. */
-.hint { font-size: 0.85rem; }
+.hint { font-size: 13px; }
 
 /* A hint that is a complaint. Said in the alarm colour rather than shown as a
  * banner, because it belongs to the field above it and goes away as soon as that
@@ -2116,7 +2257,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 /* A note under a heading, with room before whatever it introduces. */
-.pane > .hint { margin-bottom: 1rem; }
+.pane > .hint { margin-bottom: 16px; }
 
 /* --- the dialogue -------------------------------------------------------- */
 
@@ -2179,8 +2320,12 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 }
 
 /* Stacked one under another and separated by nothing but air. A field is a label, a
- * line and what the line is for. */
-.sheet label {
+ * line and what the line is for.
+ *
+ * The entry screen is a sheet with no dialogue around it and its fields are the
+ * same fields, so it is named here rather than given a second set of rules that
+ * would drift from these ones. */
+.sheet label, .entry label {
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -2188,7 +2333,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   color: inherit;
 }
 
-.sheet label > span:first-child {
+.sheet label > span:first-child, .entry label > span {
   font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2197,7 +2342,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 /* A line under the value rather than a box around it. The box was drawn to say
  * "this is where you type", which is what the label above it says. */
-.sheet input, .sheet select {
+.sheet input, .sheet select, .entry input {
   padding: 6px 0;
   border: none;
   border-bottom: 1px solid var(--line);
@@ -2206,7 +2351,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   font-size: inherit;
 }
 
-.sheet input:focus-visible, .sheet select:focus-visible {
+.sheet input:focus-visible, .sheet select:focus-visible, .entry input:focus-visible {
   outline: none;
   border-bottom-color: var(--accent);
 }
@@ -2220,10 +2365,10 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * it. Both of the rules above have to be undone for it — the column and the line —
  * because a checkbox is a `label` with an `input` in it like every other field here
  * and nothing else tells them apart. */
-.sheet label.checkbox {
+.sheet label.checkbox, .entry label.checkbox {
   flex-direction: row;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .sheet label.checkbox input {
@@ -2388,7 +2533,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * anything more would push the columns around. */
 .dots {
   margin: 0;
-  padding: 0.25rem;
+  padding: 4px;
   border: none;
   color: var(--quiet);
   line-height: 1;
@@ -2414,21 +2559,21 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .scrolls { overflow-x: auto; }
 
 /* Back to the list, above the heading, small enough not to compete with it. */
-.back { margin-bottom: 0.5rem; font-size: 0.9rem; }
+.back { margin-bottom: 8px; font-size: 14px; }
 
 /* The box before its words, both clickable, and the cursor saying so. */
 .checkbox {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
   cursor: pointer;
   color: var(--ink);
-  font-size: 1rem;
+  font-size: 16px;
 }
 
 .checkbox input {
-  width: 1rem;
-  height: 1rem;
+  width: 16px;
+  height: 16px;
   margin: 0;
   padding: 0;
   accent-color: var(--accent);
@@ -2439,7 +2584,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * selection. */
 /* Said after something worked. Not an error and not silence. */
 .note {
-  margin-top: 0.75rem;
+  margin-top: 12px;
   color: var(--accent);
 }
 

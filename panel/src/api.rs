@@ -116,8 +116,22 @@ pub async fn whoami() -> Result<Identity, Failure> {
     read(get("/session")?).await
 }
 
-pub async fn log_in(username: String, password: String) -> Result<Identity, Failure> {
-    read(post("/session", &Credentials { username, password })?).await
+/// `remember` decides whether the browser keeps the way in after it closes. The
+/// session on the server lasts as long either way.
+pub async fn log_in(
+    username: String,
+    password: String,
+    remember: bool,
+) -> Result<Identity, Failure> {
+    read(post(
+        "/session",
+        &Credentials {
+            username,
+            password,
+            remember,
+        },
+    )?)
+    .await
 }
 
 /// Ends this session. A failure here changes nothing worth telling: the panel is

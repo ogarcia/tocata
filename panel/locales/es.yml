@@ -22,11 +22,19 @@ nav:
   menu: Menú
 
 login:
+  heading: "Entrar"
+  lead: "Con la cuenta con la que se configuró el servidor, o con una que un administrador haya creado para ti."
+  claim: "Tus discos, justo donde lo dejaste."
   username: Usuario
   password: Contraseña
+  show: "Mostrar"
+  hide: "Ocultar"
+  remember: "Mantener mi sesión activa en este navegador"
+  forgotten: "¿Has olvidado tu contraseña? Un administrador te asignará una nueva; el servidor no puede enviártela por correo electrónico."
   submit: Entrar
   working: Un momento…
-  failed: Usuario o contraseña incorrectos
+  failed: Ese usuario y esa contraseña no van juntos
+  too_many: "Demasiados intentos fallidos desde aquí. Espera un poco antes de volver a probar."
   unreachable: El servidor no respondió
 
 header:

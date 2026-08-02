@@ -71,7 +71,7 @@ fn Panel() -> impl IntoView {
         {move || match who.get() {
             Who::Asking => {
                 view! {
-                    <main class="entry">
+                    <main class="awaiting">
                         <p class="quiet">{t!("common.loading")}</p>
                     </main>
                 }
@@ -394,6 +394,49 @@ mod tests {
     /// else it is how the sheet is written: `.pill` and then `.pill.solid`, `.link`
     /// and then `.link:hover`, a rule and then the same rule narrower inside an
     /// `@media`.
+    /// No selector is written twice, saying different things.
+    ///
+    /// The narrower cousin of the test below, and the one that catches what it
+    /// cannot: two rules with the *same* selector, where there is no question of
+    /// one deliberately narrowing the other and no list of blessed names to keep.
+    /// Whichever is written later silently wins, and the earlier one reads like it
+    /// is doing something.
+    ///
+    /// `.entry .lead` was written twice — thirty pixels under the lead of the
+    /// login form, and eight left over from when that form had been a flex column
+    /// with a gap. The eight came later in the file, so the thirty did nothing and
+    /// the sheet still said it did.
+    ///
+    /// Only rules that name one selector. A rule naming several is a reset or a
+    /// group — `p, h1, h2, dl, dd { margin: 0 }` — and giving one of them its own
+    /// rule afterwards is how a stylesheet is written, not a mistake.
+    #[test]
+    fn no_selector_is_written_twice() {
+        let mut seen: Vec<(&str, &str)> = Vec::new();
+
+        for rule in rules() {
+            if rule.inside_media || rule.selectors.len() != 1 {
+                continue;
+            }
+
+            for selector in rule.selectors {
+                if let Some((_, body)) = seen.iter().find(|(known, _)| *known == selector) {
+                    assert_eq!(
+                        strip_comments(body).split_whitespace().collect::<String>(),
+                        strip_comments(rule.body)
+                            .split_whitespace()
+                            .collect::<String>(),
+                        "{selector} is written twice and differently. The later one wins \
+                         and the earlier one only looks like it is doing something: fold \
+                         them into one rule."
+                    );
+                }
+
+                seen.push((selector, rule.body));
+            }
+        }
+    }
+
     #[test]
     fn no_class_is_told_the_same_property_twice() {
         let mut said: Vec<(String, String, String)> = Vec::new();

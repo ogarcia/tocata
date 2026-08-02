@@ -26,11 +26,19 @@ nav:
   menu: Menu
 
 login:
+  heading: "Log in"
+  lead: "With the account the server was set up with, or one an administrator made for you."
+  claim: "Your records, where you left them."
   username: Username
   password: Password
+  show: "Show"
+  hide: "Hide"
+  remember: "Keep me logged in on this browser"
+  forgotten: "Forgotten your password? An administrator sets a new one for you — the server cannot email it."
   submit: Log in
   working: Working…
-  failed: Wrong username or password
+  failed: That username and password do not go together
+  too_many: "Too many failed attempts from here. Wait a little before trying again."
   unreachable: The server did not answer
 
 header:

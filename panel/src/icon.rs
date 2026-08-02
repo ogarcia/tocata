@@ -37,12 +37,14 @@ pub enum Icon {
     Playlists,
     Menu,
     LogOut,
+    Alert,
 }
 
 impl Icon {
     /// The file itself, read at compile time.
     fn svg(self) -> &'static str {
         match self {
+            Self::Alert => include_str!("../icons/alert.svg"),
             Self::Logo => include_str!("../icons/logo.svg"),
             Self::Scan => include_str!("../icons/scan.svg"),
             Self::Chevron => include_str!("../icons/chevron.svg"),
