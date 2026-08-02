@@ -20,6 +20,8 @@ pub mod api;
 #[cfg(feature = "server")]
 pub mod artwork;
 #[cfg(feature = "server")]
+pub mod attempts;
+#[cfg(feature = "server")]
 pub mod auth;
 #[cfg(feature = "server")]
 pub mod config;

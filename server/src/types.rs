@@ -56,6 +56,16 @@ pub struct Credentials {
     #[schema(example = "admin")]
     pub username: String,
     pub password: String,
+    /// Whether the browser should keep the way in after it closes. Left out it
+    /// does, which is what a client that has never heard of this expects and what
+    /// the panel ticks by default.
+    #[serde(default = "yes")]
+    pub remember: bool,
+}
+
+/// The default for a field whose absence means true.
+fn yes() -> bool {
+    true
 }
 
 /// Who is logged in.

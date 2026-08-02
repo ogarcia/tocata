@@ -3,11 +3,12 @@
 
 use anyhow::{Context, Result};
 use axum::Router;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tocata::config::Config;
 use tocata::state::AppState;
-use tocata::{api, db, panel, resources, scanner, settings, subsonic, upkeep, user};
+use tocata::{api, attempts, db, panel, resources, scanner, settings, subsonic, upkeep, user};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{oneshot, watch};
@@ -59,6 +60,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         pool: pool.clone(),
         scan: Arc::new(scanner::Progress::default()),
+        attempts: Arc::new(attempts::Attempts::new()),
         config: config.clone(),
         meter: Arc::new(meter),
         shutdown: is_stopping,
@@ -123,7 +125,16 @@ async fn main() -> Result<()> {
     // delays only their own request. Waiting on them for ever, though, is what
     // makes a server look hung to somebody who pressed Ctrl-C.
     tokio::select! {
-        result = axum::serve(listener, app).with_graceful_shutdown(shutdown) => {
+        // With the connection's address, because logging in counts its failures
+        // by where they came from and there is nowhere else to learn that. Behind
+        // a reverse proxy every request arrives from the proxy, which makes the
+        // count server-wide rather than per visitor — the wait still works, it is
+        // just shared. Trusting a forwarded-for header instead would mean
+        // trusting whoever sends it.
+        result = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        ).with_graceful_shutdown(shutdown) => {
             result.context("serving")?;
         }
         () = deadline => warn!("still serving something after {DRAIN_GRACE:?}; stopping anyway"),

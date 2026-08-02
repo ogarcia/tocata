@@ -6,16 +6,19 @@
 
 use super::error::ApiError;
 use super::preferences;
+use crate::attempts::Attempts;
 use crate::types::{Credentials, ErrorBody, Identity};
 use crate::user::User;
 use crate::{session, user};
-use axum::extract::{FromRef, FromRequestParts, State};
+use axum::extract::{ConnectInfo, FromRef, FromRequestParts, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, RequestPartsExt};
 use sqlx::SqlitePool;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 /// Name of the cookie the token travels in.
 const COOKIE_NAME: &str = "tocata_session";
@@ -131,20 +134,33 @@ impl Identity {
     responses(
         (status = 200, description = "Logged in; the session cookie is set", body = Identity),
         (status = 401, description = "Wrong username or password", body = ErrorBody),
+        (status = 429, description = "Too many failed logins from here", body = ErrorBody),
     )
 )]
 pub async fn log_in(
     State(pool): State<SqlitePool>,
+    State(attempts): State<Arc<Attempts>>,
+    ConnectInfo(from): ConnectInfo<SocketAddr>,
     Json(credentials): Json<Credentials>,
 ) -> Result<Response, ApiError> {
+    // Before the password is even hashed. Argon2 is deliberately slow, so a
+    // server that hashed first would be one that could be made to spend its
+    // whole processor on guesses.
+    if attempts.barred(from.ip()) {
+        return Err(ApiError::TooManyAttempts);
+    }
+
     let authenticated =
         user::authenticate_password(&pool, &credentials.username, &credentials.password)
             .await
             .map_err(|e| ApiError::internal(e, "authenticating a panel login"))?;
 
     let Some(user) = authenticated else {
+        attempts.failed(from.ip());
         return Err(ApiError::WrongCredentials);
     };
+
+    attempts.succeeded(from.ip());
 
     // Read now rather than held anywhere: an administrator who shortens this
     // means it for the next login, and the next login is this one.
@@ -158,10 +174,18 @@ pub async fn log_in(
         .map_err(|e| ApiError::internal(e, "creating a session"))?;
 
     let identity = Identity::of(&pool, &user, expires_at).await?;
-    let cookie = format!(
-        "{COOKIE_NAME}={token}; Path={COOKIE_PATH}; HttpOnly; SameSite=Strict; Max-Age={}",
-        session::lifetime_seconds(days)
-    );
+
+    // A cookie with no `Max-Age` is one the browser drops when it closes, which
+    // is what "do not keep me logged in" has to mean here. The row keeps its own
+    // expiry either way: the session is still there, it is the browser that has
+    // been told to forget the way in. Ending it outright is what Log out does.
+    let cookie = match credentials.remember {
+        false => format!("{COOKIE_NAME}={token}; Path={COOKIE_PATH}; HttpOnly; SameSite=Strict"),
+        true => format!(
+            "{COOKIE_NAME}={token}; Path={COOKIE_PATH}; HttpOnly; SameSite=Strict; Max-Age={}",
+            session::lifetime_seconds(days)
+        ),
+    };
 
     Ok(([(SET_COOKIE, cookie)], Json(identity)).into_response())
 }

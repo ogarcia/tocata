@@ -3,6 +3,7 @@
 
 //! What every request handler can reach.
 
+use crate::attempts::Attempts;
 use crate::config::Config;
 use crate::resources::Meter;
 use crate::scanner::Progress;
@@ -20,6 +21,9 @@ pub struct AppState {
     /// difference between two readings and something has to remember the first
     /// one.
     pub meter: Arc<Meter>,
+    /// Who has been getting their password wrong lately. Shared because it is
+    /// the whole point: a count kept per request would count to one for ever.
+    pub attempts: Arc<Attempts>,
     /// Turns true once, when the server has been asked to stop. Handlers that
     /// hold a connection open for as long as the client wants it — the event
     /// stream — have to watch this, or every shutdown would wait out the whole
@@ -50,6 +54,12 @@ impl FromRef<AppState> for Arc<Config> {
 impl FromRef<AppState> for Arc<Meter> {
     fn from_ref(state: &AppState) -> Self {
         state.meter.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Attempts> {
+    fn from_ref(state: &AppState) -> Self {
+        state.attempts.clone()
     }
 }
 

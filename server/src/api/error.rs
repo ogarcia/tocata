@@ -41,6 +41,8 @@ pub enum ApiError {
     Invalid(&'static str),
     /// 409 — the request makes sense but conflicts with what is already going on.
     Conflict(&'static str),
+    /// 429 — too many failed logins from where this came from, so it has to wait.
+    TooManyAttempts,
     /// 500 — our fault.
     Internal,
 }
@@ -57,6 +59,7 @@ impl ApiError {
             Self::NotFound => "notFound",
             Self::Invalid(_) => "invalidRequest",
             Self::Conflict(_) => "conflict",
+            Self::TooManyAttempts => "tooManyAttempts",
             Self::Internal => "internalError",
         }
     }
@@ -70,6 +73,7 @@ impl ApiError {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Invalid(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -82,6 +86,7 @@ impl ApiError {
             Self::WrongPassword => "That is not the current password",
             Self::NotFound => "No such thing",
             Self::Invalid(detail) | Self::Conflict(detail) => detail,
+            Self::TooManyAttempts => "Too many failed logins from here; wait a while",
             Self::Internal => "An internal error occurred",
         }
     }
@@ -132,6 +137,7 @@ mod tests {
             ApiError::Conflict("x").code(),
             ApiError::NotFound.code(),
             ApiError::Invalid("x").code(),
+            ApiError::TooManyAttempts.code(),
             ApiError::Internal.code(),
         ];
 
