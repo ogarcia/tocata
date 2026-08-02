@@ -659,3 +659,109 @@ pub struct Maintenance {
     /// The last few runs of anything, newest first.
     pub lately: Vec<Run>,
 }
+
+/// A page of a listing, and how many there are in all.
+///
+/// The total is what an endless list needs to know when to stop asking, and what
+/// the heading counts while somebody narrows a search. One type per kind rather
+/// than one generic one: the schema a client reads is the point of these, and a
+/// generic named `Page_of_Track` says less than `Tracks` does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Tracks {
+    pub total: i64,
+    pub tracks: Vec<Track>,
+}
+
+/// A track as a list shows it.
+///
+/// Not what `/rest` calls a Child: that carries everything a player might want,
+/// and this carries the five things a row prints. Anything a screen does not draw
+/// is a column read for nothing, once per row, twenty-four thousand times.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Track {
+    pub id: String,
+    pub title: String,
+    /// Everybody credited, joined the way the row prints them.
+    pub artists: Option<String>,
+    pub album: Option<String>,
+    /// So a title can lead to the album it is from.
+    pub album_id: Option<String>,
+    /// The first one, since a row has space for one.
+    pub genre: Option<String>,
+    /// Seconds, like every other length in this API.
+    pub duration: Option<i64>,
+    /// Its file is not where it was. The row says so and stays in the listing,
+    /// because a scan marks rather than deletes.
+    pub missing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Albums {
+    pub total: i64,
+    pub albums: Vec<Album>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Album {
+    pub id: String,
+    pub name: String,
+    pub artist: Option<String>,
+    pub year: Option<i64>,
+    pub tracks: i64,
+    /// Whether asking for its cover would come back with one. A grid of two
+    /// hundred albums draws the empty ones without asking for two hundred images
+    /// that are not there.
+    pub cover: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Artists {
+    pub total: i64,
+    pub artists: Vec<Artist>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Artist {
+    pub id: String,
+    pub name: String,
+    pub albums: i64,
+    pub tracks: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Genres {
+    pub total: i64,
+    pub genres: Vec<Genre>,
+}
+
+/// A genre. Its name is its identifier: the column is unique, and a genre has
+/// nothing else to be known by.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Genre {
+    pub name: String,
+    pub albums: i64,
+    pub tracks: i64,
+}
+
+/// What to play, as identifiers and nothing else.
+///
+/// Playing what you are looking at means playing everything the filter matches
+/// rather than the fifty rows that happened to be fetched, so this is every one
+/// of them — which is affordable precisely because it is only the identifiers.
+///
+/// How many is enough is the caller's to decide and comes back as asked for. An
+/// object rather than a bare array so that something can be said alongside them
+/// one day without every client having to be changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Queue {
+    pub tracks: Vec<String>,
+}
