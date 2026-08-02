@@ -22,6 +22,15 @@ pub const COVER_FILE_STEMS: &[&str] = &["cover", "folder", "front", "album", "al
 /// Extensions accepted for a cover found on disk.
 pub const COVER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
 
+/// File names that hold a picture of an artist, in the order they are trusted.
+///
+/// The same conventions the tools that fetch these already write: Lidarr and
+/// beets leave `artist.jpg` in the directory a band's records sit in, and
+/// `folder.jpg` is what Windows and Kodi have always called the image of a
+/// directory. Not `fanart`, which is a wide backdrop rather than a portrait and
+/// would look wrong in a round frame.
+pub const ARTIST_FILE_STEMS: &[&str] = &["artist", "folder", "poster"];
+
 /// Where the bytes of an image with this hash live.
 pub fn cache_path(data_dir: &Path, hash: &str) -> PathBuf {
     // Two levels of fan out, so a library with thousands of covers does not put
@@ -145,6 +154,11 @@ fn looks_like_a_disc(directory: &Path) -> bool {
 /// above, so a `cover.jpg` that is actually a text file does not become an album
 /// cover.
 pub fn find_in_directory(directory: &Path) -> Option<(PathBuf, Vec<u8>)> {
+    find_named(directory, COVER_FILE_STEMS)
+}
+
+/// The same, for whatever a caller calls its images.
+pub fn find_named(directory: &Path, stems: &[&str]) -> Option<(PathBuf, Vec<u8>)> {
     let entries = std::fs::read_dir(directory).ok()?;
 
     // Collected by stem so preference wins over directory order.
@@ -165,7 +179,7 @@ pub fn find_in_directory(directory: &Path) -> Option<(PathBuf, Vec<u8>)> {
             continue;
         }
 
-        if let Some(rank) = COVER_FILE_STEMS.iter().position(|s| *s == stem) {
+        if let Some(rank) = stems.iter().position(|s| *s == stem) {
             candidates.push((rank, path));
         }
     }

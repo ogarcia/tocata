@@ -328,7 +328,7 @@ pub async fn artists(
     builder.push_bind(who);
     builder.push(concat!(
         visible_libraries_tail!(),
-        "SELECT a.public_id, a.name,
+        "SELECT a.public_id, a.name, a.artwork_id IS NOT NULL AS image,
                 (SELECT count(DISTINCT t.album_id) FROM tracks t
                    JOIN track_artists ta ON ta.track_id = t.id
                   WHERE ta.artist_id = a.id AND t.missing_since IS NULL
@@ -645,6 +645,7 @@ impl From<AlbumRow> for Album {
 struct ArtistRow {
     public_id: String,
     name: String,
+    image: bool,
     albums: i64,
     tracks: i64,
 }
@@ -656,6 +657,7 @@ impl From<ArtistRow> for Artist {
             name: row.name,
             albums: row.albums,
             tracks: row.tracks,
+            image: row.image,
         }
     }
 }

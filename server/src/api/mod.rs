@@ -24,6 +24,7 @@ mod health;
 mod jobs;
 mod keys;
 mod libraries;
+mod media;
 mod preferences;
 mod purge;
 mod resources;
@@ -139,6 +140,9 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(collection::albums))
         .routes(routes!(collection::artists))
         .routes(routes!(collection::genres))
+        .routes(routes!(media::audio))
+        .routes(routes!(media::cover))
+        .routes(routes!(media::portrait))
         .routes(routes!(jobs::list))
         .routes(routes!(jobs::start))
 }

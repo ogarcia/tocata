@@ -6,27 +6,19 @@
 use super::auth::Authenticated;
 use super::browsing::IdQuery;
 use super::error::ApiError;
-use super::response::{self, Format};
+use super::response::{self};
 use crate::artwork;
 use crate::config::Config;
-use crate::db;
 use axum::extract::{Query, Request, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use tracing::{error, warn};
-
-/// Where a track lives, and the library root it must live under.
-struct Located {
-    path: PathBuf,
-    content_type: String,
-    library_root: PathBuf,
-}
 
 pub async fn stream(
     auth: Authenticated,
@@ -34,11 +26,13 @@ pub async fn stream(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    match locate(&pool, auth.user.id, &query.id).await {
-        Ok(Some(track)) => serve(track, request).await,
+    match crate::media::locate(&pool, auth.user.id, &query.id).await {
+        Ok(Some(track)) => crate::media::serve(track, request).await,
         Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
-        Err(Refused::Traversal) => ApiError::NotFound.in_format(auth.format).into_response(),
-        Err(Refused::Database(e)) => {
+        Err(crate::media::Refused::Traversal) => {
+            ApiError::NotFound.in_format(auth.format).into_response()
+        }
+        Err(crate::media::Refused::Database(e)) => {
             error!("locating a track to stream: {e}");
             ApiError::Internal.in_format(auth.format).into_response()
         }
@@ -51,12 +45,12 @@ pub async fn download(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    let track = match locate(&pool, auth.user.id, &query.id).await {
+    let track = match crate::media::locate(&pool, auth.user.id, &query.id).await {
         Ok(Some(track)) => track,
-        Ok(None) | Err(Refused::Traversal) => {
+        Ok(None) | Err(crate::media::Refused::Traversal) => {
             return ApiError::NotFound.in_format(auth.format).into_response();
         }
-        Err(Refused::Database(e)) => {
+        Err(crate::media::Refused::Database(e)) => {
             error!("locating a track to download: {e}");
             return ApiError::Internal.in_format(auth.format).into_response();
         }
@@ -68,7 +62,7 @@ pub async fn download(
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "download".to_string());
 
-    let mut response = serve(track, request).await;
+    let mut response = crate::media::serve(track, request).await;
     if let Ok(value) = content_disposition(&filename).parse() {
         response
             .headers_mut()
@@ -76,123 +70,6 @@ pub async fn download(
     }
 
     response
-}
-
-enum Refused {
-    /// The stored path resolved outside its library. Answered as not found:
-    /// whoever asked has no business learning the difference.
-    Traversal,
-    Database(sqlx::Error),
-}
-
-async fn locate(
-    pool: &SqlitePool,
-    user_id: i64,
-    public_id: &str,
-) -> Result<Option<Located>, Refused> {
-    let row: Option<(String, String, String)> = sqlx::query_as(concat!(
-        visible_libraries!(),
-        " SELECT t.path, t.content_type, l.path
-            FROM tracks t
-            JOIN libraries l ON l.id = t.library_id
-           WHERE t.public_id = ? AND t.missing_since IS NULL
-             AND t.library_id IN (SELECT id FROM visible_libraries)"
-    ))
-    .bind(user_id)
-    .bind(public_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(Refused::Database)?;
-
-    let Some((relative, content_type, library_root)) = row else {
-        return Ok(None);
-    };
-
-    let library_root = PathBuf::from(library_root);
-    let path = library_root.join(&relative);
-
-    // Defence in depth, and a deliberate exception to not writing guards for
-    // conditions that cannot arise today.
-    //
-    // What the database holds is relative to the root, so the only way out of the
-    // library is a stored path that climbs with `..`. Nothing user supplied gets
-    // there: it comes from the scanner, which walks real directory entries and
-    // skips symlinks. But this is the one place in the program that opens an
-    // arbitrary file from disk and hands it to whoever asked, so the cost of
-    // being wrong is serving /etc/passwd while the cost of the check is comparing
-    // two prefixes. That asymmetry is what justifies it: the day somebody adds a
-    // way to register a track by hand, or decides to follow symlinks, this is
-    // already here.
-    if !is_inside(&path, &library_root) {
-        warn!(
-            "refusing {}: it resolves outside its library root {}",
-            path.display(),
-            library_root.display()
-        );
-        return Err(Refused::Traversal);
-    }
-
-    Ok(Some(Located {
-        path,
-        content_type,
-        library_root,
-    }))
-}
-
-async fn serve(track: Located, request: Request) -> Response {
-    // ServeFile brings range requests with it, which is what lets a client
-    // seek into the middle of a song instead of fetching the whole thing, and
-    // what makes a browser's audio element work at all.
-    let service = ServeFile::new_with_mime(
-        &track.path,
-        &track
-            .content_type
-            .parse()
-            .unwrap_or(mime::APPLICATION_OCTET_STREAM),
-    );
-
-    match service.oneshot(request).await {
-        Ok(response) => response.into_response(),
-        Err(e) => {
-            error!(
-                "serving {} from {}: {e}",
-                track.path.display(),
-                track.library_root.display()
-            );
-            ApiError::Internal.in_format(Format::Xml).into_response()
-        }
-    }
-}
-
-/// Whether `path` sits under `root` once both are normalised.
-///
-/// Normalises rather than calling `canonicalize`: resolving on disk would
-/// follow symlinks, which is the opposite of what a containment check wants,
-/// and it would touch the filesystem for every request.
-fn is_inside(path: &Path, root: &Path) -> bool {
-    let path = normalise(path);
-    let root = normalise(root);
-
-    !root.as_os_str().is_empty() && path.starts_with(&root)
-}
-
-/// Resolves `.` and `..` textually, without consulting the filesystem.
-fn normalise(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                // Refuses to climb above the start, so a path made of nothing
-                // but `..` cannot escape by arithmetic.
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-
-    out
 }
 
 /// Builds the header for a download, giving both the plain and the encoded
@@ -251,7 +128,7 @@ pub async fn get_cover_art(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    let album = match resolve_album(&pool, auth.user.id, &query.id).await {
+    let album = match crate::media::resolve_album(&pool, auth.user.id, &query.id).await {
         Ok(Some(album)) => album,
         Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => {
@@ -260,7 +137,7 @@ pub async fn get_cover_art(
         }
     };
 
-    let cached = match cover_in_cache(&pool, album).await {
+    let cached = match crate::media::cover_in_cache(&pool, album).await {
         Ok(cached) => cached,
         Err(e) => {
             error!("looking for a cached cover: {e}");
@@ -270,7 +147,7 @@ pub async fn get_cover_art(
 
     let (hash, mime_type) = match cached {
         Some(found) => found,
-        None => match extract_cover(&pool, config.data_dir(), album).await {
+        None => match crate::media::extract_cover(&pool, config.data_dir(), album).await {
             Ok(Some(found)) => found,
             Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
             Err(e) => {
@@ -293,199 +170,6 @@ pub async fn get_cover_art(
             ApiError::NotFound.in_format(auth.format).into_response()
         }
     }
-}
-
-/// The album a cover art id refers to. Clients pass an album id, and some pass a
-/// song id, so both resolve.
-/// The album a cover art identifier refers to, if the person asking may see it.
-///
-/// This is the one gate for cover art: everything after it works on an album
-/// identifier and no longer asks who wanted it.
-async fn resolve_album(
-    pool: &SqlitePool,
-    user_id: i64,
-    public_id: &str,
-) -> Result<Option<i64>, sqlx::Error> {
-    let by_album: Option<i64> = sqlx::query_scalar(concat!(
-        visible_libraries!(),
-        " SELECT id FROM albums WHERE public_id = ? AND ",
-        album_is_visible!("albums.id")
-    ))
-    .bind(user_id)
-    .bind(public_id)
-    .fetch_optional(pool)
-    .await?;
-
-    if let Some(id) = by_album {
-        return Ok(Some(id));
-    }
-
-    // Clients also ask for a track's cover, meaning its album's.
-    sqlx::query_scalar(concat!(
-        visible_libraries!(),
-        " SELECT album_id FROM tracks
-           WHERE public_id = ? AND album_id IS NOT NULL
-             AND missing_since IS NULL
-             AND library_id IN (SELECT id FROM visible_libraries)"
-    ))
-    .bind(user_id)
-    .bind(public_id)
-    .fetch_optional(pool)
-    .await
-    .map(Option::flatten)
-}
-
-/// The cover already extracted for this album, if there is one.
-async fn cover_in_cache(
-    pool: &SqlitePool,
-    album_id: i64,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "SELECT aw.content_hash, aw.mime_type
-           FROM albums al JOIN artworks aw ON aw.id = al.artwork_id
-          WHERE al.id = ?",
-    )
-    .bind(album_id)
-    .fetch_optional(pool)
-    .await
-}
-
-/// Finds a cover for an album and puts it in the cache.
-///
-/// Tries the embedded picture of each of its tracks in turn, then a file beside
-/// them. A failure to find one is remembered, because a client scrolling a list
-/// of albums asks again for every one of them on every scroll, and reopening the
-/// files each time to learn the same nothing is the cost this avoids.
-async fn extract_cover(
-    pool: &SqlitePool,
-    data_dir: &std::path::Path,
-    album_id: i64,
-) -> anyhow::Result<Option<(String, String)>> {
-    if searched_before(pool, album_id).await? {
-        return Ok(None);
-    }
-
-    // No library filter here, and that is deliberate. This fills a cache keyed by
-    // album, shared by everybody, so its contents must not depend on who asked
-    // first. Whether this album may be seen at all was settled before we got
-    // here, when its identifier was resolved.
-    // Composed here rather than stored composed: what the row holds is relative
-    // to the library, so its root comes along.
-    let paths: Vec<String> = sqlx::query_scalar(
-        "SELECT l.path || '/' || t.path
-           FROM tracks t
-           JOIN libraries l ON l.id = t.library_id
-          WHERE t.album_id = ? AND t.missing_since IS NULL
-          ORDER BY t.disc_number, t.track_number
-          LIMIT 20",
-    )
-    .bind(album_id)
-    .fetch_all(pool)
-    .await?;
-
-    let found = tokio::task::spawn_blocking(move || find_cover(&paths)).await?;
-
-    let Some((source, source_ref, bytes)) = found else {
-        remember_nothing(pool, album_id).await?;
-        return Ok(None);
-    };
-
-    // Trust the bytes, not the extension or what a tag claims the type is.
-    let Some(mime_type) = artwork::mime_of(&bytes) else {
-        remember_nothing(pool, album_id).await?;
-        return Ok(None);
-    };
-
-    let hash = artwork::store(data_dir, &bytes)?;
-    let timestamp = db::now();
-
-    let mut tx = pool.begin().await?;
-
-    // The hash is the identity, so two albums sharing a cover share the row.
-    let existing: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM artworks WHERE content_hash = ? LIMIT 1")
-            .bind(&hash)
-            .fetch_optional(&mut *tx)
-            .await?;
-
-    let artwork_id = match existing {
-        Some(id) => id,
-        None => {
-            sqlx::query_scalar(
-                "INSERT INTO artworks (
-                 public_id, kind, source, source_ref, mime_type, content_hash, fetched_at
-             ) VALUES (?, 'album_front', ?, ?, ?, ?, ?)
-             RETURNING id",
-            )
-            .bind(db::public_id()?)
-            .bind(source)
-            .bind(&source_ref)
-            .bind(mime_type)
-            .bind(&hash)
-            .bind(&timestamp)
-            .fetch_one(&mut *tx)
-            .await?
-        }
-    };
-
-    sqlx::query("UPDATE albums SET artwork_id = ? WHERE id = ? AND artwork_id IS NULL")
-        .bind(artwork_id)
-        .bind(album_id)
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-
-    Ok(Some((hash, mime_type.to_string())))
-}
-
-/// Blocking: opens files. Reads the artwork this time, unlike a scan.
-fn find_cover(paths: &[String]) -> Option<(&'static str, Option<String>, Vec<u8>)> {
-    for path in paths {
-        let path = std::path::Path::new(path);
-        if let Ok(metadata) = crate::scanner::read_tags_with_cover_art(path)
-            && let Some(bytes) = metadata.picture
-        {
-            return Some(("embedded", None, bytes));
-        }
-    }
-
-    // No track carried one, so look for a file next to the music.
-    let directory = std::path::Path::new(paths.first()?).parent()?;
-    artwork::find_near(directory).map(|(path, bytes)| {
-        (
-            "local_file",
-            Some(path.to_string_lossy().to_string()),
-            bytes,
-        )
-    })
-}
-
-async fn searched_before(pool: &SqlitePool, album_id: i64) -> Result<bool, sqlx::Error> {
-    let found: Option<i64> = sqlx::query_scalar(
-        "SELECT 1 FROM artwork_lookups
-          WHERE entity_type = 'album' AND entity_id = ? AND source = 'local'",
-    )
-    .bind(album_id)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(found.is_some())
-}
-
-async fn remember_nothing(pool: &SqlitePool, album_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO artwork_lookups (entity_type, entity_id, source, attempted_at, found)
-         VALUES ('album', ?, 'local', ?, 0)
-         ON CONFLICT (entity_type, entity_id, source) DO UPDATE SET
-             attempted_at = excluded.attempted_at",
-    )
-    .bind(album_id)
-    .bind(db::now())
-    .execute(pool)
-    .await?;
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -728,62 +412,6 @@ pub async fn get_lyrics_by_song_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_path_under_the_root_is_allowed() {
-        assert!(is_inside(
-            Path::new("/music/Queen/song.flac"),
-            Path::new("/music")
-        ));
-        assert!(is_inside(
-            Path::new("/music/song.flac"),
-            Path::new("/music")
-        ));
-    }
-
-    #[test]
-    fn climbing_out_of_the_root_is_refused() {
-        assert!(!is_inside(
-            Path::new("/music/../etc/passwd"),
-            Path::new("/music")
-        ));
-        assert!(!is_inside(
-            Path::new("/music/Queen/../../etc/passwd"),
-            Path::new("/music")
-        ));
-        assert!(!is_inside(Path::new("/etc/passwd"), Path::new("/music")));
-    }
-
-    #[test]
-    fn a_sibling_directory_sharing_a_prefix_is_not_inside() {
-        // "/music-private" starts with "/music" as a string but is a different
-        // directory, which a naive string comparison would let through.
-        assert!(!is_inside(
-            Path::new("/music-private/secret.flac"),
-            Path::new("/music")
-        ));
-    }
-
-    #[test]
-    fn current_directory_components_do_not_confuse_it() {
-        assert!(is_inside(
-            Path::new("/music/./Queen/./song.flac"),
-            Path::new("/music")
-        ));
-    }
-
-    #[test]
-    fn an_empty_root_allows_nothing() {
-        assert!(!is_inside(Path::new("/music/song.flac"), Path::new("")));
-    }
-
-    #[test]
-    fn a_path_of_nothing_but_parents_cannot_escape() {
-        assert!(!is_inside(
-            Path::new("../../../etc/passwd"),
-            Path::new("/music")
-        ));
-    }
 
     #[test]
     fn a_download_name_is_safe_to_put_in_a_header() {

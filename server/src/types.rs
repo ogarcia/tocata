@@ -732,6 +732,10 @@ pub struct Artist {
     pub name: String,
     pub albums: i64,
     pub tracks: i64,
+    /// Whether a picture of them has already been found. False also covers "not
+    /// looked for yet", which is why a listing draws the empty frame and the
+    /// picture appears on the next visit rather than never.
+    pub image: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

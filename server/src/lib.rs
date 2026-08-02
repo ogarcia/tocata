@@ -140,6 +140,8 @@ pub mod jobs;
 #[cfg(feature = "server")]
 pub mod lyrics;
 #[cfg(feature = "server")]
+pub mod media;
+#[cfg(feature = "server")]
 pub mod panel;
 #[cfg(feature = "server")]
 pub mod purge;
