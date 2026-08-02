@@ -26,7 +26,8 @@ use crate::types::{
     Album, Albums, Artist, Artists, ErrorBody, Genre, Genres, Queue, Track, Tracks,
 };
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::{Path as UrlPath, Query, State};
+use axum::http::StatusCode;
 use serde::Deserialize;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use utoipa::IntoParams;
@@ -425,6 +426,41 @@ pub async fn genres(
         total,
         genres: rows.into_iter().map(Genre::from).collect(),
     }))
+}
+
+/// Count a play
+///
+/// Writes down that this track was listened to, which is what keeps the play
+/// counts on the Overview and the Profile — and the tally of what a purge would
+/// cost — true of the panel as well as of everything else.
+///
+/// When to call it is the player's judgement and not this call's: the usual
+/// convention is once a song is mostly over rather than when it starts, so that
+/// skipping through a record does not count as having heard it.
+///
+/// Answers the same whether or not the track exists, since a play is not a
+/// question and a client that has just heard something has nothing to do with a
+/// refusal.
+#[utoipa::path(
+    post,
+    path = "/tracks/{id}/played",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 204, description = "Counted"),
+        (status = 401, description = "No valid session", body = ErrorBody),
+    )
+)]
+pub async fn played(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    crate::plays::record_play(&pool, panel.user.id, &id, &crate::db::now())
+        .await
+        .map_err(|e| ApiError::internal(e, "counting a play"))?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Which listing is being counted.
@@ -1109,5 +1145,61 @@ mod tests {
         .unwrap();
 
         assert_eq!(all.tracks.len(), 3, "everything with a file");
+    }
+
+    /// The counts on the Overview, on a Profile and in what a purge would cost
+    /// all read the same rows, so a play from the panel has to land in them the
+    /// same way a play from a phone does.
+    #[tokio::test]
+    async fn a_play_is_counted_for_the_track_and_its_album() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let who = ana.user.id;
+
+        played(ana, State(pool.clone()), UrlPath("t10".to_string()))
+            .await
+            .unwrap();
+
+        let track: (i64,) = sqlx::query_as(
+            "SELECT play_count FROM user_track_stats WHERE user_id = ? AND track_id = 10",
+        )
+        .bind(who)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(track.0, 1);
+
+        let album: (i64,) = sqlx::query_as(
+            "SELECT play_count FROM user_album_stats WHERE user_id = ? AND album_id = 1",
+        )
+        .bind(who)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(album.0, 1, "the record it is on, so albums can be ranked");
+    }
+
+    /// A track in a library somebody may not see is not theirs to have heard.
+    /// Nothing is refused — a play is not a question — but nothing is written
+    /// either, so their own figures stay figures they can account for.
+    #[tokio::test]
+    async fn a_play_of_what_you_cannot_see_is_not_counted() {
+        let pool = a_collection().await;
+        let walled = somebody(&pool, true).await;
+        let who = walled.user.id;
+
+        // t20 is in the second library, which this account is walled off from.
+        played(walled, State(pool.clone()), UrlPath("t20".to_string()))
+            .await
+            .unwrap();
+
+        let counted: Option<(i64,)> =
+            sqlx::query_as("SELECT play_count FROM user_track_stats WHERE user_id = ?")
+                .bind(who)
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+
+        assert!(counted.is_none());
     }
 }

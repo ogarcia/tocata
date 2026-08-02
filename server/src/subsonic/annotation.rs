@@ -124,7 +124,7 @@ pub async fn scrobble(
                 .map(|millis| db::from_epoch_millis(*millis))
                 .unwrap_or_else(db::now);
 
-            record_play(&pool, auth.user.id, id, &played_at).await
+            crate::plays::record_play(&pool, auth.user.id, id, &played_at).await
         } else {
             // An announcement is about now, whatever time came with it. A play can
             // be handed over late and keep the time it happened, but "now playing"
@@ -302,63 +302,6 @@ async fn write_rating(
 
     tx.commit().await?;
     Ok(true)
-}
-
-/// Counts a play: one more for the tally, and the time it happened.
-async fn record_play(
-    pool: &SqlitePool,
-    user_id: i64,
-    public_id: &str,
-    played_at: &str,
-) -> Result<(), sqlx::Error> {
-    let Some(track_id): Option<i64> =
-        sqlx::query_scalar("SELECT id FROM tracks WHERE public_id = ?")
-            .bind(public_id)
-            .fetch_optional(pool)
-            .await?
-    else {
-        return Ok(());
-    };
-
-    let mut tx = pool.begin().await?;
-
-    sqlx::query(
-        "INSERT INTO user_track_stats (user_id, track_id, play_count, last_played)
-         VALUES (?, ?, 1, ?)
-         ON CONFLICT (user_id, track_id) DO UPDATE SET
-             play_count = play_count + 1,
-             last_played = excluded.last_played",
-    )
-    .bind(user_id)
-    .bind(track_id)
-    .bind(played_at)
-    .execute(&mut *tx)
-    .await?;
-
-    // The album tally too, so a client can sort albums by how much they get
-    // played without adding up their tracks every time.
-    sqlx::query(
-        "INSERT INTO user_album_stats (user_id, album_id, play_count, last_played)
-         SELECT ?, album_id, 1, ? FROM tracks WHERE id = ? AND album_id IS NOT NULL
-         ON CONFLICT (user_id, album_id) DO UPDATE SET
-             play_count = play_count + 1,
-             last_played = excluded.last_played",
-    )
-    .bind(user_id)
-    .bind(played_at)
-    .bind(track_id)
-    .execute(&mut *tx)
-    .await?;
-
-    // A play is a play whether or not the client also announced it beforehand,
-    // and the song is no longer playing once it has been scrobbled.
-    sqlx::query("DELETE FROM now_playing WHERE user_id = ? AND track_id = ?")
-        .bind(user_id)
-        .bind(track_id)
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await
 }
 
 /// Records that a song is playing right now, without counting it as played.

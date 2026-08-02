@@ -140,6 +140,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(collection::albums))
         .routes(routes!(collection::artists))
         .routes(routes!(collection::genres))
+        .routes(routes!(collection::played))
         .routes(routes!(media::audio))
         .routes(routes!(media::cover))
         .routes(routes!(media::portrait))

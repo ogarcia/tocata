@@ -144,6 +144,8 @@ pub mod media;
 #[cfg(feature = "server")]
 pub mod panel;
 #[cfg(feature = "server")]
+pub mod plays;
+#[cfg(feature = "server")]
 pub mod purge;
 #[cfg(feature = "server")]
 pub mod resources;
