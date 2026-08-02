@@ -6,7 +6,17 @@
  * widgets to update by hand without npm to warn us.
  *
  * Both schemes come from `color-scheme` and one set of variables, so the browser
- * picks and nothing has to be toggled. */
+ * picks and nothing has to be toggled.
+ *
+ * Every measure is in `rem` and every line is in pixels, and a test holds both to
+ * it. A measure is anything that decides how much room something takes, and all
+ * of it moves with the size the reader asked their browser for: somebody who set
+ * that to twenty because they cannot read fifteen gets a whole panel a quarter
+ * larger, sidebar and glyphs included, rather than large text crammed into
+ * furniture that stayed put. A line is not a measure — a hairline is one physical
+ * pixel and has to stay one, since in `rem` it would land on a fraction that
+ * browsers round differently from one edge to the next, and this whole look is
+ * that its lines are all the same. Corners and shadows go with the lines. */
 
 :root {
   color-scheme: light dark;
@@ -34,10 +44,22 @@
    * does nothing. */
   --accent: var(--accent-green);
 
-  --side: 240px;
+  --side: 15rem;
+
+  /* The scale, by what each size is for rather than by how big it is. Five,
+   * because five is what the panel turned out to use for everything that is not
+   * a heading or a figure — and a size used once is written where it is used,
+   * since a name for it would only be a second place to look.
+   *
+   * In `rem`, like every measure in this sheet except the rules themselves. See
+   * the note over `font-size` below for what that is answering. */
+  --lettering: 0.75rem;   /* 12px — small capitals over a run of rows */
+  --aside: 0.8125rem;     /* 13px — the quiet line under almost everything */
+  --control: 0.875rem;    /* 14px — buttons, rows, menu items */
+  --text: 0.9375rem;      /* 15px — the panel's own size */
+  --name: 1rem;           /* 16px — what a row is called, and what is typed into */
 
   font-family: system-ui, sans-serif;
-  font-size: 15px;
 }
 
 /* There is no `--raised`, and that is the whole of the look: nothing here is a
@@ -61,10 +83,26 @@
  * every box, not just the one you happen to be looking at. */
 p, h1, h2, dl, dd { margin: 0; }
 
+/* The size the panel is set at, and deliberately not on `:root`.
+ *
+ * A `font-size` in pixels on the root is what makes every `rem` under it a pixel
+ * measure wearing another unit: the root stops following the size the reader
+ * asked their browser for, and somebody who set it to twenty because they cannot
+ * read fifteen goes on being shown fifteen. Left alone, the root is whatever they
+ * chose, `rem` scales with it, and this line only says that the panel sits one
+ * notch under it — the same fifteen pixels as before for a browser at its
+ * default, and eighteen and three quarters for one at twenty.
+ *
+ * Which is also why the root stays at the browser's sixteen rather than being set
+ * to fifteen some other way: it keeps every measure in the sheet a round fraction
+ * of it. Eight pixels is half a rem, twenty-four is one and a half, the sidebar's
+ * two hundred and forty is fifteen. */
+
 body {
   margin: 0;
   color: var(--ink);
   background: var(--paper);
+  font-size: var(--text);
 }
 
 /* Which accent, on whatever carries the attribute. Not written as `:root[...]`,
@@ -118,16 +156,16 @@ a {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 26px 0 0;
+  padding: 1.625rem 0 0;
   border-right: 1px solid var(--line);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 26px 26px;
-  font-size: 17px;
+  gap: 0.5625rem;
+  padding: 0 1.625rem 1.625rem;
+  font-size: var(--name);
   font-weight: 500;
   letter-spacing: -0.01em;
   color: inherit;
@@ -135,7 +173,7 @@ a {
 }
 
 /* The one spot of colour in the column that is not a state. */
-.brand .icon { width: 19px; height: 19px; color: var(--accent); }
+.brand .icon { width: 1.1875rem; height: 1.1875rem; color: var(--accent); }
 
 .side nav {
   display: flex;
@@ -146,9 +184,9 @@ a {
 /* A heading over a run of entries, at the width of the column so it lines up with
  * them. The first one needs no room above it: the wordmark already left some. */
 .nav-title {
-  margin: 22px 0 6px;
-  padding: 0 26px;
-  font-size: 12px;
+  margin: 1.375rem 0 0.375rem;
+  padding: 0 1.625rem;
+  font-size: var(--lettering);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -167,10 +205,10 @@ a {
  * have merely visited. */
 .side nav a {
   display: block;
-  padding: 7px 26px;
+  padding: 0.4375rem 1.625rem;
   border-left: 2px solid transparent;
   color: var(--quiet);
-  font-size: 14.5px;
+  font-size: var(--control);
 }
 
 .side nav a:hover { color: var(--ink); }
@@ -210,7 +248,7 @@ a {
 .body {
   min-width: 0;
   overflow-y: auto;
-  padding: 44px 56px 60px;
+  padding: 2.75rem 3.5rem 3.75rem;
 }
 
 /* Nothing is capped. A window is as wide as somebody made it, and a screen of
@@ -227,22 +265,22 @@ a {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 40px;
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
 }
 
 /* The gap is the first thing to give on a narrow screen: what is on either side of
  * it is a title and an action, and neither has any width to spare. */
 @media (max-width: 45rem) {
   .titled {
-    gap: 12px;
-    margin-bottom: 28px;
+    gap: 0.75rem;
+    margin-bottom: 1.75rem;
   }
 }
 
 h1 {
-  margin: 0 0 6px;
-  font-size: 30px;
+  margin: 0 0 0.375rem;
+  font-size: 1.875rem;
   font-weight: 400;
   letter-spacing: -0.02em;
 }
@@ -254,11 +292,11 @@ h1 {
  * and an empty screen with a line above and below it says the emptiness is on
  * purpose. */
 .nothing {
-  padding: 40px 0;
+  padding: 2.5rem 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   color: var(--quiet);
-  font-size: 14px;
+  font-size: var(--control);
   text-align: center;
 }
 
@@ -280,8 +318,8 @@ h1 {
 .facts > * {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 11px 0;
+  gap: 1rem;
+  padding: 0.6875rem 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -311,7 +349,7 @@ h1 {
  * Capped, and this is the one place in the panel that is: a field that grows to
  * nine hundred pixels promises nine hundred pixels of text. What is uncapped is a
  * screen of figures, where the width is there to be used. */
-.settings { max-width: 760px; }
+.settings { max-width: 47.5rem; }
 
 /* Fluid by construction, with no width in a media query anywhere. The label asks for
  * 200 pixels and the control for 300 of the remaining two thirds; when the row
@@ -325,20 +363,20 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px 32px;
-  padding: 22px 0;
+  gap: 0.375rem 2rem;
+  padding: 1.375rem 0;
   border-top: 1px solid var(--line);
 }
 
 .settings > .setting > :first-child {
-  flex: 1 1 200px;
+  flex: 1 1 12.5rem;
   min-width: 0;
 }
 
 .settings > .setting > :last-child {
-  flex: 2 1 300px;
+  flex: 2 1 18.75rem;
   min-width: 0;
-  max-width: 420px;
+  max-width: 26.25rem;
 }
 
 /* The last one closes the run, so the set reads as a block rather than as rows
@@ -348,7 +386,7 @@ h1 {
 /* What the row is for, under what it is called. */
 .setting .why {
   display: block;
-  font-size: 13px;
+  font-size: var(--aside);
   color: var(--quiet);
 }
 
@@ -362,7 +400,7 @@ h1 {
  */
 .settings input:not([type="checkbox"]), .settings select {
   width: 100%;
-  padding: 6px 0;
+  padding: 0.375rem 0;
   border: none;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -386,13 +424,13 @@ h1 {
 .saving {
   display: flex;
   justify-content: flex-end;
-  padding-top: 18px;
+  padding-top: 1.125rem;
 }
 
 /* A second block on the same screen gets air over its heading. It always follows the
  * thing that saved the block before it, which is what this leans on rather than a
  * class saying "the later one". */
-.saving + .part { margin-top: 44px; }
+.saving + .part { margin-top: 2.75rem; }
 
 /* The form and the rail beside it, and neither of them a column of a grid: the two
  * ask for widths and the row gives what it can. Below about nine hundred pixels of
@@ -405,23 +443,23 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 40px 56px;
+  gap: 2.5rem 3.5rem;
 }
 
-.two > .forms { flex: 3 1 420px; min-width: 0; }
+.two > .forms { flex: 3 1 26.25rem; min-width: 0; }
 
 /* Under a band of figures it stands as far off as the two lists on the access screen
  * do: the figures are about the account and the form changes it, and read together
  * they came out as one block with a rule through it. Only under the figures — where a
  * screen starts with its title, the title's own margin has already said it. */
-.counts + .two { margin-top: 44px; }
+.counts + .two { margin-top: 2.75rem; }
 
 /* Narrower than the form and capped, because everything in it is a short label and a
  * shorter value. */
 .rail {
-  flex: 1 1 260px;
+  flex: 1 1 16.25rem;
   min-width: 0;
-  max-width: 320px;
+  max-width: 20rem;
 }
 
 /* Inside the pair the form's own columns tighten: it has less room than it had with
@@ -432,27 +470,27 @@ h1 {
 }
 
 .two .settings > .setting {
-  padding: 18px 0;
+  padding: 1.125rem 0;
 }
 
-.two .settings > .setting > :first-child { flex: 1 1 170px; }
-.two .settings > .setting > :last-child { flex: 2 1 260px; }
+.two .settings > .setting > :first-child { flex: 1 1 10.625rem; }
+.two .settings > .setting > :last-child { flex: 2 1 16.25rem; }
 
 /* A list of facts is a list of facts wherever it is: see `.facts`. What is left here
  * is that the rail's lists are blocks of their own, closed at the top, and set a
  * size down because a rail is narrower than a screen. */
 .rail .facts {
   border-top: 1px solid var(--line);
-  font-size: 14px;
+  font-size: var(--control);
 }
 
-.rail .part { margin-top: 32px; }
+.rail .part { margin-top: 2rem; }
 .rail .part:first-child { margin-top: 0; }
 
 /* The way to the screen this one only summarises. */
 .rail .onward {
-  margin: 12px 0 0;
-  font-size: 14px;
+  margin: 0.75rem 0 0;
+  font-size: var(--control);
 }
 
 /* No underline, pointed at or not. A link here is said with the accent, and the
@@ -466,22 +504,22 @@ h1 {
  */
 @media (max-width: 40rem) {
   .settings input:not([type="checkbox"]), .settings select {
-    padding: 9px 0;
-    font-size: 16px;
+    padding: 0.5625rem 0;
+    font-size: var(--name);
   }
 
-  .settings > .setting { padding: 16px 0; }
+  .settings > .setting { padding: 1rem 0; }
 
   .setting .checkbox, .saving .pill, .rail .onward a {
-    min-height: 44px;
+    min-height: 2.75rem;
   }
 
   .setting .checkbox { align-items: center; }
-  .saving .pill { padding: 0 20px; }
+  .saving .pill { padding: 0 1.25rem; }
 
   /* The rail follows the form in the order it is written, so there is nothing to
    * reorder: what it needs is the air that the two columns gave it. */
-  .rail { margin-top: 8px; }
+  .rail { margin-top: 0.5rem; }
 }
 
 .setting label, .setting > span:first-child { color: inherit; font-size: inherit; }
@@ -492,17 +530,17 @@ h1 {
 .options {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;
-  font-size: 14px;
+  gap: 1.25rem;
+  font-size: var(--control);
 }
 
 .option {
   margin: 0;
-  padding: 0 0 2px;
+  padding: 0 0 0.125rem;
   border: none;
   color: var(--quiet);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--control);
   cursor: pointer;
 }
 
@@ -517,9 +555,9 @@ h1 {
 
 /* Wide enough for the longest language and no wider. A control that stretches to
  * the width of the screen promises a value as long as the screen. */
-select.narrow { width: 200px; }
+select.narrow { width: 12.5rem; }
 
-.setting .hint { margin: 8px 0 0; }
+.setting .hint { margin: 0.5rem 0 0; }
 
 /* The blocks of the settings screen — the one screen made of several runs of rows
  * that have nothing to do with one another, and so the one that would otherwise
@@ -528,8 +566,8 @@ select.narrow { width: 200px; }
  * and no width in a media query. */
 .knobs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: 44px 56px;
+  grid-template-columns: repeat(auto-fit, minmax(26.25rem, 1fr));
+  gap: 2.75rem 3.5rem;
 }
 
 /* A run inside a column is as wide as its column. The cap a run carries is for a
@@ -544,7 +582,7 @@ select.narrow { width: 200px; }
 .stack {
   display: grid;
   align-content: start;
-  gap: 44px;
+  gap: 2.75rem;
 }
 
 /* A tick and the value it turns on, on one line: neither says anything without the
@@ -554,7 +592,7 @@ select.narrow { width: 200px; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 0.5rem 1rem;
 }
 
 /* An hour is four characters and a figure, so it is as wide as it is and set in
@@ -563,7 +601,7 @@ select.narrow { width: 200px; }
 .settings input[type="time"] {
   width: auto;
   font-family: ui-monospace, monospace;
-  font-size: 14px;
+  font-size: var(--control);
 }
 
 /* Switched off it goes quiet rather than away: what it holds is what would happen
@@ -577,7 +615,7 @@ select.narrow { width: 200px; }
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 /* Room for three digits and no more. Centred because it is read as part of a
@@ -601,8 +639,8 @@ select.narrow { width: 200px; }
  * columns. */
 .chores {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
-  gap: 0 56px;
+  grid-template-columns: repeat(auto-fit, minmax(27.5rem, 1fr));
+  gap: 0 3.5rem;
 }
 
 /* The rule across the top belongs to the group; every row closes itself. */
@@ -612,8 +650,8 @@ select.narrow { width: 200px; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 8px 24px;
-  padding: 20px 0;
+  gap: 0.5rem 1.5rem;
+  padding: 1.25rem 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -625,8 +663,8 @@ select.narrow { width: 200px; }
  * sentence. `pretty` so a three line paragraph does not end on one word. */
 .chore .why {
   display: block;
-  margin-top: 2px;
-  font-size: 13px;
+  margin-top: 0.125rem;
+  font-size: var(--aside);
   color: var(--quiet);
   text-wrap: pretty;
 }
@@ -635,8 +673,8 @@ select.narrow { width: 200px; }
  * read down the column as much as across the row. */
 .chore .ran {
   display: block;
-  margin-top: 6px;
-  font-size: 13px;
+  margin-top: 0.375rem;
+  font-size: var(--aside);
   color: var(--quiet);
   font-variant-numeric: tabular-nums;
 }
@@ -645,8 +683,8 @@ select.narrow { width: 200px; }
  * many lines as it has. */
 .chore .wrong {
   display: block;
-  margin-top: 6px;
-  font-size: 13px;
+  margin-top: 0.375rem;
+  font-size: var(--aside);
   color: var(--alarm);
   white-space: pre-line;
 }
@@ -662,11 +700,11 @@ select.narrow { width: 200px; }
  * further down this sheet, so a rule of one class would be overwritten by it
  * whatever this one asked for. Two classes outweigh it and the order stops
  * mattering. */
-.chores + .part { margin-top: 44px; }
+.chores + .part { margin-top: 2.75rem; }
 
 /* What has been run lately: what happened on the left, when on the right. */
 .lately {
-  margin: 14px 0 0;
+  margin: 0.875rem 0 0;
   padding: 0;
   border-top: 1px solid var(--line);
   list-style: none;
@@ -675,10 +713,10 @@ select.narrow { width: 200px; }
 .lately > li {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 11px 0;
+  gap: 1rem;
+  padding: 0.6875rem 0;
   border-bottom: 1px solid var(--line);
-  font-size: 14px;
+  font-size: var(--control);
 }
 
 .lately .when {
@@ -696,7 +734,7 @@ select.narrow { width: 200px; }
 @media (max-width: 45rem) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 56px minmax(0, 1fr);
+    grid-template-rows: 3.5rem minmax(0, 1fr);
   }
 
   /* The way to the sections and the name of the thing. Nothing else: what used to
@@ -708,7 +746,7 @@ select.narrow { width: 200px; }
     border-bottom: 1px solid var(--line);
   }
 
-  .bar .brand { padding: 0 16px 0 4px; }
+  .bar .brand { padding: 0 1rem 0 0.25rem; }
 
   .side {
     position: fixed;
@@ -734,8 +772,8 @@ select.narrow { width: 200px; }
   .menu-button {
     display: grid;
     place-items: center;
-    width: 44px;
-    height: 44px;
+    width: 2.75rem;
+    height: 2.75rem;
     margin: 0;
     padding: 0;
     border: none;
@@ -743,9 +781,9 @@ select.narrow { width: 200px; }
     color: inherit;
   }
 
-  .body { padding: 18px; }
+  .body { padding: 1.125rem; }
 
-  h1 { font-size: 26px; }
+  h1 { font-size: 1.625rem; }
 }
 
 /* --- who you are, at the foot of the column ------------------------------ */
@@ -755,10 +793,10 @@ select.narrow { width: 200px; }
 .whoami {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   width: 100%;
   margin: 0;
-  padding: 16px 26px;
+  padding: 1rem 1.625rem;
   border: none;
   border-top: 1px solid var(--line);
   color: inherit;
@@ -768,8 +806,8 @@ select.narrow { width: 200px; }
 }
 
 .whoami .avatar {
-  width: 28px;
-  height: 28px;
+  width: 1.75rem;
+  height: 1.75rem;
 }
 
 /* Two lines that must not push what follows off the end, whatever the name is: the
@@ -787,7 +825,7 @@ select.narrow { width: 200px; }
   white-space: nowrap;
 }
 
-.whoami .role { font-size: 12px; color: var(--quiet); }
+.whoami .role { font-size: var(--lettering); color: var(--quiet); }
 
 /* Pointing along the row rather than down: what it opens comes up from here. */
 .whoami .chevron {
@@ -802,9 +840,9 @@ select.narrow { width: 200px; }
  * what it has to fit inside is a 240px column. */
 .upward {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: calc(100% + 8px);
+  left: 0.875rem;
+  right: 0.875rem;
+  bottom: calc(100% + 0.5rem);
   z-index: 3;
 }
 
@@ -816,7 +854,7 @@ select.narrow { width: 200px; }
  * session in the sidebar, and cutting somebody off in a row of the accounts. */
 .upward hr, .menu hr {
   height: 0;
-  margin: 6px 4px;
+  margin: 0.375rem 0.25rem;
   border: none;
   border-top: 1px solid var(--line);
 }
@@ -828,7 +866,7 @@ select.narrow { width: 200px; }
 .strip {
   display: flex;
   flex-direction: column;
-  padding: 11px 26px 12px;
+  padding: 0.6875rem 1.625rem 0.75rem;
 }
 
 /* The only thing that toggles, and it is the row and not a chevron on the end of
@@ -837,19 +875,19 @@ select.narrow { width: 200px; }
 .strip-head {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 0.5625rem;
   width: 100%;
-  margin: 0 0 7px;
+  margin: 0 0 0.4375rem;
   padding: 0;
   border: none;
   color: var(--accent);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--aside);
   text-align: left;
   cursor: pointer;
 }
 
-.strip-head .icon { width: 14px; height: 14px; }
+.strip-head .icon { width: 0.875rem; height: 0.875rem; }
 
 .strip-head .counted {
   margin-left: auto;
@@ -876,7 +914,7 @@ select.narrow { width: 200px; }
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 0.5625rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -887,8 +925,8 @@ select.narrow { width: 200px; }
 .strip-stats .pair {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  gap: 0.75rem;
+  font-size: var(--aside);
 }
 
 .strip-stats .pair > :last-child { font-variant-numeric: tabular-nums; }
@@ -896,8 +934,8 @@ select.narrow { width: 200px; }
 /* Outlined in the alarm colour rather than filled with it: it is the way out of
  * something already running, not the point of the block. */
 .strip .stop {
-  margin: 3px 0 8px;
-  padding: 7px 10px;
+  margin: 0.1875rem 0 0.5rem;
+  padding: 0.4375rem 0.625rem;
   border: 1px solid color-mix(in srgb, var(--alarm) 45%, transparent);
   border-radius: 6px;
   color: var(--alarm);
@@ -909,7 +947,7 @@ select.narrow { width: 200px; }
 .strip .where {
   overflow: hidden;
   font-family: ui-monospace, monospace;
-  font-size: 11.5px;
+  font-size: var(--lettering);
   color: var(--quiet);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -923,7 +961,7 @@ select.narrow { width: 200px; }
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 1rem;
 }
 
 /* The one screen with nothing around it — no column, no header, nowhere else to
@@ -951,11 +989,11 @@ select.narrow { width: 200px; }
 }
 
 .entry > * {
-  flex: 1 1 380px;
+  flex: 1 1 23.75rem;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: clamp(28px, 5vw, 56px);
+  padding: clamp(1.75rem, 5vw, 3.5rem);
 }
 
 .entering { justify-content: center; }
@@ -965,24 +1003,24 @@ select.narrow { width: 200px; }
  * own band, which is the one thing on this screen that is. */
 .entry form {
   width: 100%;
-  max-width: 400px;
+  max-width: 25rem;
   margin: 0 auto;
 }
 
 /* Spaced by margins rather than by one gap on the form, because the rows are not
  * all the same distance apart: the lead belongs to the heading above it and
  * stands well clear of the first field, and the tick belongs to the button. */
-.entry h1 { font-size: 26px; }
-.entry .lead { margin: 0 0 30px; }
-.entry label { margin-bottom: 22px; }
-.entry .checkbox { margin-bottom: 28px; font-size: 14px; }
+.entry h1 { font-size: 1.625rem; }
+.entry .lead { margin: 0 0 1.875rem; }
+.entry label { margin-bottom: 1.375rem; }
+.entry .checkbox { margin-bottom: 1.75rem; font-size: var(--control); }
 
 /* The band that is not the form: the name at the top and, centred in what is left
  * under it, the one line that says what this is. Nothing else — what a stranger
  * can read here is the whole of what this page tells anybody who has not got in.
  */
 .banner {
-  gap: clamp(28px, 5vh, 40px);
+  gap: clamp(1.75rem, 5vh, 2.5rem);
   border-right: 1px solid var(--line);
 }
 
@@ -991,16 +1029,16 @@ select.narrow { width: 200px; }
 .banner .mark {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   margin: 0;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 500;
   letter-spacing: -0.01em;
 }
 
 .banner .mark .icon {
-  width: 21px;
-  height: 21px;
+  width: 1.3125rem;
+  height: 1.3125rem;
   color: var(--accent);
 }
 
@@ -1011,7 +1049,7 @@ select.narrow { width: 200px; }
 .claim {
   max-width: 15ch;
   margin: auto 0;
-  font-size: clamp(32px, 4.4vw, 56px);
+  font-size: clamp(2rem, 4.4vw, 3.5rem);
   font-weight: 400;
   line-height: 1.06;
   letter-spacing: -0.03em;
@@ -1024,7 +1062,7 @@ select.narrow { width: 200px; }
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
 }
 
 /* Said as a word, underlined, because it is a choice between two words and a
@@ -1036,9 +1074,9 @@ select.narrow { width: 200px; }
   background: transparent;
   color: var(--quiet);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--aside);
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-underline-offset: 0.1875rem;
   cursor: pointer;
 }
 
@@ -1051,19 +1089,19 @@ select.narrow { width: 200px; }
 .trouble {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin: 0 0 26px;
-  padding: 12px 14px;
+  gap: 0.625rem;
+  margin: 0 0 1.625rem;
+  padding: 0.75rem 0.875rem;
   border-left: 2px solid var(--alarm);
   background: color-mix(in srgb, var(--alarm) 7%, transparent);
-  font-size: 14px;
+  font-size: var(--control);
 }
 
 .trouble .icon {
   flex: none;
-  width: 17px;
-  height: 17px;
-  margin-top: 1px;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  margin-top: 0.0625rem;
   color: var(--alarm);
 }
 
@@ -1071,28 +1109,28 @@ select.narrow { width: 200px; }
  * target on a phone. */
 .pill.wide {
   width: 100%;
-  min-height: 44px;
+  min-height: 2.75rem;
 }
 
 /* How somebody gets back in when they cannot. Below the button and behind a
  * hairline, because it is not part of logging in — it is what to do instead. */
 .recovery {
-  margin: 26px 0 0;
-  padding-top: 20px;
+  margin: 1.625rem 0 0;
+  padding-top: 1.25rem;
   border-top: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--aside);
   color: var(--quiet);
 }
 
 /* --- the parts ----------------------------------------------------------- */
 
 
-label { font-size: 13px; color: var(--quiet); }
+label { font-size: var(--aside); color: var(--quiet); }
 
 .swatches {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 /* A colour and nothing else — no outline of its own, which at this size read as a
@@ -1100,8 +1138,8 @@ label { font-size: 13px; color: var(--quiet); }
  * the same variable the panel paints with rather than a second copy of the
  * palette. */
 .swatch {
-  width: 22px;
-  height: 22px;
+  width: 1.375rem;
+  height: 1.375rem;
   margin: 0;
   padding: 0;
   border: none;
@@ -1126,9 +1164,9 @@ input[type="date"].empty { color: var(--quiet); }
 
 input, select, button {
   font: inherit;
-  font-size: 14px;
+  font-size: var(--control);
   color: inherit;
-  padding: 7px 10px;
+  padding: 0.4375rem 0.625rem;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: transparent;
@@ -1152,7 +1190,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 0.375rem;
   cursor: pointer;
 }
 
@@ -1171,15 +1209,15 @@ button:disabled { opacity: 0.6; cursor: default; }
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
   flex: none;
   margin: 0;
-  padding: 8px 15px;
+  padding: 0.5rem 0.9375rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: transparent;
   color: inherit;
-  font-size: 14px;
+  font-size: var(--control);
   /* One line, whatever the window. A pill is a shape with a word in it, and a
    * shape with a word broken across two lines is not that shape any more: it grows
    * downwards, its round ends stop matching its height, and it stops looking like
@@ -1274,7 +1312,7 @@ button:disabled { opacity: 0.6; cursor: default; }
   border: none;
   color: var(--quiet);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--aside);
   cursor: pointer;
 }
 
@@ -1294,13 +1332,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 .link:disabled { opacity: 0.5; }
 
-.pill .icon { width: 16px; height: 16px; }
+.pill .icon { width: 1rem; height: 1rem; }
 
 /* Along the row, and down once the menu under it is open: the direction the thing
  * it opens comes from. */
 .pill .chevron {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   color: var(--quiet);
   transition: transform 0.15s ease-out;
 }
@@ -1319,15 +1357,15 @@ button:disabled { opacity: 0.6; cursor: default; }
  * same colour as everything else that is a state. */
 .avatar {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 1.875rem;
+  height: 1.875rem;
   padding: 0;
   margin: 0;
   border-radius: 50%;
   border: none;
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--lettering);
   font-weight: 600;
   line-height: 1;
   display: grid;
@@ -1354,7 +1392,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 .menu, .upward {
   display: flex;
   flex-direction: column;
-  padding: 6px;
+  padding: 0.375rem;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
@@ -1366,10 +1404,10 @@ button:disabled { opacity: 0.6; cursor: default; }
  * whatever still does not fit scrolls inside the menu rather than off the window. */
 .menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 0.375rem);
   right: 0;
   z-index: 3;
-  min-width: 230px;
+  min-width: 14.375rem;
   overflow-y: auto;
 }
 
@@ -1380,14 +1418,14 @@ button:disabled { opacity: 0.6; cursor: default; }
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
   border-radius: 5px;
   color: inherit;
   text-align: left;
   /* In this order: `font` is shorthand and would take the size back out. */
   font: inherit;
-  font-size: 14px;
+  font-size: var(--control);
   background: transparent;
   border: none;
   margin: 0;
@@ -1403,11 +1441,11 @@ button:disabled { opacity: 0.6; cursor: default; }
 .explained {
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 0.125rem;
 }
 
 .menu-note {
-  font-size: 12px;
+  font-size: var(--lettering);
   color: var(--quiet);
 }
 
@@ -1425,8 +1463,8 @@ button:disabled { opacity: 0.6; cursor: default; }
  * two of the items here cut somebody off. */
 .menu-who {
   margin: 0;
-  padding: 8px 10px 6px;
-  font-size: 12px;
+  padding: 0.5rem 0.625rem 0.375rem;
+  font-size: var(--lettering);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--quiet);
@@ -1449,12 +1487,12 @@ button:disabled { opacity: 0.6; cursor: default; }
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
-  margin-left: 8px;
-  padding: 2px 7px;
+  margin-left: 0.5rem;
+  padding: 0.125rem 0.4375rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--lettering);
 }
 
 /* --- the icons ----------------------------------------------------------- */
@@ -1474,7 +1512,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 /* --- where you land ------------------------------------------------------ */
 
-.lead { margin: 0 0 28px; }
+.lead { margin: 0 0 1.75rem; }
 
 /* Four figures between two rules, divided by rules of their own. What was here
  * before was four cards, each with the number in one weight and a coloured disc
@@ -1494,8 +1532,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .count {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 22px 20px;
+  gap: 0.375rem;
+  padding: 1.375rem 1.25rem;
   border-left: 1px solid var(--line);
 }
 
@@ -1515,29 +1553,29 @@ button:disabled { opacity: 0.6; cursor: default; }
 .named-figure {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
-.named-figure .icon { width: 13px; height: 13px; }
+.named-figure .icon { width: 0.8125rem; height: 0.8125rem; }
 
 /* Large and light. A figure this size does not need weight as well, and at 400 it
  * reads as a quantity rather than as a headline. */
 .count .figure {
-  font-size: 34px;
+  font-size: 2.125rem;
   font-weight: 400;
   line-height: 1;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
-.count .quiet { font-size: 13px; }
+.count .quiet { font-size: var(--aside); }
 
 /* Two across, then two by two, then one — with the lines following, which is why
  * they are on the cells rather than on the container. */
 @media (max-width: 46rem) {
   .counts { grid-template-columns: 1fr 1fr; }
 
-  .count { padding: 18px 16px; }
+  .count { padding: 1.125rem 1rem; }
 
   .count:nth-child(odd) {
     padding-left: 0;
@@ -1546,7 +1584,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 
   .count:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
 
-  .count .figure { font-size: 28px; }
+  .count .figure { font-size: 1.75rem; }
 }
 
 /* Two lists side by side, and one under the other when there is no room. The gap
@@ -1558,8 +1596,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .panes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0 56px;
-  margin-top: 40px;
+  gap: 0 3.5rem;
+  margin-top: 2.5rem;
 }
 
 @media (max-width: 46rem) {
@@ -1569,8 +1607,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 /* A heading over a run of rows, in the same small uppercase as the ones in the
  * navigation: they do the same job, so they are the same thing. */
 .pane h2, .part {
-  margin: 0 0 4px;
-  font-size: 12px;
+  margin: 0 0 0.25rem;
+  font-size: var(--lettering);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1578,8 +1616,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 
 .pane h3 {
-  margin: 22px 0 6px;
-  font-size: 12px;
+  margin: 1.375rem 0 0.375rem;
+  font-size: var(--lettering);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1602,29 +1640,29 @@ button:disabled { opacity: 0.6; cursor: default; }
  *
  * The `details` that used to hold them said "2 hours ago" and hid the rest. It
  * hid four numbers behind a click to save a line that was there anyway. */
-.last-scan { margin-top: 40px; }
+.last-scan { margin-top: 2.5rem; }
 
 .figures {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-  padding-top: 14px;
+  gap: 1.25rem;
+  padding-top: 0.875rem;
   border-top: 1px solid var(--line);
 }
 
 .figures > div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.25rem;
 }
 
 .figures .figure {
-  font-size: 20px;
+  font-size: 1.25rem;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-.figures .quiet { font-size: 13px; }
+.figures .quiet { font-size: var(--aside); }
 
 @media (max-width: 46rem) {
   .figures { grid-template-columns: 1fr 1fr; }
@@ -1633,13 +1671,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 .working {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   color: var(--accent);
 }
 
 /* A path is long, arbitrary and not worth breaking the layout over. */
 .path {
-  font-size: 13px;
+  font-size: var(--aside);
   overflow-wrap: anywhere;
 }
 
@@ -1648,13 +1686,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 /* Its own space, because with the browser's margins gone it would otherwise sit
  * against whatever it is complaining about. */
 .failure {
-  margin-top: 12px;
+  margin-top: 0.75rem;
   color: var(--alarm);
 }
 
 /* Inside a form the gap already spaces it, and a margin on top of that would
  * make the message drift away from the field it belongs to. */
-form .failure, .sheet .failure { margin-top: 4px; }
+form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 /* --- libraries ----------------------------------------------------------- */
 
@@ -1688,18 +1726,18 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * aiming at it moves every row below it. */
 .shelf > li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 170px 175px;
+  grid-template-columns: minmax(0, 1fr) 10.625rem 10.9375rem;
   align-items: baseline;
-  gap: 24px;
-  padding: 20px 0;
+  gap: 1.5rem;
+  padding: 1.25rem 0;
   border-bottom: 1px solid var(--line);
 }
 
 .shelf .what { min-width: 0; }
 
 .shelf h2 {
-  margin: 0 0 4px;
-  font-size: 17px;
+  margin: 0 0 0.25rem;
+  font-size: var(--name);
   font-weight: 500;
   text-transform: none;
   letter-spacing: normal;
@@ -1715,7 +1753,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .shelf .path {
   margin: 0;
   font-family: ui-monospace, monospace;
-  font-size: 13px;
+  font-size: var(--aside);
   overflow-wrap: anywhere;
 }
 
@@ -1730,8 +1768,8 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * this is what a wrong guess costs. */
 .shelf .much .quiet {
   display: block;
-  margin-top: 4px;
-  font-size: 13px;
+  margin-top: 0.25rem;
+  font-size: var(--aside);
   white-space: nowrap;
 }
 
@@ -1746,7 +1784,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 
 .shelf .state {
   display: block;
-  font-size: 13px;
+  font-size: var(--aside);
   color: var(--quiet);
 }
 
@@ -1758,9 +1796,9 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .acting {
   display: flex;
   justify-content: flex-end;
-  margin-top: 4px;
-  gap: 12px;
-  font-size: 13px;
+  margin-top: 0.25rem;
+  gap: 0.75rem;
+  font-size: var(--aside);
   white-space: nowrap;
 }
 
@@ -1773,10 +1811,10 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * path gets what is left, so this screen runs out of room a long way before a screen
  * of figures does. By the time the columns would have collapsed at the panel's usual
  * 736 the paths had been wrapping mid-directory for a while. */
-@media (max-width: 850px) {
+@media (max-width: 53.125rem) {
   .shelf > li {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: 0.625rem;
   }
 
   .shelf .much, .shelf .doing { text-align: left; }
@@ -1793,8 +1831,8 @@ form .failure, .sheet .failure { margin-top: 4px; }
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 20px;
-  flex: 1 1 320px;
+  gap: 1.25rem;
+  flex: 1 1 20rem;
   flex-wrap: wrap;
 }
 
@@ -1804,18 +1842,18 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .search {
   display: flex;
   align-items: center;
-  gap: 9px;
-  flex: 1 1 220px;
-  max-width: 320px;
-  padding: 0 0 7px;
+  gap: 0.5625rem;
+  flex: 1 1 13.75rem;
+  max-width: 20rem;
+  padding: 0 0 0.4375rem;
   border-bottom: 1px solid var(--line);
   color: var(--quiet);
   font-size: inherit;
 }
 
 .search .icon {
-  width: 16px;
-  height: 16px;
+  width: 1rem;
+  height: 1rem;
 }
 
 .search input {
@@ -1827,7 +1865,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--control);
 }
 
 /* The browser's own cross on a search field, which is a different grey in every
@@ -1851,19 +1889,19 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .roster-head, .roster > li {
   display: grid;
   grid-template-columns:
-    minmax(200px, 3fr) minmax(105px, 1fr) minmax(130px, 1fr) minmax(105px, 1fr) 24px;
-  gap: 24px;
+    minmax(12.5rem, 3fr) minmax(6.5625rem, 1fr) minmax(8.125rem, 1fr) minmax(6.5625rem, 1fr) 1.5rem;
+  gap: 1.5rem;
   /* The twelve pixels the block outside is pulled out by, so a row's tint and its
    * hairline run past the text on both sides while the text stays lined up with
    * everything else on the screen. */
-  padding: 0 12px;
-  min-width: 684px;
+  padding: 0 0.75rem;
+  min-width: 42.75rem;
 }
 
 .roster-head {
-  padding-bottom: 10px;
+  padding-bottom: 0.625rem;
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--lettering);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1881,8 +1919,8 @@ form .failure, .sheet .failure { margin-top: 4px; }
 
 .roster > li {
   align-items: center;
-  padding-top: 16px;
-  padding-bottom: 16px;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
   border-bottom: 1px solid var(--line);
 }
 
@@ -1904,14 +1942,14 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * inside, the left twelve pixels can never be reached — a scroll offset is never
  * negative — and the right twelve widen the content and ask for a scrollbar of
  * their own. */
-.scrolls.bled { margin: 0 -12px; }
+.scrolls.bled { margin: 0 -0.75rem; }
 
 /* The name and what is said about it, on one line. The name is what gives way when
  * the column runs out, so the badge beside it never goes off the end. */
 .roster .whose {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 0.5rem;
   min-width: 0;
 }
 
@@ -1923,7 +1961,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .roster .account {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.75rem;
   min-width: 0;
 }
 
@@ -1943,7 +1981,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * 45rem the column of sections becomes a bar across the top, which gives the page
  * back 200 pixels and still not enough for four columns, so one breakpoint covers
  * both. */
-@media (max-width: 1040px) {
+@media (max-width: 65rem) {
   /* Headings over columns that are no longer there. */
   .roster-head { display: none; }
 
@@ -1951,8 +1989,8 @@ form .failure, .sheet .failure { margin-top: 4px; }
 
   .roster > li {
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 14px;
-    padding: 14px 12px;
+    gap: 0.375rem 0.875rem;
+    padding: 0.875rem 0.75rem;
   }
 
   .roster .account { grid-area: 1 / 1; }
@@ -1968,12 +2006,12 @@ form .failure, .sheet .failure { margin-top: 4px; }
      * of them are one block of text about one account, and this line started under
      * the initial in its circle. Thirty pixels of circle and the twelve of its gap,
      * which is what `.roster .account` sets. */
-    padding-left: 42px;
+    padding-left: 2.625rem;
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 2px 12px;
-    font-size: 13px;
+    gap: 0.125rem 0.75rem;
+    font-size: var(--aside);
   }
 
   .roster .about .figure { text-align: left; }
@@ -1987,8 +2025,8 @@ form .failure, .sheet .failure { margin-top: 4px; }
 /* What the list adds up to, and how to open one. Under the rows, where somebody
  * ends up. */
 .tally {
-  margin: 18px 0 0;
-  font-size: 13px;
+  margin: 1.125rem 0 0;
+  font-size: var(--aside);
   color: var(--quiet);
   text-wrap: pretty;
 }
@@ -2000,9 +2038,9 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * pixels away is a row nobody can read across. */
 .ticks {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 0 56px;
-  margin-top: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  gap: 0 3.5rem;
+  margin-top: 0.875rem;
   border-top: 1px solid var(--line);
 }
 
@@ -2012,15 +2050,15 @@ form .failure, .sheet .failure { margin-top: 4px; }
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 12px;
-  padding: 14px 0;
+  gap: 0.75rem;
+  padding: 0.875rem 0;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
 
 .tick input {
-  width: 16px;
-  height: 16px;
+  width: 1rem;
+  height: 1rem;
   margin: 0;
   accent-color: var(--accent);
 }
@@ -2030,7 +2068,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * beside a checkbox and wrong for the name of the thing being ticked. */
 .tick .what {
   min-width: 0;
-  font-size: 15px;
+  font-size: var(--text);
   color: var(--ink);
 }
 
@@ -2039,7 +2077,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
  * taller than the three beside it. */
 .tick .path {
   display: block;
-  font-size: 12px;
+  font-size: var(--lettering);
   /* Said here because the name above it is in ink and a path inherits from it: what
    * a path is, everywhere in the panel, is the quiet line under the name. */
   color: var(--quiet);
@@ -2049,7 +2087,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 }
 
 .tick .figure {
-  font-size: 13px;
+  font-size: var(--aside);
   color: var(--quiet);
   font-variant-numeric: tabular-nums;
 }
@@ -2064,8 +2102,8 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .rail .doings {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 0.5rem;
+  margin-top: 0.875rem;
 }
 
 .rail .doings .pill {
@@ -2073,7 +2111,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
   justify-content: center;
 }
 
-.rail .hint { margin-top: 10px; }
+.rail .hint { margin-top: 0.625rem; }
 
 /* --- the ways into an account -------------------------------------------- */
 
@@ -2085,17 +2123,17 @@ form .failure, .sheet .failure { margin-top: 4px; }
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 44px 56px;
-  margin-top: 44px;
+  gap: 2.75rem 3.5rem;
+  margin-top: 2.75rem;
 }
 
 .lists > :first-child {
-  flex: 3 1 480px;
+  flex: 3 1 30rem;
   min-width: 0;
 }
 
 .lists > :last-child {
-  flex: 2 1 340px;
+  flex: 2 1 21.25rem;
   min-width: 0;
 }
 
@@ -2105,18 +2143,18 @@ form .failure, .sheet .failure { margin-top: 4px; }
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
   flex-wrap: wrap;
   /* The four pixels a heading has under it on its own, since the heading in here
    * gives them up to sit on a line with the action. */
-  margin-bottom: 4px;
+  margin-bottom: 0.25rem;
 }
 
 .parted h2 { margin: 0; }
 
 /* A second heading in the same column stands well clear of the list above it,
  * which is what says that list ended. */
-.pane h2 ~ h2 { margin-top: 40px; }
+.pane h2 ~ h2 { margin-top: 2.5rem; }
 
 /* The action that adds to a list, in the accent and written as a word. A pill here
  * would be the loudest thing in a column of hairlines, and what it opens is a
@@ -2124,20 +2162,20 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .offer {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 0.4375rem;
   margin: 0;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--accent);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--control);
   cursor: pointer;
 }
 
 .offer .icon {
-  width: 15px;
-  height: 15px;
+  width: 0.9375rem;
+  height: 0.9375rem;
 }
 
 /* One way into the account: a key, or a browser. Two lines rather than a row of
@@ -2158,15 +2196,15 @@ form .failure, .sheet .failure { margin-top: 4px; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 4px 14px;
-  padding: 16px 0;
+  gap: 0.25rem 0.875rem;
+  padding: 1rem 0;
   border-bottom: 1px solid var(--line);
 }
 
 /* The keys wear a glyph, in a column narrow enough to read as an indent rather
  * than as a column. It is what tells the two lists apart at a glance once they are
  * beside each other. */
-.ways.keyed > li { grid-template-columns: 20px minmax(0, 1fr) auto; }
+.ways.keyed > li { grid-template-columns: 1.25rem minmax(0, 1fr) auto; }
 
 .ways .mark {
   grid-row: span 2;
@@ -2175,17 +2213,17 @@ form .failure, .sheet .failure { margin-top: 4px; }
 }
 
 .ways .mark .icon {
-  width: 17px;
-  height: 17px;
+  width: 1.0625rem;
+  height: 1.0625rem;
 }
 
 .ways .what {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 0.5rem;
   min-width: 0;
-  font-size: 16px;
+  font-size: var(--name);
 }
 
 .ways .doing {
@@ -2196,7 +2234,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 }
 
 .ways .said {
-  font-size: 13px;
+  font-size: var(--aside);
   color: var(--quiet);
   font-variant-numeric: tabular-nums;
 }
@@ -2212,7 +2250,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 
 /* What has become of the thing named beside it, in one word. */
 .tag {
-  font-size: 12px;
+  font-size: var(--lettering);
   color: var(--alarm);
 }
 
@@ -2222,9 +2260,9 @@ form .failure, .sheet .failure { margin-top: 4px; }
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 14px 0 0;
-  font-size: 13px;
+  gap: 0.625rem;
+  margin: 0.875rem 0 0;
+  font-size: var(--aside);
   color: var(--quiet);
 }
 
@@ -2233,19 +2271,19 @@ form .failure, .sheet .failure { margin-top: 4px; }
 .tail {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 1rem;
   margin: 0;
-  padding: 14px 0;
+  padding: 0.875rem 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  font-size: 14px;
+  font-size: var(--control);
 }
 
 .tail a { white-space: nowrap; }
 
 /* Beside a form field or an action, saying what it wants or why it is not
  * offered. */
-.hint { font-size: 13px; }
+.hint { font-size: var(--aside); }
 
 /* A hint that is a complaint. Said in the alarm colour rather than shown as a
  * banner, because it belongs to the field above it and goes away as soon as that
@@ -2257,7 +2295,7 @@ form .failure, .sheet .failure { margin-top: 4px; }
 input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 /* A note under a heading, with room before whatever it introduces. */
-.pane > .hint { margin-bottom: 16px; }
+.pane > .hint { margin-bottom: 1rem; }
 
 /* --- the dialogue -------------------------------------------------------- */
 
@@ -2270,7 +2308,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * the page behind goes inert and the backdrop is the browser's own — none of which
  * is written here. */
 .sheet {
-  width: 440px;
+  width: 27.5rem;
   max-width: 100%;
   padding: 0;
   border: 1px solid var(--line);
@@ -2281,7 +2319,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 }
 
 /* A sentence and two answers. Anything with a field in it wants the full width. */
-.sheet.narrow { width: 380px; }
+.sheet.narrow { width: 23.75rem; }
 
 /* `color-scheme` on the backdrop as well as on the page: a backdrop is not a child
  * of anything, so without it `light-dark()` here has no scheme to read. */
@@ -2293,11 +2331,11 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 /* What is being asked, and what it is about. No ✕ in the corner: Escape, the
  * backdrop and the cancel action are three ways out already, and a fourth drawn in
  * the corner is the only thing in the box that is about the box. */
-.sheet-body { padding: 26px 30px 22px; }
+.sheet-body { padding: 1.625rem 1.875rem 1.375rem; }
 
 .sheet h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
+  margin: 0 0 0.375rem;
+  font-size: 1.25rem;
   font-weight: 400;
   letter-spacing: -0.01em;
   text-transform: none;
@@ -2307,7 +2345,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 /* `pretty` so a two line lead does not leave one word on the second line. */
 .sheet-lead {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--control);
   color: var(--quiet);
   text-wrap: pretty;
 }
@@ -2315,8 +2353,8 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .sheet form, .sheet-content {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  margin-top: 24px;
+  gap: 1.375rem;
+  margin-top: 1.5rem;
 }
 
 /* Stacked one under another and separated by nothing but air. A field is a label, a
@@ -2328,13 +2366,13 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .sheet label, .entry label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 0.3125rem;
   font-size: inherit;
   color: inherit;
 }
 
 .sheet label > span:first-child, .entry label > span {
-  font-size: 12px;
+  font-size: var(--lettering);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--quiet);
@@ -2343,7 +2381,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 /* A line under the value rather than a box around it. The box was drawn to say
  * "this is where you type", which is what the label above it says. */
 .sheet input, .sheet select, .entry input {
-  padding: 6px 0;
+  padding: 0.375rem 0;
   border: none;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -2368,7 +2406,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .sheet label.checkbox, .entry label.checkbox {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .sheet label.checkbox input {
@@ -2380,32 +2418,32 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * none of them should be guessed at. */
 .sheet .exact {
   font-family: ui-monospace, monospace;
-  font-size: 14px;
+  font-size: var(--control);
 }
 
 .sheet .hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--aside);
   color: var(--quiet);
 }
 
 /* Facts about the thing, or what is about to be lost: a line each, name against
  * value, hairline between. The same shape as the lists on the screen you land on. */
 .sheet .facts {
-  margin-top: 24px;
+  margin-top: 1.5rem;
   border-top: 1px solid var(--line);
 }
 
 /* A sentence standing where that list would have been, and set off from the lead by
  * as much as the list would have been: without it the two paragraphs read as one,
  * and the second answers a question the first did not ask. */
-.instead { margin-top: 24px; }
+.instead { margin-top: 1.5rem; }
 
 /* Tighter than elsewhere: a dialogue is 440 pixels wide and what it says about what
  * it is handing over is a footnote to the thing itself. */
 .sheet .facts > * {
-  padding: 9px 0;
-  font-size: 14px;
+  padding: 0.5625rem 0;
+  font-size: var(--control);
 }
 
 /* Something handed over once: a secret on a band tinted with the accent, at the
@@ -2414,9 +2452,9 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .handover {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-top: 22px;
-  padding: 14px 16px;
+  gap: 0.875rem;
+  margin-top: 1.375rem;
+  padding: 0.875rem 1rem;
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
@@ -2425,7 +2463,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   flex: 1;
   min-width: 0;
   font-family: ui-monospace, monospace;
-  font-size: 13.5px;
+  font-size: var(--aside);
   line-height: 1.5;
   overflow-wrap: anywhere;
   user-select: all;
@@ -2434,12 +2472,12 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .handover button {
   flex: none;
   margin: 0;
-  padding: 6px 12px;
+  padding: 0.375rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--paper);
   color: inherit;
-  font-size: 13px;
+  font-size: var(--aside);
 }
 
 /* One line, the answers against the right. The one that goes ahead is a pill and
@@ -2449,8 +2487,8 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 20px;
-  padding: 16px 30px;
+  gap: 1.25rem;
+  padding: 1rem 1.875rem;
   border-top: 1px solid var(--line);
 }
 
@@ -2461,7 +2499,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   background: transparent;
   color: var(--quiet);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--control);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -2470,12 +2508,12 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 .sheet-foot .pill:disabled { opacity: 0.45; cursor: default; }
 
-.sheet .failure { padding: 0 30px 18px; }
+.sheet .failure { padding: 0 1.875rem 1.125rem; }
 
 /* A sheet up from the bottom edge rather than a box in the middle. A dialogue on a
  * phone that floats in the centre is a box with the keyboard over half of it; from
  * the bottom, what is being filled in stays above it. */
-@media (max-width: 640px) {
+@media (max-width: 40rem) {
   .sheet, .sheet.narrow {
     width: 100%;
     max-width: none;
@@ -2490,31 +2528,31 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   .sheet::before {
     content: "";
     display: block;
-    width: 36px;
-    height: 4px;
-    margin: 10px auto 2px;
+    width: 2.25rem;
+    height: 0.25rem;
+    margin: 0.625rem auto 0.125rem;
     border-radius: 999px;
     background: var(--line);
   }
 
-  .sheet-body { padding: 14px 18px 20px; }
-  .sheet h2 { font-size: 19px; }
-  .sheet input, .sheet select { padding: 9px 0; }
+  .sheet-body { padding: 0.875rem 1.125rem 1.25rem; }
+  .sheet h2 { font-size: 1.1875rem; }
+  .sheet input, .sheet select { padding: 0.5625rem 0; }
 
   /* Both answers a thumb's width tall, and apart from each other rather than
    * together in the corner. */
   .sheet-foot {
     justify-content: space-between;
-    gap: 16px;
-    padding: 14px 18px 22px;
+    gap: 1rem;
+    padding: 0.875rem 1.125rem 1.375rem;
   }
 
   .sheet-foot .away, .sheet-foot .pill {
-    min-height: 44px;
-    font-size: 15px;
+    min-height: 2.75rem;
+    font-size: var(--text);
   }
 
-  .sheet-foot .pill { padding: 0 20px; }
+  .sheet-foot .pill { padding: 0 1.25rem; }
 }
 
 /* --- accounts ------------------------------------------------------------ */
@@ -2533,7 +2571,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * anything more would push the columns around. */
 .dots {
   margin: 0;
-  padding: 4px;
+  padding: 0.25rem;
   border: none;
   color: var(--quiet);
   line-height: 1;
@@ -2559,21 +2597,21 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .scrolls { overflow-x: auto; }
 
 /* Back to the list, above the heading, small enough not to compete with it. */
-.back { margin-bottom: 8px; font-size: 14px; }
+.back { margin-bottom: 0.5rem; font-size: var(--control); }
 
 /* The box before its words, both clickable, and the cursor saying so. */
 .checkbox {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
   cursor: pointer;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--name);
 }
 
 .checkbox input {
-  width: 16px;
-  height: 16px;
+  width: 1rem;
+  height: 1rem;
   margin: 0;
   padding: 0;
   accent-color: var(--accent);
@@ -2584,7 +2622,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * selection. */
 /* Said after something worked. Not an error and not silence. */
 .note {
-  margin-top: 12px;
+  margin-top: 0.75rem;
   color: var(--accent);
 }
 
@@ -2598,10 +2636,10 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * elsewhere in the panel, at whatever width the window leaves it. */
 .gauge {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) 92px;
+  grid-template-columns: 7.5rem minmax(0, 1fr) 5.75rem;
   align-items: center;
-  gap: 20px;
-  padding: 16px 0;
+  gap: 1.25rem;
+  padding: 1rem 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2612,11 +2650,11 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .gauge-head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0.125rem;
 }
 
 .gauge .note {
-  font-size: 12px;
+  font-size: var(--lettering);
   color: var(--quiet);
 }
 
@@ -2625,7 +2663,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * it goes from a 1 to a 4. */
 .gauge .reading {
   text-align: right;
-  font-size: 20px;
+  font-size: 1.25rem;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -2637,7 +2675,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 @media (max-width: 46rem) {
   .gauge {
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 20px;
+    gap: 0.375rem 1.25rem;
   }
 
   /* Under both, across the full width: at this size the track is the only thing
@@ -2663,7 +2701,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 .track {
   display: block;
   width: 100%;
-  height: 2px;
+  height: 0.125rem;
   background: var(--line);
 }
 

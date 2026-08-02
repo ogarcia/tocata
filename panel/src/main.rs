@@ -357,6 +357,53 @@ mod tests {
     /// meaning two things. Two screens sharing a name is how `quiet` and `lead` and
     /// `titled` are meant to work, and how `named` and `counts` were not, and telling
     /// those apart needs a list of blessed names — which somebody has to keep, and a
+    /// Every measure is in `rem`, and every rule is in pixels.
+    ///
+    /// The panel is sized against whatever the reader told their browser to use,
+    /// so somebody who set it to twenty because they cannot read fifteen gets a
+    /// whole panel a quarter larger — text, air, glyphs and the sidebar with it —
+    /// and somebody who set it to twelve gets one that is smaller. A measure left
+    /// in pixels does not move with them, and one pixel of a row of otherwise
+    /// scaling ones is how a layout stops adding up.
+    ///
+    /// The exceptions are not measures. A hairline is one physical pixel and has
+    /// to stay one: `0.0625rem` is 1.25px for that reader at twenty, which a
+    /// browser rounds differently from one edge to the next, and the whole look of
+    /// this sheet is that its lines are all the same. A corner radius, a shadow
+    /// and a focus offset are drawing rather than measuring, and none of them says
+    /// anything about how much room the text needs.
+    #[test]
+    fn measures_are_in_rem_and_only_the_lines_are_not() {
+        /// What is allowed to be, and has to be, in pixels.
+        const DRAWN: [&str; 3] = ["border", "outline", "box-shadow"];
+
+        let mut wrong = Vec::new();
+
+        for rule in rules() {
+            for (property, value) in declarations(rule.body) {
+                let drawn = DRAWN.iter().any(|kind| property.starts_with(kind));
+
+                // Percentages, viewport units and bare numbers are all fine; this
+                // is only about the two units that mean the same kind of thing.
+                if !drawn && value.contains("px") {
+                    wrong.push(format!("{property}: {value}"));
+                }
+
+                if drawn && value.contains("rem") {
+                    wrong.push(format!("{property}: {value}"));
+                }
+            }
+        }
+
+        assert!(
+            wrong.is_empty(),
+            "a measure in the wrong unit: {}. Measures scale with the reader's own \
+             font size and are written in rem; lines, corners and shadows are drawn \
+             at a fixed size and are written in px.",
+            wrong.join(", ")
+        );
+    }
+
     /// list nobody keeps is a test that lies.
     #[test]
     fn the_stylesheet_styles_nothing_the_markup_does_not_wear() {
