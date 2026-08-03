@@ -2083,6 +2083,26 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   min-width: 49.25rem;
 }
 
+/* The strip of air left over the heading once it has come to rest, which the rows
+ * would otherwise go on scrolling through.
+ *
+ * A sticky heading stops below its scroll container's `padding-top` rather than at
+ * the edge of it, and `.body` keeps 2.75rem up there: far more air than a heading
+ * at rest wants over it, and every pixel of it showing the list slide past. The
+ * negative `top` below brings the resting place up to 1rem short of the edge, and
+ * this covers that 1rem in the colour of the page.
+ *
+ * The two are one number said twice: whatever `top` leaves over the heading is what
+ * this has to be as tall as. At rest the band falls inside the page header's own
+ * 2.5rem of margin, so it never reaches text. */
+.listing-head::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 100%;
+  height: 1rem;
+  background: var(--paper);
+}
+
 /* Stays where it is while the rows go past it. Which is what a list with no
  * pages needs and a paged one does not: after two hundred rows there is otherwise
  * nothing on screen saying which column is the album and which the genre.
@@ -2091,7 +2111,8 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * to sit above them, since a row scrolled under it paints in the same place. */
 .listing-head {
   position: sticky;
-  top: 0;
+  /* The page's own 2.75rem of air, less the 1rem the heading keeps over itself. */
+  top: -1.75rem;
   z-index: 1;
   padding-bottom: 0.625rem;
   border-bottom: 1px solid var(--line);
@@ -2197,17 +2218,32 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     padding: 0.875rem 0.75rem;
   }
 
-  /* The name and the length on the first line, then who made it, then where it is
-   * from against what kind of thing it is. Nothing is dropped: a row this narrow
-   * still says all five things, in three lines instead of one. */
-  .listing .by {
-    grid-column: 1 / -1;
-    font-size: var(--aside);
+  /* The title across the first line, then the four other things in pairs: who made
+   * it against what kind of thing it is, and what record it is from against how
+   * long it lasts. Nothing is dropped — a row this narrow still says all five —
+   * and each line reads as a pair rather than as a column of loose facts, with
+   * what is being named on the left and what it turns out to be on the right.
+   *
+   * Set out by area rather than by order, so the pairs can be built out of cells
+   * the markup lists one after another. */
+  .listing .what { grid-column: 1 / -1; }
+
+  .listing .by { grid-area: 2 / 1; }
+
+  .listing .kind {
+    grid-area: 2 / 2;
+    text-align: right;
   }
 
-  .listing .from, .listing .kind { font-size: var(--aside); }
+  .listing .from { grid-area: 3 / 1; }
 
-  .listing .kind { text-align: right; }
+  .listing .figure { grid-area: 3 / 2; }
+
+  /* All four at the size every second line in this panel is set at, so each pair
+   * reads as one line rather than as a value with a caption beside it. */
+  .listing .by, .listing .kind, .listing .from, .listing .figure {
+    font-size: var(--aside);
+  }
 }
 
 /* --- what an account may reach ------------------------------------------- */
