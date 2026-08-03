@@ -34,6 +34,9 @@ pub enum Icon {
     Loading,
     /// The filled triangle a player is started with, as against the outlined one
     /// that stands for a count of plays.
+    ///
+    /// Its drawing is nudged left of Tabler's, which centres the triangle's canvas
+    /// rather than the triangle: see the note in the file.
     Play,
     Pause,
     Previous,

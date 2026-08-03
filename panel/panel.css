@@ -2781,14 +2781,13 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   background: var(--paper);
 }
 
+/* Only `position` here, so it paints over the circle behind it: the glyph itself is
+ * centred in its own canvas, so the grid centring it needs no help. */
 .cover .over .icon {
   position: relative;
   width: 1.125rem;
   height: 1.125rem;
   color: var(--ink);
-  /* The triangle's mass is to the left of its box, so centring the box leaves it
-   * looking left of centre in the circle. */
-  margin-left: 0.1875rem;
 }
 
 .sleeve:hover .cover .over, .cover .over:focus-visible { opacity: 1; }

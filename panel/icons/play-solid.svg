@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none" ><path d="M7 4v16l13 -8z"/></svg>
+<!-- Tabler's player-play, with its triangle moved 1.5 units left of where Tabler
+     draws it. Theirs spans x=7 to x=20, whose middle is 13.5 against a canvas that
+     centres on 12 — so anything centring this glyph in a box (the round button in
+     the player, the circle on a cover, the column in a track's row) came out
+     visibly right of centre. Do not "restore" this from upstream. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none" ><path d="M5.5 4v16l13 -8z"/></svg>
