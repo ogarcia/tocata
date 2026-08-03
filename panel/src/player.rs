@@ -230,6 +230,15 @@ impl Player {
         });
     }
 
+    /// Where a track would land if it were dropped there, without moving anything.
+    ///
+    /// What the gap follows while a row is being held. It answers through the same
+    /// function the move itself goes through, so the space that opens up is where the
+    /// row will actually go and not a second guess at it.
+    pub fn would_land(&self, from: usize, to: usize) -> Option<usize> {
+        settled(from, to, self.at.get(), self.queue.with(Vec::len))
+    }
+
     /// How far through, from nought to one. What the bar is filled with, and the one
     /// place that guards against the length being zero — which is what a track
     /// reports until its metadata has arrived.

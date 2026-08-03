@@ -54,6 +54,11 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
     // can be queued twice.
     let coming = RwSignal::new(Vec::<(usize, Track)>::new());
 
+    // Which row is being held and where it would land, while it is being held. It lives
+    // here rather than in the row because it is the rows that are *not* being dragged
+    // that need it: they are the ones that move over to leave the gap.
+    let moving = RwSignal::new(None::<(usize, usize)>);
+
     // Fetched when the drawer opens and again whenever the queue changes under it,
     // which is what fills the gap left by a track taken out.
     Effect::new(move |_| {
@@ -165,7 +170,7 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                                 key=|(index, track)| format!("{index}-{}", track.id)
                                 let:queued
                             >
-                                <Row at=queued.0 track=queued.1 player />
+                                <Row at=queued.0 track=queued.1 player moving />
                             </For>
                         </ul>
                     </Show>
@@ -190,7 +195,12 @@ const SWIPED: f64 = 96.0;
 
 /// One track waiting: what it is, the way to drop it, and the two gestures.
 #[component]
-fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
+fn Row(
+    at: usize,
+    track: Track,
+    player: Player,
+    moving: RwSignal<Option<(usize, usize)>>,
+) -> impl IntoView {
     // Two gestures on one row, each with its own axis, so neither has to work out
     // whether it is the one being asked for.
     let swipe = crate::drag::Drag::new();
@@ -222,11 +232,38 @@ fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
 
     let lifted = move || format!("transform: translateY({}px)", hold.down());
 
+    // Making room. A row between where the held one came from and where it is going
+    // steps one place the other way, which is the gap travelling with the finger —
+    // and it is one subtraction per row rather than anything measuring or reflowing.
+    let making_room = move || {
+        let Some((from, to)) = moving.get() else {
+            return 0.0;
+        };
+
+        if at == from {
+            0.0
+        } else if from < to && at > from && at <= to {
+            -ROW
+        } else if from > to && at >= to && at < from {
+            ROW
+        } else {
+            0.0
+        }
+    };
+
     view! {
         <li
             class:sliding=move || swipe.going.get()
             class:lifted=move || hold.going.get()
-            style=move || if hold.going.get() { lifted() } else { pushed() }
+            style=move || {
+                if hold.going.get() {
+                    lifted()
+                } else if moving.get().is_some() {
+                    format!("transform: translateY({}px)", making_room())
+                } else {
+                    pushed()
+                }
+            }
             on:pointerdown=move |e: web_sys::PointerEvent| {
                 swipe.begin(&e);
             }
@@ -254,13 +291,20 @@ fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
                     e.stop_propagation();
                     hold.begin(&e);
                 }
-                on:pointermove=move |e: web_sys::PointerEvent| hold.moved(&e)
+                on:pointermove=move |e: web_sys::PointerEvent| {
+                    hold.moved(&e);
+                    // Where it would go, asked of the queue itself so the gap cannot
+                    // promise a place the drop will not honour.
+                    moving.set(player.would_land(at, landing(hold.down())).map(|to| (at, to)));
+                }
                 on:pointerup=move |_| {
+                    moving.set(None);
                     if let Some((_, down)) = hold.end() {
                         player.move_in_queue(at, landing(down));
                     }
                 }
                 on:pointercancel=move |_| {
+                    moving.set(None);
                     hold.end();
                 }
             >
