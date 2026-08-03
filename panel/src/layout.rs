@@ -357,13 +357,21 @@ fn Sound() -> impl IntoView {
         }
     });
 
-    // Going back to the start of the current track is a seek rather than a reload:
-    // the file is already there.
+    // Where somebody has asked to be, against where the element actually is. A drag
+    // along the bar writes the first; `timeupdate` writes it back from the second a
+    // few times a second, so this fires constantly and almost always finds the two
+    // already agreeing.
+    //
+    // A second of slack, which is what keeps it from fighting its own clock: the two
+    // are never exactly equal while a file plays, and closing that gap would mean
+    // seeking on every tick. Nothing is lost — under a second is under the width of
+    // a finger on this bar.
     Effect::new(move |_| {
         let Some(audio) = sound.get() else { return };
+        let wanted = player.elapsed.get();
 
-        if player.elapsed.get() == 0.0 && audio.current_time() > 3.0 {
-            audio.set_current_time(0.0);
+        if (wanted - audio.current_time()).abs() > 1.0 {
+            audio.set_current_time(wanted);
         }
     });
 
@@ -430,9 +438,7 @@ fn Dock() -> impl IntoView {
 
                 <div class="along">
                     <span>{move || pages::length(player.elapsed.get() as i64)}</span>
-                    <span class="track">
-                        <span style=move || along(player)></span>
-                    </span>
+                    <Along player />
                     <span>{move || pages::length(player.duration.get() as i64)}</span>
                 </div>
 
@@ -510,12 +516,11 @@ fn Afoot(on_open: Callback<()>) -> impl IntoView {
     view! {
         <Show when=move || player.loaded()>
             <div class="afoot">
-                // Drawn on the bar's own top edge rather than as a row of its own:
-                // where you are in a track is worth a glance and not a line of
-                // figures, and it costs no height at all.
-                <span class="track">
-                    <span style=move || along(player)></span>
-                </span>
+                // On the bar's own top edge rather than as a row of its own: where
+                // you are is worth a glance and not a line of figures. It reaches a
+                // little above and below that edge so a finger can find it, which is
+                // the eight pixels it steals from the top of what opens the sheet.
+                <Along player />
 
                 <div class="holding">
                     // Everything but the two buttons opens the player. A button of
@@ -681,9 +686,7 @@ fn Sheet(open: RwSignal<bool>) -> impl IntoView {
                     </div>
 
                     <div class="along">
-                        <span class="track">
-                            <span style=move || along(player)></span>
-                        </span>
+                        <Along player />
                         <div class="clock">
                             <span>{move || pages::length(player.elapsed.get() as i64)}</span>
                             <span>{left}</span>
@@ -733,19 +736,46 @@ fn Sheet(open: RwSignal<bool>) -> impl IntoView {
     }
 }
 
-/// How far into the current track, as the width its fill should be.
+/// Where in the track we are, and the way to be somewhere else.
 ///
-/// Shared by both views, and guarded against a length of zero — which is what a
-/// track reports until its metadata has arrived.
-fn along(player: crate::player::Player) -> String {
-    let (elapsed, whole) = (player.elapsed.get(), player.duration.get());
-    let share = if whole > 0.0 {
-        (elapsed / whole * 100.0).clamp(0.0, 100.0)
-    } else {
-        0.0
-    };
-
-    format!("width: {share}%")
+/// One of these in all three views, which is why it is a component rather than three
+/// spans: a bar you can drag is more than a filled rectangle, and having written it
+/// once it may as well be the only one.
+///
+/// It is a real `range` input under a line drawn by its wrapper. Which buys the whole
+/// of the behaviour for nothing: dragging, tapping anywhere along it, arrow keys, and
+/// a control that says what it is to anything reading the page aloud. Written as a
+/// div with a click handler it would have had the first of those and none of the rest.
+///
+/// The wrapper draws the line because `::before` does nothing on an `input` — it is a
+/// replaced element — and the input itself is transparent over the top of it. Which is
+/// also what lets the thing be comfortable to hit: the line is two pixels and the
+/// input is sixteen, so a finger has somewhere to land without the bar looking like a
+/// slab.
+#[component]
+fn Along(player: crate::player::Player) -> impl IntoView {
+    view! {
+        <span
+            class="along-track"
+            style=move || format!("--at: {}%", player.share() * 100.0)
+        >
+            <input
+                type="range"
+                min="0"
+                // Never zero, or the browser refuses the whole control while a track
+                // is still saying how long it is.
+                max=move || player.duration.get().max(1.0).to_string()
+                step="1"
+                prop:value=move || player.elapsed.get().to_string()
+                title=t!("player.seek")
+                on:input:target=move |e| {
+                    if let Ok(at) = e.target().value().parse::<f64>() {
+                        player.seek_to(at);
+                    }
+                }
+            />
+        </span>
+    }
 }
 
 /// A label and a figure, apart from each other on one line.

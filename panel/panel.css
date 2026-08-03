@@ -2228,19 +2228,83 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Two pixels, and in `rem` rather than in `px` unlike every rule in this sheet:
- * a hairline divides and has to stay one physical pixel, but this measures, and
- * something that measures should grow with the text it is measuring for. */
-.dock .track {
+/* Where in the track we are, and the way to be somewhere else. The same control in
+ * all three views, differing only in how thick its line is drawn.
+ *
+ * The line is on the wrapper and the control is a transparent `range` input over it:
+ * `::before` does nothing on an input, which is a replaced element. That split is
+ * also what makes it comfortable to hit — the line is two pixels and the thing you
+ * press is sixteen.
+ *
+ * Two pixels, and in `rem` unlike every other line in this sheet: a hairline divides
+ * and has to stay one physical pixel, but this measures, and what measures should
+ * grow with the text it measures for. */
+.along-track {
+  position: relative;
+  display: block;
   flex: 1;
-  height: 0.125rem;
-  background: var(--line);
+  height: 1rem;
+  cursor: pointer;
 }
 
-.dock .track > span {
-  display: block;
+.along-track::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 0.125rem;
+  transform: translateY(-50%);
+  /* Filled to `--at`, which whichever view drew this sets on the wrapper. One
+   * gradient rather than a second element, so there is nothing between the line and
+   * the input that could swallow a press. */
+  background: linear-gradient(to right, var(--accent) var(--at), var(--line) var(--at));
+}
+
+.along-track input {
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* No handle at rest: the line says where you are and a permanent dot on it is
+ * furniture. It appears under the pointer and on focus, which is where somebody
+ * needs to know the thing can be moved — and it is what an arrow key moves. */
+.along-track input::-webkit-slider-thumb {
+  appearance: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  border: none;
+  border-radius: 50%;
   background: var(--accent);
+  opacity: 0;
+}
+
+.along-track input::-moz-range-thumb {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+}
+
+.along-track:hover input::-webkit-slider-thumb,
+.along-track input:focus-visible::-webkit-slider-thumb { opacity: 1; }
+
+.along-track:hover input::-moz-range-thumb,
+.along-track input:focus-visible::-moz-range-thumb { opacity: 1; }
+
+.along-track input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .dock .transport {
@@ -2323,6 +2387,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   .afoot {
     display: block;
     position: fixed;
+    /* What the line above straddles the top edge of. */
     right: 0;
     bottom: 0;
     left: 0;
@@ -2334,18 +2399,18 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* On the bar's own top edge, which costs no height: where you are in a track is
-   * worth a glance rather than a line of figures. */
-  .afoot .track {
-    display: block;
-    height: 0.125rem;
-    background: var(--line);
-  }
-
-  .afoot .track > span {
-    display: block;
-    height: 100%;
-    background: var(--accent);
+  /* Straddling the bar's own top edge, so the line reads as drawn on it while what
+   * you press reaches eight pixels either side. Absolute, or it would add its
+   * sixteen pixels to the height of the bar.
+   *
+   * Above the button beside it, since half of it overlaps the button's top edge and
+   * a press there means the bar and not the sheet. */
+  .afoot .along-track {
+    position: absolute;
+    top: -0.5rem;
+    right: 0;
+    left: 0;
+    z-index: 1;
   }
 
   .afoot .holding {
@@ -2516,19 +2581,12 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
   .sheet-player .along { margin-top: 1.625rem; }
 
-  /* Thicker than the hairline the bar draws, because here it is the thing being
-   * read rather than a mark on an edge. */
-  .sheet-player .track {
-    display: block;
-    height: 0.1875rem;
-    background: var(--line);
-  }
+  /* Thicker than on the bar, because here it is the thing being read rather than a
+   * mark on an edge — and taller to press, since this is the view somebody opened in
+   * order to move about in a track. */
+  .sheet-player .along-track { height: 1.5rem; }
 
-  .sheet-player .track > span {
-    display: block;
-    height: 100%;
-    background: var(--accent);
-  }
+  .sheet-player .along-track::before { height: 0.1875rem; }
 
   .sheet-player .clock {
     display: flex;

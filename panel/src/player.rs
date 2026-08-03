@@ -128,7 +128,7 @@ impl Player {
         let at = self.at.get_untracked();
 
         if self.elapsed.get_untracked() > 3.0 || at == 0 {
-            self.elapsed.set(0.0);
+            self.seek_to(0.0);
             self.replay();
         } else {
             self.step_to(at - 1);
@@ -168,6 +168,31 @@ impl Player {
     fn replay(&self) {
         self.counted.set(false);
         self.playing.set(true);
+    }
+
+    /// Asks to be somewhere else in the current track.
+    ///
+    /// Written into `elapsed` rather than into a request of its own, because that is
+    /// what `elapsed` is: where we are. The element watches it and, on finding itself
+    /// somewhere else, moves — so a drag along the bar and the end of `previous`
+    /// travel the same road, and the figures follow before the audio has caught up
+    /// rather than lagging behind the thumb.
+    pub fn seek_to(&self, seconds: f64) {
+        let whole = self.duration.get_untracked();
+        self.elapsed.set(seconds.clamp(0.0, whole.max(0.0)));
+    }
+
+    /// How far through, from nought to one. What the bar is filled with, and the one
+    /// place that guards against the length being zero — which is what a track
+    /// reports until its metadata has arrived.
+    pub fn share(&self) -> f64 {
+        let (elapsed, whole) = (self.elapsed.get(), self.duration.get());
+
+        if whole > 0.0 {
+            (elapsed / whole).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
     }
 
     /// Where the browser has got to, which is the only clock this trusts.
