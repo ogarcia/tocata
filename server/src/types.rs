@@ -712,6 +712,10 @@ pub struct Album {
     pub artist: Option<String>,
     pub year: Option<i64>,
     pub tracks: i64,
+    /// How long it lasts, in seconds, counting only the tracks that are still
+    /// there — the same tracks `tracks` counts, so the two never describe
+    /// different records. Absent where nothing on it has a length.
+    pub duration: Option<i64>,
     /// Whether asking for its cover would come back with one. A grid of two
     /// hundred albums draws the empty ones without asking for two hundred images
     /// that are not there.

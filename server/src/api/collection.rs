@@ -272,8 +272,14 @@ pub async fn albums(
                    FROM album_artists aa JOIN artists a ON a.id = aa.artist_id
                   WHERE aa.album_id = al.id AND aa.role = 'albumartist') AS artist,
                 al.year,
+                -- Counted and summed over the same tracks, so a record cannot say
+                -- it holds five and last as long as seven. Both skip what is
+                -- missing: a listing that added up files nobody can play would
+                -- promise more music than there is.
                 (SELECT count(*) FROM tracks t
                   WHERE t.album_id = al.id AND t.missing_since IS NULL) AS tracks,
+                (SELECT sum(t.duration_ms) / 1000 FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration,
                 al.artwork_id IS NOT NULL AS cover
            FROM albums al
            LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
@@ -661,6 +667,7 @@ struct AlbumRow {
     artist: Option<String>,
     year: Option<i64>,
     tracks: i64,
+    duration: Option<i64>,
     cover: bool,
 }
 
@@ -672,6 +679,7 @@ impl From<AlbumRow> for Album {
             artist: row.artist,
             year: row.year,
             tracks: row.tracks,
+            duration: row.duration,
             cover: row.cover,
         }
     }

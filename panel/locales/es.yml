@@ -96,6 +96,9 @@ albums:
   one: Un álbum
   many: "%{count} álbumes"
   none_found: Ningún disco coincide con lo que has escrito.
+  # En la tercera línea de un disco, entre su año y lo que dura.
+  one_track: "1 pista"
+  many_tracks: "%{count} pistas"
 
 # Lo que comparten los cuatro listados. Al pie de todos ellos, junto al glifo que
 # gira, mientras viene algo de camino.

@@ -82,18 +82,26 @@ pub fn Albums(on_expired: Callback<()>) -> impl IntoView {
     }
 }
 
-/// One record: its cover, its name, and the line under it.
+/// One record: its cover, its name, who made it, and what it is.
 #[component]
 fn Sleeve(album: Album) -> impl IntoView {
-    // Who made it and when, joined only where there is something on both sides of
-    // the dot. A record with no year should read as the artist's, not as the
-    // artist's followed by a dangling separator.
-    let under = match (album.artist, album.year) {
-        (Some(who), Some(year)) => format!("{who} · {year}"),
-        (Some(who), None) => who,
-        (None, Some(year)) => year.to_string(),
-        (None, None) => super::MISSING.to_string(),
-    };
+    let who = album.artist.unwrap_or_else(|| super::MISSING.to_string());
+
+    // When it came out, how much of it there is and how long it lasts, joined with
+    // dots — and joined rather than laid out, because a record with no year is not
+    // a record whose year is blank: it reads as "5 tracks · 46:36" with nothing
+    // missing from in front of it. Same for a record nothing on which has a length.
+    let facts = [
+        album.year.map(|year| year.to_string()),
+        Some(if album.tracks == 1 {
+            t!("albums.one_track").to_string()
+        } else {
+            t!("albums.many_tracks", count = super::thousands(album.tracks)).to_string()
+        }),
+        album.duration.map(super::tracks::length),
+    ];
+
+    let facts = facts.into_iter().flatten().collect::<Vec<_>>().join(" · ");
 
     view! {
         <div class="sleeve">
@@ -115,8 +123,11 @@ fn Sleeve(album: Album) -> impl IntoView {
                     .into_any()
             }}
 
+            // Three lines: what it is called, who made it, and what it is. The last
+            // two are inside the first because the three are one label for one
+            // record, not three things that happen to sit under a picture.
             <span class="what">
-                {album.name} <span>{under}</span>
+                {album.name} <span class="by">{who}</span> <span>{facts}</span>
             </span>
         </div>
     }

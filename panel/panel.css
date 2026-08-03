@@ -2202,8 +2202,8 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   height: 2.125rem;
 }
 
-/* The name, and under it who made it and when. Two lines that belong together, so
- * the second is inside the first rather than beside it. */
+/* The name, then who made it, then what it is. Three lines that belong together, so
+ * the last two are inside the first rather than beside it. */
 .sleeve .what {
   min-width: 0;
   font-size: var(--control);
@@ -2215,6 +2215,13 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   color: var(--quiet);
   font-size: var(--aside);
 }
+
+/* Who made it reads as a name rather than as a fact about the record, so it keeps
+ * the size of the line above it and gives the smaller size to the figures. The
+ * figures are the only line here that is numbers, and they line up down the shelf. */
+.sleeve .by { font-size: var(--control); }
+
+.sleeve .what > :last-child { font-variant-numeric: tabular-nums; }
 
 /* The edge of the list: that more is on its way, how much of it there is, and the
  * thing whose coming into view asks for it. Centred under the rows rather than

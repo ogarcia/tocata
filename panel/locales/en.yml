@@ -100,6 +100,9 @@ albums:
   one: One album
   many: "%{count} albums"
   none_found: No record here matches what you typed.
+  # On the third line of a record, between its year and how long it lasts.
+  one_track: "1 track"
+  many_tracks: "%{count} tracks"
 
 # What the four listings share. At the foot of every one of them, beside the
 # turning glyph, while more of it is on its way.
