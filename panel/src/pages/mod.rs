@@ -20,6 +20,7 @@ pub mod home;
 pub mod libraries;
 pub mod maintenance;
 pub mod settings;
+pub mod tracks;
 
 use crate::api::Failure;
 use crate::icon::{Glyph, Icon};

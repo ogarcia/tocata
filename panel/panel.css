@@ -69,10 +69,11 @@
  * that measure rather than divide: the mark on the section you are in, and the
  * track under a figure.
  *
- * Sizes are in pixels rather than in `rem`, because the root above is a fixed
- * pixel size, which means a `rem` here was only ever a division by fifteen
- * written out. The scale is a typographic one — 11.5, 12, 13, 14, 14.5, 15, 17,
- * 20, 26, 28, 30, 34 — and it reads as such when it is written as such. */
+ * The scale is a typographic one — 12, 13, 14, 15, 16, 17, 20, 26, 30, 34 — and it
+ * is written in `rem` against the browser's own sixteen, which is what keeps each
+ * step a round fraction of it: 12 is 0.75rem, 20 is 1.25rem. The five sizes the
+ * panel reaches for constantly are named above; the rest are written where they
+ * are used. */
 
 * { box-sizing: border-box; }
 
@@ -1933,7 +1934,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 /* Numbers under a heading that is also a number's, both against the right and both
  * in tabular figures, so "1 · 1" and "12 · 3" line up on the dot. */
-.roster-head .figure, .roster .figure {
+.roster-head .figure, .roster .figure, .listing-head .figure, .listing .figure {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -2029,6 +2030,127 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   font-size: var(--aside);
   color: var(--quiet);
   text-wrap: pretty;
+}
+
+/* --- the collection ------------------------------------------------------- */
+
+/* One row per track, and the heading row over them, sharing their columns the way
+ * the roster's do: written twice in one rule, because the rows are a list and a
+ * list cannot be a child of the grid its heading is in.
+ *
+ * The first column takes what is going and the rest are floored, so a title as
+ * long as a sentence pushes nothing out of line — every row's length is under the
+ * word Length however long the titles above it are.
+ *
+ * The floors add up to 764 pixels with the gaps, and 788 with the bleed, which is
+ * what the scroll box below is set to. */
+.listing-head, .listing > li {
+  display: grid;
+  grid-template-columns:
+    minmax(12.5rem, 3fr) minmax(9.375rem, 2fr) minmax(9.375rem, 2fr) minmax(6.875rem, 1fr) 4.625rem;
+  gap: 1.25rem;
+  /* The twelve pixels the scroll box outside is pulled out by, so a row's tint and
+   * its hairline run past the text on both sides while the text stays in line with
+   * the rest of the screen. */
+  padding: 0 0.75rem;
+  min-width: 49.25rem;
+}
+
+.listing-head {
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--lettering);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+.listing {
+  margin: 0;
+  /* A list is indented forty pixels unless it is told not to, which here would
+   * push the first column out of line with the heading over it. */
+  padding: 0;
+  list-style: none;
+}
+
+.listing > li {
+  align-items: center;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.listing > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+/* Every cell is one line and gives way with an ellipsis. A title that wrapped
+ * would make its row taller than the rest, and a list whose rows are different
+ * heights cannot be read down. */
+.listing > li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What it is called is the thing being read; everything else on the row is what it
+ * turns out to be. */
+.listing .by, .listing .from, .listing .kind { color: var(--quiet); }
+
+/* A track whose file is not where it was. Dimmed rather than struck through or
+ * coloured: it is still in the collection and still yours, and a scan finding the
+ * file again puts it back exactly as it was. The clause after the artist is what
+ * says why it is dim. */
+.listing > li.gone { opacity: 0.55; }
+
+/* The edge of the list: how far down it you are, and the thing whose coming into
+ * view asks for the rest. Room under the rows for a screenful to arrive without
+ * the page jumping as it does. */
+.brink {
+  display: flex;
+  justify-content: space-between;
+  padding: 1.125rem 0 2.5rem;
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What a search left, at the end of the field it was typed into. */
+.search .found {
+  flex: 0 0 auto;
+  font-size: var(--lettering);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One column, once five of them no longer fit.
+ *
+ * What decides the width is not the window: the five floors and their gaps come to
+ * 764 pixels, the column of sections takes 240 and the page's own padding another
+ * 112. Above that the row is a row of a table; below it the table would have to be
+ * dragged sideways to be read, and a list you have to drag is not a list — the
+ * scroll box is there so that nothing breaks, not so that it gets used. */
+@media (max-width: 72rem) {
+  /* Headings over columns that are no longer there. */
+  .listing-head { display: none; }
+
+  .listing-head, .listing > li { min-width: 0; }
+
+  .listing > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 1rem;
+    padding: 0.875rem 0.75rem;
+  }
+
+  /* The name and the length on the first line, then who made it, then where it is
+   * from against what kind of thing it is. Nothing is dropped: a row this narrow
+   * still says all five things, in three lines instead of one. */
+  .listing .by {
+    grid-column: 1 / -1;
+    font-size: var(--aside);
+  }
+
+  .listing .from, .listing .kind { font-size: var(--aside); }
+
+  .listing .kind { text-align: right; }
 }
 
 /* --- what an account may reach ------------------------------------------- */

@@ -79,6 +79,24 @@ home:
   cores: of %{count} cores
   of_total: of %{total}
 
+# The collection, listed. Both spellings of every count are written out because
+# rust-i18n interpolates and does not pluralise, and a collection of one track is
+# what somebody sees the first time they try Tocata on a single directory.
+tracks:
+  search: Search tracks
+  title: Title
+  artist: Artist
+  album: Album
+  genre: Genre
+  length: Length
+  # After whoever made it, which is the line in a row with room for a clause.
+  missing: file missing
+  one: One track
+  many: "%{count} tracks"
+  none_found: Nothing here matches what you typed.
+  # At the foot of the list, while there is more of it to come.
+  so_far: "%{shown} of %{total}"
+
 # How long ago. A section of its own because half the panel says it: library rows,
 # key rows, session rows and the last scan. The short ones are for a figure
 # standing over its label, where the "ago" is already understood.

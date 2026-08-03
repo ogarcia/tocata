@@ -174,13 +174,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                         }
                     />
 
-                    // The collection, four ways in and none of them built. They are
-                    // in the menu already because the shape of it is a decision of
-                    // its own, and an entry that says so is more honest than a menu
-                    // that grows a section later.
+                    // The collection, four ways into the same music. Everybody
+                    // reaches these: a listener is here for them, and an
+                    // administrator wants to see what they are administering.
                     <Route
                         path=path!("/tracks")
-                        view=move || view! { <pages::Unbuilt heading=t!("nav.tracks").to_string() /> }
+                        view=move || view! { <pages::tracks::Tracks on_expired=forget /> }
                     />
                     <Route
                         path=path!("/albums")
@@ -292,7 +291,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 11] = [
+    const SOURCES: [&str; 12] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -304,6 +303,7 @@ mod tests {
         include_str!("pages/account.rs"),
         include_str!("pages/settings.rs"),
         include_str!("pages/maintenance.rs"),
+        include_str!("pages/tracks.rs"),
     ];
 
     /// The stylesheet and the panel agree on which accent is the default.

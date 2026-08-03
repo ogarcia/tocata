@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use tocata::types::{
     Account, AccountChanges, Closed, Credentials, Identity, Key, Library, LibraryAccess,
     LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences, Revoked,
-    Settings, SettingsChanges, Stats,
+    Settings, SettingsChanges, Stats, Tracks,
 };
 use web_sys::RequestCredentials;
 
@@ -317,6 +317,35 @@ pub async fn run_job(job: tocata::types::Job) -> Result<tocata::types::Run, Fail
 /// the dialogue that stands in front of the one job that cannot be undone.
 pub async fn loss() -> Result<tocata::types::Loss, Failure> {
     read(get("/purge")?).await
+}
+
+/// A window of the collection's tracks, narrowed by whatever has been typed.
+///
+/// The window is asked for rather than left to the server's own default, because
+/// what an endless list needs is to carry on from exactly where it stopped: the
+/// offset is how many rows are already on screen.
+pub async fn tracks(search: &str, offset: usize, limit: i64) -> Result<Tracks, Failure> {
+    read(get(&format!("/tracks?{}", window(search, offset, limit)))?).await
+}
+
+/// The query a listing is asked with.
+///
+/// The search is escaped because it is whatever somebody typed, and an ampersand
+/// in a search would otherwise read as the start of the next parameter — which is
+/// not an error anywhere, just a search for the wrong words.
+///
+/// Left out entirely when it is empty, rather than sent as nothing: the server
+/// reads a missing search as "no search" and an empty one the same way, and this
+/// keeps the two from having to agree about it.
+fn window(search: &str, offset: usize, limit: i64) -> String {
+    let mut query = format!("offset={offset}&limit={limit}");
+
+    if !search.is_empty() {
+        let escaped = String::from(js_sys::encode_uri_component(search));
+        query.push_str(&format!("&search={escaped}"));
+    }
+
+    query
 }
 
 /// Asks the running scan to give up. What it had written is thrown away by the

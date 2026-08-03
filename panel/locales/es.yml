@@ -75,6 +75,24 @@ home:
   cores: de %{count} núcleos
   of_total: de %{total}
 
+# La colección, en lista. Las dos formas de cada recuento están escritas porque
+# rust-i18n interpola pero no pluraliza, y una colección de una sola pista es lo
+# que ve quien prueba Tocata sobre un único directorio.
+tracks:
+  search: Buscar pistas
+  title: Título
+  artist: Artista
+  album: Álbum
+  genre: Género
+  length: Duración
+  # Detrás de quien la hizo, que es la línea de la fila con sitio para una coletilla.
+  missing: falta el fichero
+  one: Una pista
+  many: "%{count} pistas"
+  none_found: Aquí no hay nada que coincida con lo que has escrito.
+  # Al pie de la lista, mientras queda algo por traer.
+  so_far: "%{shown} de %{total}"
+
 # Cuánto hace. Sección propia porque lo usa media interfaz: filas de bibliotecas,
 # de claves, de sesiones y el último escaneo. Las cortas son para una cifra que va
 # sobre su etiqueta, donde el «hace» ya se sobreentiende.
