@@ -107,6 +107,12 @@ artists:
   many: "%{count} artists"
   none_found: Nobody here matches what you typed.
 
+genres:
+  search: Search genres
+  one: One genre
+  many: "%{count} genres"
+  none_found: No genre here matches what you typed.
+
 # What the four listings share. At the foot of every one of them, beside the
 # turning glyph, while more of it is on its way.
 collection:

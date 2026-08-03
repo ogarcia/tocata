@@ -11,7 +11,7 @@ use gloo_net::http::{Request, RequestBuilder};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tocata::types::{
-    Account, AccountChanges, Albums, Artists, Closed, Credentials, Identity, Key, Library,
+    Account, AccountChanges, Albums, Artists, Closed, Credentials, Genres, Identity, Key, Library,
     LibraryAccess, LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences,
     Revoked, Settings, SettingsChanges, Stats, Tracks,
 };
@@ -336,6 +336,11 @@ pub async fn albums(search: &str, offset: usize, limit: i64) -> Result<Albums, F
 /// A window of the collection's artists, narrowed the same way.
 pub async fn artists(search: &str, offset: usize, limit: i64) -> Result<Artists, Failure> {
     read(get(&format!("/artists?{}", window(search, offset, limit)))?).await
+}
+
+/// A window of the collection's genres, narrowed the same way.
+pub async fn genres(search: &str, offset: usize, limit: i64) -> Result<Genres, Failure> {
+    read(get(&format!("/genres?{}", window(search, offset, limit)))?).await
 }
 
 /// Where an album's cover comes from, for an `<img>` to point at.

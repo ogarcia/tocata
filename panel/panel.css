@@ -1956,7 +1956,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 /* Numbers under a heading that is also a number's, both against the right and both
  * in tabular figures, so "1 · 1" and "12 · 3" line up on the dot. */
 .roster-head .figure, .roster .figure, .listing-head .figure, .listing .figure,
-.crowd .figure {
+.crowd .figure, .kinds .figure {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -2279,6 +2279,44 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 }
 
 .crowd .figure { color: var(--quiet); }
+
+/* The genres, which are the artists' rows with two things taken away.
+ *
+ * Narrower columns, because a genre is a word and not a name: nothing here needs
+ * room for "The Incredible String Band", and five columns of short words read better
+ * than three with a hand of air on the right of each.
+ *
+ * And no tint under the pointer and no bleed, unlike every other row in the
+ * collection. A genre has no page behind it — it is the one thing here that is not
+ * an object, with no identifier beyond its own name — and a row that lights up as
+ * you reach it has promised something there is nothing to give. */
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16.25rem, 1fr));
+  gap: 0 3.5rem;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.kinds > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.8125rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.kinds .what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kinds .figure { color: var(--quiet); }
 
 /* The edge of the list: that more is on its way, how much of it there is, and the
  * thing whose coming into view asks for it. Centred under the rows rather than

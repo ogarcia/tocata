@@ -103,6 +103,12 @@ artists:
   many: "%{count} artistas"
   none_found: Nadie de aquí coincide con lo que has escrito.
 
+genres:
+  search: Buscar géneros
+  one: Un género
+  many: "%{count} géneros"
+  none_found: Ningún género coincide con lo que has escrito.
+
 # Lo que comparten los cuatro listados. Al pie de todos ellos, junto al glifo que
 # gira, mientras viene algo de camino.
 collection:
