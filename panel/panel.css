@@ -2239,9 +2239,15 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  *
  * The rule across the top belongs to the whole listing, so it runs through the gap
  * as well; every row closes itself. */
+/* 28rem and not the 20 a row needs to hold its three parts, because a row that
+ * merely fits is a row whose name is cut: the two figures take about 135px of it
+ * whatever the name is, so a 350px column leaves 160px for a name — and "The Velvet
+ * Underground" is 165. At 28rem a 1920 window runs three columns of 485px each,
+ * which gives a name nearly 300, and a wider one goes to four before it goes to
+ * five. */
 .crowd {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(28rem, 1fr));
   gap: 0 3.5rem;
   margin: 0;
   padding: 0;
