@@ -2781,33 +2781,33 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 /* A circle in the middle of the cover, there only while the pointer is on the
  * record. Deliberately not the whole square: the rest of the cover is what will open
  * the record itself, and a target that filled it would leave nowhere to press for
- * that. The wash behind is what keeps a white glyph legible over a pale sleeve. */
+ * that.
+ *
+ * In the corner rather than the middle, filled in the accent, and lifted off the
+ * sleeve by a shadow. Which is what lets the cover stay exactly as it is while the
+ * pointer is over it: a circle of paper in the centre needed a wash behind it to keep
+ * its glyph legible over a pale sleeve, and that wash dimmed the one thing on this
+ * screen worth looking at. Filled in the accent it carries its own contrast, and the
+ * shadow is what holds it off a sleeve of any colour. */
 .cover .over {
   position: absolute;
-  inset: 0;
+  right: 0.625rem;
+  bottom: 0.625rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border: none;
-  border-radius: 4px;
-  background: light-dark(rgb(28 28 30 / 30%), rgb(0 0 0 / 45%));
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 4px 12px light-dark(rgb(0 0 0 / 28%), rgb(0 0 0 / 50%));
   opacity: 0;
   cursor: pointer;
 }
 
-.cover .over::before {
-  content: "";
-  position: absolute;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 50%;
-  background: var(--paper);
-}
-
-/* Only `position` here, so it paints over the circle behind it: the glyph itself is
- * centred in its own canvas, so the grid centring it needs no help. */
+/* The same pairing as any filled pill in this panel: whatever reads on the accent. */
 .cover .over .icon {
-  position: relative;
   width: 1.125rem;
   height: 1.125rem;
-  color: var(--ink);
+  color: light-dark(#fff, #0c1a14);
 }
 
 .sleeve:hover .cover .over, .cover .over:focus-visible { opacity: 1; }
