@@ -31,6 +31,7 @@ pub enum Icon {
     Rotate,
     Key,
     Search,
+    Loading,
     Plays,
     Favourites,
     Ratings,
@@ -59,6 +60,9 @@ impl Icon {
             Self::Rotate => include_str!("../icons/scan.svg"),
             Self::Key => include_str!("../icons/key.svg"),
             Self::Search => include_str!("../icons/search.svg"),
+            // An open arc rather than the scan's two arrows: what turns here is
+            // one thing arriving, not a cycle going round again.
+            Self::Loading => include_str!("../icons/loading.svg"),
             Self::Plays => include_str!("../icons/play.svg"),
             Self::Favourites => include_str!("../icons/heart.svg"),
             Self::Ratings => include_str!("../icons/star.svg"),

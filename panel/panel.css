@@ -1960,11 +1960,17 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   font-variant-numeric: tabular-nums;
 }
 
-/* The bleed itself, on the box that scrolls rather than on anything inside it:
- * inside, the left twelve pixels can never be reached — a scroll offset is never
- * negative — and the right twelve widen the content and ask for a scrollbar of
- * their own. */
-.scrolls.bled { margin: 0 -0.75rem; }
+/* The bleed itself: the twelve pixels a row's tint and hairline run past the text
+ * on either side, so the text stays in line with the rest of the screen while the
+ * row reads as a band rather than as a label with a tint stopping at the last
+ * letter.
+ *
+ * Where the rows are in a box that scrolls sideways this goes on the box and never
+ * on anything inside it: inside, the left twelve can never be reached — a scroll
+ * offset is never negative — and the right twelve widen the content and ask for a
+ * scrollbar of their own. Where there is no such box, as in a list whose heading
+ * has to stay put, it goes on the block holding the rows. */
+.bled { margin: 0 -0.75rem; }
 
 /* The name and what is said about it, on one line. The name is what gives way when
  * the column runs out, so the badge beside it never goes off the end. */
@@ -2077,9 +2083,19 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   min-width: 49.25rem;
 }
 
+/* Stays where it is while the rows go past it. Which is what a list with no
+ * pages needs and a paged one does not: after two hundred rows there is otherwise
+ * nothing on screen saying which column is the album and which the genre.
+ *
+ * It needs the paper under it — the rows would otherwise show through — and it has
+ * to sit above them, since a row scrolled under it paints in the same place. */
 .listing-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding-bottom: 0.625rem;
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
   font-size: var(--lettering);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -2124,15 +2140,35 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * says why it is dim. */
 .listing > li.gone { opacity: 0.55; }
 
-/* The edge of the list: how far down it you are, and the thing whose coming into
- * view asks for the rest. Room under the rows for a screenful to arrive without
- * the page jumping as it does. */
+/* The edge of the list: that more is on its way, how much of it there is, and the
+ * thing whose coming into view asks for it. Centred under the rows rather than
+ * against one end, because it is not a row and reads as the list carrying on.
+ *
+ * The padding is what gives it height when it is empty, which it is whenever
+ * nothing is on its way — and something with no height is never reached, so the
+ * list would stop growing. */
 .brink {
   display: flex;
-  justify-content: space-between;
-  padding: 1.125rem 0 2.5rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 1.625rem 0 0.25rem;
   font-size: var(--aside);
+  color: var(--quiet);
   font-variant-numeric: tabular-nums;
+}
+
+/* Turns a little faster than the scan's does: this is one thing arriving, not a
+ * pass over the whole collection. Anybody who asked not to be moved gets it still,
+ * and the line beside it says the same thing in words. */
+.brink .icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  animation: turn 1.1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brink .icon { animation: none; }
 }
 
 /* What a search left, at the end of the field it was typed into. */

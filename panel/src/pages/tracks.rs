@@ -206,12 +206,15 @@ pub fn Tracks(on_expired: Callback<()>) -> impl IntoView {
         </Show>
 
         <Show when=move || !rows.with(Vec::is_empty)>
-            // Scrolls inside its own box rather than pushing the page sideways,
-            // and the bleed that lets a row's tint run past the text goes on the
-            // scrolling box itself. The same reasoning as the roster of accounts,
-            // and the same trap: inside, the left twelve pixels can never be
-            // reached and the right twelve ask for a scrollbar of their own.
-            <div class="scrolls bled">
+            // No box of its own scrolling sideways here, unlike the roster of
+            // accounts: the heading has to stay put while the rows go past it, and
+            // a sticky element resolves against the nearest scrolling ancestor —
+            // which, inside a box that scrolls horizontally, is a box that does not
+            // scroll vertically, so it would do nothing at all. The block is pulled
+            // out by the twelve pixels the rows bleed instead, and the columns fold
+            // into one line before they run out of room, so nothing has to be
+            // dragged sideways.
+            <div class="bled">
                 <div class="listing-head">
                     <span>{t!("tracks.title")}</span>
                     <span>{t!("tracks.artist")}</span>
@@ -231,7 +234,7 @@ pub fn Tracks(on_expired: Callback<()>) -> impl IntoView {
         // What is on screen out of what there is, and the thing that asks for the
         // rest. One element for both: what says how far down the list you are is
         // exactly what has to be reached for it to grow.
-        <Foot rows total fetching all_of_it=Signal::derive(all_of_it) on_reach=Callback::new(move |()| more()) />
+        <Foot rows total fetching on_reach=Callback::new(move |()| more()) />
     }
 }
 
@@ -260,17 +263,23 @@ fn Row(track: Track) -> impl IntoView {
     }
 }
 
-/// The foot of the list: how far down it you are, and what fetches the next of it.
+/// The foot of the list: that more is coming, how much of it there is, and the
+/// thing whose coming into view fetches it.
 ///
-/// It is one element because it is one thing. Reaching the line that says "fifty
-/// of twenty-four thousand" is the same event as needing the next fifty, so there
-/// is nothing to keep in step between them.
+/// It is one element because it is one thing. Reaching the line that says how far
+/// down the list you are is the same event as needing the next fifty, so there is
+/// nothing to keep in step between them.
+///
+/// It says both at once — turning, and "6 of 1 200" — because either alone is
+/// worse. A spinner with no figures is a list with no bottom, and figures with
+/// nothing turning look like the list has stopped there. Most of the time neither
+/// is read: the rows are usually already on their way before this comes into view,
+/// which is what the six hundred pixels above are for.
 #[component]
 fn Foot(
     rows: RwSignal<Vec<Track>>,
     total: ReadSignal<Option<i64>>,
     fetching: ReadSignal<bool>,
-    all_of_it: Signal<bool>,
     on_reach: Callback<()>,
 ) -> impl IntoView {
     let edge = NodeRef::<leptos::html::Div>::new();
@@ -322,18 +331,20 @@ fn Foot(
     });
 
     view! {
+        // Empty when there is nothing on its way, and it keeps its height either
+        // way: this is what has to be reached for the list to grow, and a box of no
+        // height is never reached.
+        //
+        // Nothing is said once the whole list is here. The count is in the lead, and
+        // a line under the last row repeating it would only be there to be read
+        // after there is nothing left to read.
         <div class="brink" node_ref=edge>
             <Show when=move || fetching.get()>
-                <span class="quiet">{t!("common.loading")}</span>
-            </Show>
-
-            // Silent once everything is here: the total is in the lead, and a line
-            // saying the list is as long as it says it is says nothing.
-            <Show when=move || !all_of_it.get() && !fetching.get()>
-                <span class="quiet">
+                <Glyph icon=Icon::Loading />
+                <span>
                     {move || {
                         t!(
-                            "tracks.so_far",
+                            "tracks.reading",
                             shown = super::thousands(rows.with(Vec::len) as i64),
                             total = super::thousands(total.get().unwrap_or_default()),
                         )
