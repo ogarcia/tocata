@@ -1059,12 +1059,33 @@ select.narrow { width: 12.5rem; }
 
 /* A label with something on its right: what the field is, and the one thing that
  * can be done to it. */
-.lettered {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
+/* A field with a word above it that acts on it. Two rows: the label and that word
+ * on the first, the field across the second.
+ *
+ * A grid rather than the column the other fields are, because the order in the
+ * markup and the order on the screen have to differ here. Tab follows the markup,
+ * so the button has to come after the field it reveals — otherwise leaving the
+ * username lands on "Show" instead of on the password, and somebody typing their
+ * way into the panel is stopped by a control they did not ask for. Drawn, the
+ * button belongs up on the label's line, and this is what puts it back there.
+ *
+ * So the focus order is username, password, Show: the button is still reachable
+ * from the keyboard, which `tabindex="-1"` would have cost, and it is reached
+ * after the thing it is about rather than before it. */
+.entry .secret {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
+
+.entry .secret > span { grid-area: 1 / 1; }
+
+.entry .secret .reveal { grid-area: 1 / 2; }
+
+.entry .secret input { grid-area: 2 / 1 / 3 / 3; }
+
+/* The label and the word beside it sit on one baseline. Only those two: the field
+ * is alone on its own row, where there is nothing to line it up with. */
+.entry .secret > span, .entry .secret .reveal { align-self: baseline; }
 
 /* Said as a word, underlined, because it is a choice between two words and a
  * glyph on the line where the text goes is a target nobody can name. */

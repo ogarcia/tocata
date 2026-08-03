@@ -103,27 +103,16 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
                         />
                     </label>
 
-                    <label>
-                        <span class="lettered">
-                            {t!("login.password")}
-                            // Beside the label rather than inside the field: a
-                            // glyph sitting on the line the text is typed on is
-                            // a target nobody can name, and this one has to say
-                            // which of the two things it will do.
-                            <button
-                                type="button"
-                                class="reveal"
-                                on:click=move |_| set_shown.update(|is| *is = !*is)
-                            >
-                                {move || {
-                                    if shown.get() {
-                                        t!("login.hide").to_string()
-                                    } else {
-                                        t!("login.show").to_string()
-                                    }
-                                }}
-                            </button>
-                        </span>
+                    // The field comes before the button that reveals it, because
+                    // tab follows the markup: written the way it is drawn — the
+                    // word "Show" sits up on the label's line — tabbing out of the
+                    // username landed on Show rather than on the password, which
+                    // is not where anybody typing their way in is going. The
+                    // stylesheet puts the button back up on that line, so the
+                    // order somebody sees is unchanged and the order they walk
+                    // through is username, password, Show.
+                    <label class="secret">
+                        <span>{t!("login.password")}</span>
                         <input
                             name="password"
                             type=move || if shown.get() { "text" } else { "password" }
@@ -132,6 +121,23 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
                             prop:value=password
                             on:input:target=move |e| set_password.set(e.target().value())
                         />
+                        // Beside the label rather than inside the field: a glyph
+                        // sitting on the line the text is typed on is a target
+                        // nobody can name, and this one has to say which of the two
+                        // things it will do.
+                        <button
+                            type="button"
+                            class="reveal"
+                            on:click=move |_| set_shown.update(|is| *is = !*is)
+                        >
+                            {move || {
+                                if shown.get() {
+                                    t!("login.hide").to_string()
+                                } else {
+                                    t!("login.show").to_string()
+                                }
+                            }}
+                        </button>
                     </label>
 
                     // The words loose rather than in a span, like every other
