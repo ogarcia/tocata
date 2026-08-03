@@ -56,11 +56,12 @@ impl Drag {
     /// Takes the gesture, if it is one worth taking.
     ///
     /// Only the primary button, so a right click does not start dragging a row. And
-    /// never one that went down on a control: the progress bar and the buttons inside
-    /// the player's sheet have their own answer to being dragged, and a sheet that
-    /// slid away while somebody moved the progress bar would be the sheet stealing it.
+    /// never one that went down on some *other* control: the progress bar and the
+    /// buttons inside the player's sheet have their own answer to being dragged, and a
+    /// sheet that slid away while somebody moved the progress bar would be the sheet
+    /// stealing it.
     pub fn begin(&self, event: &web_sys::PointerEvent) -> bool {
-        if event.button() != 0 || on_a_control(event) {
+        if event.button() != 0 || on_another_control(event) {
             return false;
         }
 
@@ -128,9 +129,19 @@ fn current(event: &web_sys::PointerEvent) -> Option<web_sys::Element> {
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
 }
 
-/// Whether the gesture went down on something that has its own idea about being
-/// dragged.
-fn on_a_control(event: &web_sys::PointerEvent) -> bool {
+/// Whether the gesture went down on some *other* control — one that is not the thing
+/// listening for it.
+///
+/// A row must not start swiping because somebody pressed the cross that drops it, and
+/// the player's sheet must not slide away because somebody took hold of the progress
+/// bar. But the handle a row is reordered by is itself a button, so a check for "did
+/// this land on a control" refuses the one gesture that is meant to be taken — which
+/// is exactly what it did: reordering did nothing at all, silently, because the handle
+/// disqualified itself.
+///
+/// So what matters is not whether a control was hit but whether it is a *different*
+/// control from the one being dragged.
+fn on_another_control(event: &web_sys::PointerEvent) -> bool {
     let Some(element) = event
         .target()
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
@@ -140,9 +151,13 @@ fn on_a_control(event: &web_sys::PointerEvent) -> bool {
 
     // `closest` rather than the tag of what was hit: a press lands on the span inside
     // a button as often as on the button.
-    element
-        .closest("button, input, select, a")
-        .ok()
-        .flatten()
-        .is_some()
+    let Some(control) = element.closest("button, input, select, a").ok().flatten() else {
+        return false;
+    };
+
+    match current(event) {
+        Some(listening) => !control.is_same_node(Some(&listening)),
+        // Nothing to compare it against, so err towards leaving the control alone.
+        None => true,
+    }
 }

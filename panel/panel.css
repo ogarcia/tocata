@@ -2934,11 +2934,21 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   }
 
   /* Everything the phone's own bar and sheet already gave 44px targets keeps them
-   * here: this is the same thumb. */
+   * here: this is the same thumb. The handle is the one that needs it most — it is
+   * what a row is held by, and holding is harder to aim than tapping. */
   .rolling .drop {
     width: 2.75rem;
     height: 2.75rem;
     opacity: 1;
+  }
+
+  .rolling .handle {
+    width: 1.75rem;
+    height: 2.75rem;
+  }
+
+  .rolling .row, .rolling .waiting > li {
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto auto;
   }
 }
 

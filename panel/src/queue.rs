@@ -181,7 +181,8 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
     }
 }
 
-/// How far a row has to be pushed sideways before letting go drops it.
+/// How far a row has to be pushed aside, in either direction, before letting go drops
+/// it.
 ///
 /// Far enough that a thumb travelling down the list does not throw a track out by
 /// brushing past it, near enough that the gesture does not need the whole width.
@@ -195,15 +196,14 @@ fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
     let swipe = crate::drag::Drag::new();
     let hold = crate::drag::Drag::new();
 
-    // Pushed sideways to be dropped. It follows the finger only outwards: dragging a
-    // row back past where it started would be dragging it the other way, and rows do
-    // not go anywhere in that direction.
+    // Pushed aside to be dropped, either way: the gesture is putting a row out of the
+    // list, and a list has two edges. It fades as it goes, so how near it is to going
+    // is legible before letting go rather than only after.
     let pushed = move || {
-        let across = swipe.across().min(0.0);
-        format!("transform: translateX({across}px); opacity: {}", {
-            let gone = (across.abs() / (SWIPED * 2.0)).min(0.6);
-            1.0 - gone
-        })
+        let across = swipe.across();
+        let gone = (across.abs() / (SWIPED * 2.0)).min(0.6);
+
+        format!("transform: translateX({across}px); opacity: {}", 1.0 - gone)
     };
 
     // Held to be moved. Rows are a fixed height in this drawer, so where it would land
@@ -232,7 +232,7 @@ fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
                 // Far enough out and it goes; anything short of that springs back,
                 // which is what `end` clearing the offset does on its own.
                 if let Some((across, _)) = swipe.end()
-                    && across <= -SWIPED
+                    && across.abs() >= SWIPED
                 {
                     player.drop_at(at);
                 }
