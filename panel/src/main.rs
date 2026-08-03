@@ -19,6 +19,7 @@ mod locale;
 mod login;
 mod pages;
 mod player;
+mod queue;
 mod theme;
 
 // Compiles the translations in. `fallback` is what a key missing from a
@@ -296,7 +297,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 17] = [
+    const SOURCES: [&str; 18] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -314,6 +315,7 @@ mod tests {
         include_str!("pages/genres.rs"),
         include_str!("pages/endless.rs"),
         include_str!("player.rs"),
+        include_str!("queue.rs"),
     ];
 
     /// The stylesheet and the panel agree on which accent is the default.

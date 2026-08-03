@@ -182,6 +182,27 @@ impl Player {
         self.elapsed.set(seconds.clamp(0.0, whole.max(0.0)));
     }
 
+    /// How many are still to come after the one sounding.
+    pub fn ahead(&self) -> usize {
+        self.queue.with(Vec::len).saturating_sub(self.at.get() + 1)
+    }
+
+    /// Takes a track out of what is coming, by where it sits in the queue.
+    ///
+    /// Only ever something ahead of us: removing what is sounding would be a stop
+    /// dressed up as a tidy, and removing what is behind changes nothing anybody can
+    /// hear. `at` therefore needs no adjusting, which is the whole reason for that
+    /// rule.
+    pub fn drop_at(&self, index: usize) {
+        if index > self.at.get_untracked() {
+            self.queue.update(|queue| {
+                if index < queue.len() {
+                    queue.remove(index);
+                }
+            });
+        }
+    }
+
     /// How far through, from nought to one. What the bar is filled with, and the one
     /// place that guards against the length being zero — which is what a track
     /// reports until its metadata has arrived.

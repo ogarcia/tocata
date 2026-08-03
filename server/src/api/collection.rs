@@ -86,6 +86,39 @@ pub struct Filter {
     pub artist: Option<String>,
     /// A genre, by name.
     pub genre: Option<String>,
+    /// Named tracks and no others, as identifiers separated by commas.
+    ///
+    /// What a queue is drawn with. A queue is identifiers, so the moment something
+    /// wants to show it as rows — titles, who made them, how long they run — it has
+    /// a handful of identifiers and nothing to print. This answers that in one
+    /// request instead of one per track.
+    ///
+    /// The order is the listing's own, not the order they were named in: whoever
+    /// asked knows what order they wanted, and reordering fifty rows client-side is
+    /// nothing next to a second statement here that could not use the index.
+    pub ids: Option<String>,
+}
+
+impl Filter {
+    /// The identifiers asked for, if any, with anything unreasonable dropped.
+    ///
+    /// Capped at the size of a page: this is for drawing rows, and nobody reads more
+    /// rows than that at once. Empty strings go — `"a,,b"` is two identifiers and a
+    /// typo, not three — and an empty list is `None`, which narrows nothing rather
+    /// than matching nothing.
+    fn named(&self) -> Option<Vec<String>> {
+        let ids: Vec<String> = self
+            .ids
+            .as_deref()?
+            .split(',')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .take(MOST as usize)
+            .map(str::to_string)
+            .collect();
+
+        (!ids.is_empty()).then_some(ids)
+    }
 }
 
 /// Where in the listing, for a list that asks for the next few as it is scrolled.
@@ -608,6 +641,17 @@ async fn count(
 /// The conditions a track listing takes on, appended to a statement that has
 /// already opened its `WHERE`.
 fn narrow(builder: &mut QueryBuilder<Sqlite>, filter: &Filter) {
+    if let Some(ids) = filter.named() {
+        builder.push(" AND t.public_id IN (");
+
+        let mut named = builder.separated(", ");
+        for id in ids {
+            named.push_bind(id);
+        }
+
+        builder.push(")");
+    }
+
     if let Some(matching) = searching(filter) {
         builder.push(" AND t.id IN (SELECT f.rowid FROM tracks_fts f WHERE tracks_fts MATCH ");
         builder.push_bind(matching);
@@ -1090,6 +1134,62 @@ mod tests {
         assert!(
             matches!(refused, Err(ApiError::NotFound)),
             "a track in a library you may not see is not a track you may know exists"
+        );
+    }
+
+    /// Named identifiers come back as rows, and only the ones this account may see.
+    ///
+    /// This is what draws a queue: a queue holds identifiers, so showing it as rows
+    /// needs their titles in one request rather than one request per track. Which
+    /// makes it the one filter somebody could hand a list of identifiers they were
+    /// never shown, so the wall matters here as much as anywhere.
+    #[tokio::test]
+    async fn naming_tracks_brings_back_those_tracks_and_no_others() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let ana_again = again(&ana);
+
+        let Json(all) = tracks(ana, State(pool.clone()), nothing(), all_of_it())
+            .await
+            .unwrap();
+
+        // Two of the four, one from each library, and a stray comma and blank to be
+        // dropped rather than counted.
+        let named = format!("{},,{} ,", all.tracks[0].id, all.tracks[3].id);
+        let asked = Query(Filter {
+            ids: Some(named),
+            ..Default::default()
+        });
+
+        let Json(some) = tracks(ana_again, State(pool.clone()), asked, all_of_it())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            some.total, 2,
+            "the two named, and the blanks are not a third"
+        );
+        assert_eq!(
+            some.tracks.iter().map(|t| &t.id).collect::<Vec<_>>(),
+            vec![&all.tracks[0].id, &all.tracks[3].id],
+            "as the listing orders them, which is what the caller reorders"
+        );
+
+        // The same names, asked by somebody walled off from the second library.
+        let walled = somebody_else(&pool).await;
+        let named = format!("{},{}", all.tracks[0].id, all.tracks[3].id);
+        let asked = Query(Filter {
+            ids: Some(named),
+            ..Default::default()
+        });
+
+        let Json(theirs) = tracks(walled, State(pool.clone()), asked, all_of_it())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            theirs.total, 1,
+            "naming a track in a library you may not see does not fetch it"
         );
     }
 

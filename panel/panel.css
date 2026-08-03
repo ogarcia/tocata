@@ -2648,14 +2648,18 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     height: 1.625rem;
   }
 
+  /* The way into the queue on the left, what the file is on the right. */
   .sheet-player .foot-note {
+    display: flex;
     flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
     margin: 0 1.75rem;
-    padding: 1rem 0;
+    padding: 1rem 0 0;
     border-top: 1px solid var(--line);
     font-size: var(--aside);
     font-variant-numeric: tabular-nums;
-    text-align: right;
   }
 
   /* Everything on the bar but its two buttons opens the sheet. A button of its own
@@ -2674,6 +2678,220 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     text-align: left;
     cursor: pointer;
   }
+}
+
+/* --- what is coming after this -------------------------------------------- */
+
+/* A drawer down the right of a window, and the whole of a phone's screen. One element
+ * laid out twice rather than two, because it holds the same list either way.
+ *
+ * The one raised surface outside a dialogue, and for the same reason a dialogue is
+ * one: it sits over the screen rather than in it, so it needs an edge and a shadow to
+ * say so. Narrower than the drawers the collection will open — 440px against 520 —
+ * because the rows here are a title and a length. */
+.queue {
+  display: flex;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  flex-direction: column;
+  width: min(27.5rem, 100%);
+  border-left: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: -24px 0 60px light-dark(rgb(0 0 0 / 18%), rgb(0 0 0 / 55%));
+}
+
+/* Fixed while the body between them scrolls, so the count and the way out stay put
+ * however long the queue is. */
+.queue > header {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.375rem 1.625rem 1.125rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.queue h2 {
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.queue > header p {
+  margin-top: 0.25rem;
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+  text-wrap: pretty;
+}
+
+.queue .tap {
+  display: grid;
+  flex: none;
+  gap: 0;
+  place-content: center;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -0.5rem -0.75rem 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+}
+
+.queue .tap:hover { color: var(--ink); }
+
+.queue .tap .icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.rolling {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 1.625rem 1.625rem;
+}
+
+/* The small capitals every run of rows in this panel is headed with. */
+.rolling .lettering {
+  margin: 1.25rem 0 0.25rem;
+  font-size: var(--lettering);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+/* Air over the second heading, so the two runs read as two rather than as one list
+ * with a word in the middle of it. */
+.rolling .next { margin-top: 1.75rem; }
+
+.rolling .waiting {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* What is sounding and what is waiting share their shape; only the last cell differs,
+ * and the row that is playing takes the accent because it is the same row the
+ * listings colour. */
+.rolling .row, .rolling .waiting > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rolling .now { color: var(--accent); }
+
+/* Two lines that both give way rather than wrap: a drawer is narrow and a queue is
+ * read down its left edge. */
+.rolling .what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.rolling .what > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rolling .by {
+  color: var(--quiet);
+  font-size: var(--aside);
+}
+
+.rolling .now .by { color: inherit; }
+
+.rolling .figure {
+  color: var(--quiet);
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+}
+
+.rolling .now .figure { color: inherit; }
+
+/* Takes a track out of what is coming. Quiet until the row is under the pointer,
+ * because a column of crosses down a queue reads as a list of things to undo. */
+.rolling .drop {
+  display: grid;
+  gap: 0;
+  place-content: center;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rolling .waiting > li:hover .drop, .rolling .drop:focus-visible { opacity: 1; }
+
+.rolling .drop:hover { color: var(--alarm); }
+
+.rolling .drop .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* Lit while the queue is open, so the button says where the thing on screen came
+ * from. */
+.dock .queued.showing { color: var(--accent); }
+
+@media (max-width: 45rem) {
+  /* The whole screen rather than a drawer, and no scrim: there is nothing beside it
+   * to see. This is the sheet's second page, so it comes over the sheet. */
+  .queue {
+    inset: 0;
+    z-index: 7;
+    width: 100%;
+    border-left: none;
+    box-shadow: none;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Everything the phone's own bar and sheet already gave 44px targets keeps them
+   * here: this is the same thumb. */
+  .rolling .drop {
+    width: 2.75rem;
+    height: 2.75rem;
+    opacity: 1;
+  }
+}
+
+/* The way into the queue, at the foot of the opened player. */
+.into-queue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5625rem;
+  height: 2.75rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--control);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.into-queue .icon {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 /* --- starting something --------------------------------------------------- */

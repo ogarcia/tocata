@@ -139,6 +139,17 @@ player:
   kbps: "%{rate} kbps"
   seek: Move about in the track
 
+# What is coming after this. Both spellings of the count, because rust-i18n does not
+# pluralise and the last track in a queue is the common case.
+queue:
+  heading: Queue
+  playing: Playing
+  next: Next
+  one_ahead: "1 track ahead"
+  many_ahead: "%{count} tracks ahead"
+  nothing_ahead: Nothing after this one.
+  drop: Take it out of the queue
+
 # How long ago. A section of its own because half the panel says it: library rows,
 # key rows, session rows and the last scan. The short ones are for a figure
 # standing over its label, where the "ago" is already understood.

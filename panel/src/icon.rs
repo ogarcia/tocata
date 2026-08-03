@@ -43,6 +43,9 @@ pub enum Icon {
     Next,
     /// On the row that is sounding, where another row has its number.
     Sounding,
+    /// Takes something out of a list without destroying it, which is why it is a
+    /// cross and not the bin that removes a thing for good.
+    Close,
     Plays,
     Favourites,
     Ratings,
@@ -79,6 +82,7 @@ impl Icon {
             Self::Previous => include_str!("../icons/previous.svg"),
             Self::Next => include_str!("../icons/next.svg"),
             Self::Sounding => include_str!("../icons/sounding.svg"),
+            Self::Close => include_str!("../icons/close.svg"),
             Self::Plays => include_str!("../icons/play.svg"),
             Self::Favourites => include_str!("../icons/heart.svg"),
             Self::Ratings => include_str!("../icons/star.svg"),

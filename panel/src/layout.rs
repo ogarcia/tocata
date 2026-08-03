@@ -149,9 +149,11 @@ pub fn Shell(
 ) -> impl IntoView {
     let admin = identity.admin;
     let (folded_out, fold) = signal(false);
-    // Whether the player is open over the screen. Client-only and deliberately not a
-    // route: what is behind it keeps its scroll and its search.
+    // Whether the player is open over the screen, and whether the queue is. Both
+    // client-only and deliberately not routes: what is behind them keeps its scroll
+    // and its search.
     let sheet = RwSignal::new(false);
+    let queue = RwSignal::new(false);
 
     view! {
         <div class="shell">
@@ -186,7 +188,7 @@ pub fn Shell(
                     <Show when=move || admin>
                         <ScanStrip scan />
                     </Show>
-                    <Dock />
+                    <Dock queue />
                     <WhoAmI identity on_out fold />
                 </div>
             </aside>
@@ -222,7 +224,8 @@ pub fn Shell(
             // closing, and the bar has to be reachable while it is shut.
             <Sound />
             <Afoot on_open=Callback::new(move |()| sheet.set(true)) />
-            <Sheet open=sheet />
+            <Sheet open=sheet queue />
+            <crate::queue::Queue open=queue />
         </div>
     }
 }
@@ -391,7 +394,7 @@ fn Sound() -> impl IntoView {
 
 /// What is sounding, as the column shows it.
 #[component]
-fn Dock() -> impl IntoView {
+fn Dock(queue: RwSignal<bool>) -> impl IntoView {
     let player = crate::player::player();
 
     let title = move || {
@@ -469,12 +472,18 @@ fn Dock() -> impl IntoView {
                         <Glyph icon=Icon::Next />
                     </button>
 
-                    // How much is queued behind this. Not a button yet: the queue has
-                    // nowhere to be looked at, and a count is worth saying on its own.
-                    <span class="queued" title=t!("player.queued")>
+                    // How much is queued behind this, and the way to see it. Lit while
+                    // the queue is open, so the button says where the thing on screen
+                    // came from.
+                    <button
+                        class="queued"
+                        class:showing=move || queue.get()
+                        title=t!("player.queued")
+                        on:click=move |_| queue.update(|open| *open = !*open)
+                    >
                         <Glyph icon=Icon::Playlists />
-                        {move || thousands(player.queue.with(Vec::len) as u64)}
-                    </span>
+                        {move || thousands(player.ahead() as u64)}
+                    </button>
                 </div>
             </div>
         </Show>
@@ -583,7 +592,7 @@ fn Afoot(on_open: Callback<()>) -> impl IntoView {
 /// is left" is the question; the total is a fact about the file and is already in
 /// every listing.
 #[component]
-fn Sheet(open: RwSignal<bool>) -> impl IntoView {
+fn Sheet(open: RwSignal<bool>, queue: RwSignal<bool>) -> impl IntoView {
     let player = crate::player::player();
 
     let title = move || {
@@ -726,9 +735,15 @@ fn Sheet(open: RwSignal<bool>) -> impl IntoView {
                     </div>
                 </div>
 
-                // What the file is. The frame also puts the way into the queue here,
-                // which arrives when there is a queue to look at.
+                // The way into the queue, and what the file is.
                 <div class="foot-note">
+                    <button class="into-queue" on:click=move |_| queue.set(true)>
+                        <Glyph icon=Icon::Playlists />
+                        {t!("queue.heading")}
+                        " · "
+                        {move || pages::thousands(player.ahead() as i64)}
+                    </button>
+
                     <span class="quiet">{file}</span>
                 </div>
             </div>

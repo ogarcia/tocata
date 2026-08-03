@@ -383,6 +383,28 @@ pub async fn queue(
         .map(|queue| queue.tracks)
 }
 
+/// The rows for a named handful of tracks, in the order asked for.
+///
+/// What draws a queue. A queue holds identifiers, so showing it needs their titles in
+/// one request rather than one per track — and the server answers in the listing's own
+/// order, so the reordering back to the queue's order happens here.
+pub async fn some_tracks(ids: &[String]) -> Result<Vec<Track>, Failure> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let named = ids.join(",");
+    let asked = format!("/tracks?limit={}&ids={named}", ids.len());
+    let page: Tracks = read(get(&asked)?).await?;
+
+    // Back into the order they were named in. Anything the server left out — a track
+    // removed by a scan since the queue was drawn — simply is not here.
+    Ok(ids
+        .iter()
+        .filter_map(|id| page.tracks.iter().find(|track| &track.id == id).cloned())
+        .collect())
+}
+
 /// Where a track's audio is, for an `<audio>` element to point at.
 pub fn audio(track: &str) -> String {
     format!("{BASE}/tracks/{track}/audio")
