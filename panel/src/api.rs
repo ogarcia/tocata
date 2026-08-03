@@ -11,7 +11,7 @@ use gloo_net::http::{Request, RequestBuilder};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tocata::types::{
-    Account, AccountChanges, Closed, Credentials, Identity, Key, Library, LibraryAccess,
+    Account, AccountChanges, Albums, Closed, Credentials, Identity, Key, Library, LibraryAccess,
     LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences, Revoked,
     Settings, SettingsChanges, Stats, Tracks,
 };
@@ -326,6 +326,20 @@ pub async fn loss() -> Result<tocata::types::Loss, Failure> {
 /// offset is how many rows are already on screen.
 pub async fn tracks(search: &str, offset: usize, limit: i64) -> Result<Tracks, Failure> {
     read(get(&format!("/tracks?{}", window(search, offset, limit)))?).await
+}
+
+/// A window of the collection's albums, narrowed the same way.
+pub async fn albums(search: &str, offset: usize, limit: i64) -> Result<Albums, Failure> {
+    read(get(&format!("/albums?{}", window(search, offset, limit)))?).await
+}
+
+/// Where an album's cover comes from, for an `<img>` to point at.
+///
+/// A URL rather than a fetch: the cookie is scoped to `/api` and the browser sends
+/// it on its own for the `src` of an element from the same origin, so a grid of two
+/// hundred covers is two hundred `<img>` tags and no credentials in any of them.
+pub fn cover(album: &str) -> String {
+    format!("{BASE}/albums/{album}/cover")
 }
 
 /// The query a listing is asked with.

@@ -94,7 +94,16 @@ tracks:
   one: One track
   many: "%{count} tracks"
   none_found: Nothing here matches what you typed.
-  # At the foot of the list, beside the turning glyph, while more is on its way.
+
+albums:
+  search: Search albums
+  one: One album
+  many: "%{count} albums"
+  none_found: No record here matches what you typed.
+
+# What the four listings share. At the foot of every one of them, beside the
+# turning glyph, while more of it is on its way.
+collection:
   reading: "Reading more · %{shown} of %{total}"
 
 # How long ago. A section of its own because half the panel says it: library rows,

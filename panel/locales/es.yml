@@ -90,7 +90,16 @@ tracks:
   one: Una pista
   many: "%{count} pistas"
   none_found: Aquí no hay nada que coincida con lo que has escrito.
-  # Al pie de la lista, junto al glifo que gira, mientras viene algo de camino.
+
+albums:
+  search: Buscar álbumes
+  one: Un álbum
+  many: "%{count} álbumes"
+  none_found: Ningún disco coincide con lo que has escrito.
+
+# Lo que comparten los cuatro listados. Al pie de todos ellos, junto al glifo que
+# gira, mientras viene algo de camino.
+collection:
   reading: "Trayendo más · %{shown} de %{total}"
 
 # Cuánto hace. Sección propia porque lo usa media interfaz: filas de bibliotecas,

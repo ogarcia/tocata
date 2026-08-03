@@ -183,7 +183,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     />
                     <Route
                         path=path!("/albums")
-                        view=move || view! { <pages::Unbuilt heading=t!("nav.albums").to_string() /> }
+                        view=move || view! { <pages::albums::Albums on_expired=forget /> }
                     />
                     <Route
                         path=path!("/artists")
@@ -291,7 +291,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 12] = [
+    const SOURCES: [&str; 14] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -304,6 +304,8 @@ mod tests {
         include_str!("pages/settings.rs"),
         include_str!("pages/maintenance.rs"),
         include_str!("pages/tracks.rs"),
+        include_str!("pages/albums.rs"),
+        include_str!("pages/endless.rs"),
     ];
 
     /// The stylesheet and the panel agree on which accent is the default.

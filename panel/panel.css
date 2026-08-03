@@ -2161,6 +2161,61 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * says why it is dim. */
 .listing > li.gone { opacity: 0.55; }
 
+/* --- the records ---------------------------------------------------------- */
+
+/* As many columns as fit rather than a number of them, so the same markup is two
+ * covers wide on a phone and eight on a monitor and there is no width written down
+ * anywhere to be wrong. `auto-fill` and not `auto-fit`: with three records in the
+ * collection, `auto-fit` collapses the empty tracks and stretches those three to a
+ * third of the window each, which is a shelf of three enormous covers. */
+.shelves {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.625rem, 1fr));
+  gap: 1.625rem 1.375rem;
+}
+
+.sleeve {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5625rem;
+  min-width: 0;
+}
+
+/* Square whether or not there is anything in it, so the names below sit on one
+ * line across the shelf rather than stepping up and down with the art.
+ *
+ * One class for the picture and for the frame standing in for it: they are the same
+ * square, and the difference is that one has a glyph centred in it. */
+.art {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--line);
+  object-fit: cover;
+}
+
+.art .icon {
+  width: 2.125rem;
+  height: 2.125rem;
+}
+
+/* The name, and under it who made it and when. Two lines that belong together, so
+ * the second is inside the first rather than beside it. */
+.sleeve .what {
+  min-width: 0;
+  font-size: var(--control);
+  line-height: 1.3;
+}
+
+.sleeve .what span {
+  display: block;
+  color: var(--quiet);
+  font-size: var(--aside);
+}
+
 /* The edge of the list: that more is on its way, how much of it there is, and the
  * thing whose coming into view asks for it. Centred under the rows rather than
  * against one end, because it is not a row and reads as the list carrying on.
