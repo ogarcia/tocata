@@ -2656,7 +2656,6 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     justify-content: space-between;
     gap: 1rem;
     margin: 0 1.75rem;
-    padding: 1rem 0 0;
     border-top: 1px solid var(--line);
     font-size: var(--aside);
     font-variant-numeric: tabular-nums;
@@ -2893,6 +2892,22 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   width: 1.125rem;
   height: 1.125rem;
 }
+
+/* Lifted into the accent rather than ringed. Nothing in this player is a rectangle
+ * with a line round it — the only bordered control is the round one that starts the
+ * music — so the ring every button in the panel gets on focus read as a box that had
+ * appeared out of nowhere. The colour is the signal instead, and it answers to the
+ * pointer as well as to the keyboard, so it says the thing is pressable before it is
+ * pressed. */
+.into-queue:hover, .into-queue:focus-visible { color: var(--accent); }
+
+.into-queue:focus-visible { outline: none; }
+
+/* The same on the sidebar's own count, which until now only lit once the queue was
+ * already open. */
+.dock .queued:hover, .dock .queued:focus-visible { color: var(--accent); }
+
+.dock .queued:focus-visible { outline: none; }
 
 /* --- starting something --------------------------------------------------- */
 
