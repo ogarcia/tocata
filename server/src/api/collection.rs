@@ -36,6 +36,33 @@ use utoipa::IntoParams;
 /// once, so the first screenful takes one request.
 const PAGE: i64 = 50;
 
+/// What a track's row is read from, up to the `WHERE`.
+///
+/// Written once because two things read it: the listing, and one track on its own.
+/// They have to agree — the second is what the player asks for when it moves to a
+/// track the listing never fetched, and a title that came out differently there
+/// would be a different song as far as anybody watching the sidebar is concerned.
+///
+/// The credits are read through their role, and the roles are the ones the scanner
+/// writes: `artist` on a track and `albumartist` on a record. Anything else comes
+/// back null in silence.
+macro_rules! a_tracks_row {
+    () => {
+        "SELECT t.public_id, t.title,
+                (SELECT group_concat(a.name, ', ')
+                   FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+                  WHERE ta.track_id = t.id AND ta.role = 'artist') AS artists,
+                al.name AS album, al.public_id AS album_id,
+                (SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
+                  WHERE tg.track_id = t.id ORDER BY g.name LIMIT 1) AS genre,
+                t.track_number, t.duration_ms, t.missing_since IS NOT NULL AS missing
+           FROM tracks t
+           LEFT JOIN albums al ON al.id = t.album_id
+           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
+           LEFT JOIN artists ar ON ar.id = aa.artist_id"
+    };
+}
+
 /// And the most anybody may ask for at once. A listing is for reading; asking for
 /// everything is what the queue is for, and it answers in identifiers.
 const MOST: i64 = 200;
@@ -132,19 +159,8 @@ pub async fn tracks(
     builder.push_bind(who);
     builder.push(concat!(
         visible_libraries_tail!(),
-        "SELECT t.public_id, t.title,
-                (SELECT group_concat(a.name, ', ')
-                   FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
-                  WHERE ta.track_id = t.id AND ta.role = 'artist') AS artists,
-                al.name AS album, al.public_id AS album_id,
-                (SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
-                  WHERE tg.track_id = t.id ORDER BY g.name LIMIT 1) AS genre,
-                t.duration_ms, t.missing_since IS NOT NULL AS missing
-           FROM tracks t
-           LEFT JOIN albums al ON al.id = t.album_id
-           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
-           LEFT JOIN artists ar ON ar.id = aa.artist_id
-          WHERE t.library_id IN (SELECT id FROM visible_libraries)"
+        a_tracks_row!(),
+        " WHERE t.library_id IN (SELECT id FROM visible_libraries)"
     ));
     narrow(&mut builder, &filter);
     // By artist, then record, then the order the songs are in on it.
@@ -176,6 +192,49 @@ pub async fn tracks(
         total,
         tracks: rows.into_iter().map(Track::from).collect(),
     }))
+}
+
+/// One track
+///
+/// The same row a listing draws, for one track named by its identifier.
+///
+/// What asks for this is a player moving through a queue. A queue is identifiers —
+/// that is what makes it affordable to hold thousands of them — so the moment it
+/// steps onto a track that was never on screen, nothing knows what to call it. This
+/// is that answer, and it reads the same columns the listing does, so the sidebar and
+/// the row it came from cannot disagree about a title.
+///
+/// A track in a library this account may not see is not a track it may know exists,
+/// so that answers the same 404 as one that is not there at all.
+#[utoipa::path(
+    get,
+    path = "/tracks/{id}",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 200, description = "The track", body = Track),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such track, or not one you may see", body = ErrorBody),
+    )
+)]
+pub async fn track(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<Track>, ApiError> {
+    let row: Option<TrackRow> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        a_tracks_row!(),
+        " WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(panel.user.id)
+    .bind(&id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading a track"))?;
+
+    row.map(|row| Json(Track::from(row)))
+        .ok_or(ApiError::NotFound)
 }
 
 /// What to play
@@ -639,6 +698,7 @@ struct TrackRow {
     album: Option<String>,
     album_id: Option<String>,
     genre: Option<String>,
+    track_number: Option<i64>,
     duration_ms: Option<i64>,
     missing: bool,
 }
@@ -652,6 +712,7 @@ impl From<TrackRow> for Track {
             album: row.album,
             album_id: row.album_id,
             genre: row.genre,
+            track_number: row.track_number,
             // Milliseconds in the row and seconds in the answer, like every other
             // length this API reports.
             duration: row.duration_ms.map(|ms| ms / 1000),
@@ -899,6 +960,40 @@ mod tests {
         }
     }
 
+    /// A second account, walled off from the second library.
+    ///
+    /// Its own name because `somebody` always inserts `ana`, and a test that wants
+    /// both a restricted account and an unrestricted one in the same collection
+    /// cannot have them both be her.
+    async fn somebody_else(pool: &SqlitePool) -> Panel {
+        let at = db::now();
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('bea', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, 1)")
+            .bind(id)
+            .execute(pool)
+            .await
+            .unwrap();
+
+        Panel {
+            id: 2,
+            user: User {
+                id,
+                username: "bea".to_string(),
+                is_admin: false,
+            },
+            expires_at: "2999-01-01T00:00:00Z".to_string(),
+        }
+    }
+
     /// The same session again, for a test that makes more than one call: a
     /// `Panel` is consumed by the handler that takes it.
     fn again(panel: &Panel) -> Panel {
@@ -947,6 +1042,50 @@ mod tests {
 
         assert_eq!(albums.total, 1);
         assert_eq!(albums.albums[0].name, "El Patio");
+    }
+
+    /// One track on its own reads the same as its row in the listing, and stays
+    /// behind the same wall.
+    ///
+    /// This is what a player asks for when its queue steps onto a track that was
+    /// never on screen, so the two answers have to be the same answer — hence one
+    /// statement shared between them and this comparing the two rather than
+    /// checking the fields by hand.
+    ///
+    /// The wall matters more here than in the listing. A listing narrows to what
+    /// somebody may see, so a restricted account never learns the identifier of
+    /// anything else; but an identifier that leaked some other way would be a way
+    /// to read a title out of a library that account was walled off from.
+    #[tokio::test]
+    async fn one_track_reads_the_same_as_its_row_and_stays_behind_the_same_wall() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let ana_again = again(&ana);
+
+        let Json(listed) = tracks(ana, State(pool.clone()), nothing(), all_of_it())
+            .await
+            .unwrap();
+
+        let row = listed
+            .tracks
+            .iter()
+            .find(|track| track.album.as_deref() == Some("Hijos del Agobio"))
+            .expect("the fixture has one in the second library");
+
+        let Json(alone) = track(ana_again, State(pool.clone()), UrlPath(row.id.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(&alone, row, "asked for on its own it is the same track");
+
+        // The same identifier, asked for by somebody walled off from that library.
+        let walled = somebody_else(&pool).await;
+        let refused = track(walled, State(pool.clone()), UrlPath(row.id.clone())).await;
+
+        assert!(
+            matches!(refused, Err(ApiError::NotFound)),
+            "a track in a library you may not see is not a track you may know exists"
+        );
     }
 
     /// And the same account with no restriction sees the lot, so the test above

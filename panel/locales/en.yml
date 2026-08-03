@@ -124,6 +124,16 @@ collection:
   one_album: "1 album"
   many_albums: "%{count} albums"
 
+# The player at the foot of the sidebar, and the buttons that fill it.
+player:
+  loading: Reading it…
+  previous: Previous
+  toggle: Play or pause
+  next: Next
+  queued: How many are queued
+  play_this: Play this
+  play_record: Play this record
+
 # How long ago. A section of its own because half the panel says it: library rows,
 # key rows, session rows and the last scan. The short ones are for a figure
 # standing over its label, where the "ago" is already understood.

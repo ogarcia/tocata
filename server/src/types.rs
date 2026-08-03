@@ -690,6 +690,9 @@ pub struct Track {
     pub album_id: Option<String>,
     /// The first one, since a row has space for one.
     pub genre: Option<String>,
+    /// Where it sits on its record. What a row shows in the column its play button
+    /// lives in, so the column says something at rest instead of standing empty.
+    pub track_number: Option<i64>,
     /// Seconds, like every other length in this API.
     pub duration: Option<i64>,
     /// Its file is not where it was. The row says so and stays in the listing,

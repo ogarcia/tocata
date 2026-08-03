@@ -136,6 +136,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(resources::read))
         .routes(routes!(purge::preview))
         .routes(routes!(collection::tracks))
+        .routes(routes!(collection::track))
         .routes(routes!(collection::queue))
         .routes(routes!(collection::albums))
         .routes(routes!(collection::artists))

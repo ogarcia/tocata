@@ -18,6 +18,7 @@ mod layout;
 mod locale;
 mod login;
 mod pages;
+mod player;
 mod theme;
 
 // Compiles the translations in. `fallback` is what a key missing from a
@@ -111,6 +112,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     // every route on the way there.
     provide_context(theme);
     provide_context(accent::Accent(accent));
+
+    // One player for the whole panel, above the router so it outlives every screen:
+    // walking from Tracks to Albums must not stop the music, and two of these would
+    // be two things sounding at once. The screens put music into it and the sidebar
+    // draws it, neither knowing about the other.
+    provide_context(player::Player::new());
 
     // One stream for the whole panel, opened here and read wherever it is wanted:
     // the header says a scan is running, and where you land shows that in full
@@ -289,7 +296,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 16] = [
+    const SOURCES: [&str; 17] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -306,6 +313,7 @@ mod tests {
         include_str!("pages/artists.rs"),
         include_str!("pages/genres.rs"),
         include_str!("pages/endless.rs"),
+        include_str!("player.rs"),
     ];
 
     /// The stylesheet and the panel agree on which accent is the default.

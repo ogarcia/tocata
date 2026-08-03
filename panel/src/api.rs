@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use tocata::types::{
     Account, AccountChanges, Albums, Artists, Closed, Credentials, Genres, Identity, Key, Library,
     LibraryAccess, LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences,
-    Revoked, Settings, SettingsChanges, Stats, Tracks,
+    Revoked, Settings, SettingsChanges, Stats, Track, Tracks,
 };
 use web_sys::RequestCredentials;
 
@@ -336,6 +336,67 @@ pub async fn albums(search: &str, offset: usize, limit: i64) -> Result<Albums, F
 /// A window of the collection's artists, narrowed the same way.
 pub async fn artists(search: &str, offset: usize, limit: i64) -> Result<Artists, Failure> {
     read(get(&format!("/artists?{}", window(search, offset, limit)))?).await
+}
+
+/// One track, by identifier.
+///
+/// What the player asks as it steps onto a track: a queue is identifiers, so this is
+/// where it learns what to call the one now sounding.
+pub async fn track(id: &str) -> Result<Track, Failure> {
+    read(get(&format!("/tracks/{id}"))?).await
+}
+
+/// Everything a filter matches, as identifiers, to be played.
+///
+/// `shuffle` draws the order before any limit is applied, so a shuffled few hundred
+/// are a sample of the whole rather than the first few hundred in a jumble.
+pub async fn queue(
+    search: &str,
+    album: Option<&str>,
+    artist: Option<&str>,
+    shuffle: bool,
+    limit: Option<i64>,
+) -> Result<Vec<String>, Failure> {
+    let mut query = String::new();
+
+    if !search.is_empty() {
+        query.push_str(&format!(
+            "search={}&",
+            String::from(js_sys::encode_uri_component(search))
+        ));
+    }
+    if let Some(album) = album {
+        query.push_str(&format!("album={album}&"));
+    }
+    if let Some(artist) = artist {
+        query.push_str(&format!("artist={artist}&"));
+    }
+    if shuffle {
+        query.push_str("shuffle=true&");
+    }
+    if let Some(limit) = limit {
+        query.push_str(&format!("limit={limit}"));
+    }
+
+    read::<tocata::types::Queue>(get(&format!("/tracks/ids?{query}"))?)
+        .await
+        .map(|queue| queue.tracks)
+}
+
+/// Where a track's audio is, for an `<audio>` element to point at.
+pub fn audio(track: &str) -> String {
+    format!("{BASE}/tracks/{track}/audio")
+}
+
+/// Counts a play, once somebody has heard enough of it.
+pub async fn count_play(id: &str) -> Result<(), Failure> {
+    plain(
+        Request::post(&url(&format!("/tracks/{id}/played")))
+            .credentials(RequestCredentials::SameOrigin)
+            .build()
+            .map_err(|_| Failure::Unreachable)?,
+    )
+    .await
 }
 
 /// A window of the collection's genres, narrowed the same way.

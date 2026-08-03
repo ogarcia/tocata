@@ -2075,13 +2075,13 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 .listing-head, .listing > li {
   display: grid;
   grid-template-columns:
-    minmax(12.5rem, 3fr) minmax(9.375rem, 2fr) minmax(9.375rem, 2fr) minmax(6.875rem, 1fr) 4.625rem;
+    1.75rem minmax(12.5rem, 3fr) minmax(9.375rem, 2fr) minmax(9.375rem, 2fr) minmax(6.875rem, 1fr) 4.625rem;
   gap: 1.25rem;
   /* The twelve pixels the scroll box outside is pulled out by, so a row's tint and
    * its hairline run past the text on both sides while the text stays in line with
    * the rest of the screen. */
   padding: 0 0.75rem;
-  min-width: 49.25rem;
+  min-width: 52.25rem;
 }
 
 /* The strip of air left over the heading once it has come to rest, which the rows
@@ -2162,6 +2162,214 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * says why it is dim. */
 .listing > li.gone { opacity: 0.55; }
 
+/* --- what is sounding ----------------------------------------------------- */
+
+/* At the foot of the column rather than across the bottom of the window, on the
+ * principle the whole column runs on: everything permanently live is in the left
+ * column and the screen keeps its full height. Three rows — what it is, where it has
+ * got to, and the controls. */
+.dock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.125rem 1.625rem;
+}
+
+/* The cover, and the two lines beside it. `min-width: 0` on both, or a long title
+ * pushes the art off the column instead of ending in an ellipsis. */
+.dock .sounding {
+  display: flex;
+  align-items: center;
+  gap: 0.6875rem;
+  min-width: 0;
+}
+
+.dock .art {
+  flex: none;
+  width: 2.375rem;
+  height: 2.375rem;
+  border-radius: 3px;
+}
+
+.dock .art .icon {
+  width: 1.1875rem;
+  height: 1.1875rem;
+}
+
+.dock .what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+  font-size: var(--control);
+}
+
+/* Both lines give way rather than wrap: the column is fifteen rem wide and a title
+ * that wrapped onto three lines would push the controls about. */
+.dock .what > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock .by {
+  color: var(--quiet);
+  font-size: var(--lettering);
+}
+
+/* Elapsed, the line, and the whole. The same 2px idiom as the scan and the process
+ * bars, so nothing new enters the design. */
+.dock .along {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--quiet);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two pixels, and in `rem` rather than in `px` unlike every rule in this sheet:
+ * a hairline divides and has to stay one physical pixel, but this measures, and
+ * something that measures should grow with the text it is measuring for. */
+.dock .track {
+  flex: 1;
+  height: 0.125rem;
+  background: var(--line);
+}
+
+.dock .track > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.dock .transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Back and forward, quiet until they are wanted. */
+.dock .step {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+}
+
+.dock .step:hover { color: var(--ink); }
+
+.dock .step .icon {
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+/* The one control that is a shape rather than a glyph on its own: it is the thing
+ * somebody reaches for without looking, so it has an outline to aim at. */
+.dock .toggle {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.dock .toggle:hover { border-color: var(--accent); }
+
+.dock .toggle .icon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+/* How much is waiting behind this one. Not a button: there is nowhere yet to look at
+ * a queue, and the count is worth saying on its own. */
+.dock .queued {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.375rem;
+  color: var(--quiet);
+  font-size: var(--lettering);
+  font-variant-numeric: tabular-nums;
+}
+
+.dock .queued .icon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+/* --- starting something --------------------------------------------------- */
+
+/* The first column of a track's row: its number at rest, the play triangle when the
+ * pointer is over the row, and a pause on the row that is sounding.
+ *
+ * The two are stacked rather than swapped, so the column never changes width as the
+ * pointer crosses it — and the one on top carries the paper, or the number would
+ * show through the triangle. Pulled left by six pixels so the glyph sits over the
+ * row's own left edge rather than indented from it. */
+.starter {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-left: -0.375rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.starter .acting {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  color: var(--accent);
+  opacity: 0;
+}
+
+/* On hover of the whole row, not of the button: the target is small and the row is
+ * what the pointer is over. */
+.listing > li:hover .starter .acting { opacity: 1; }
+
+.starter .icon {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+.starter .resting {
+  display: grid;
+  place-items: center;
+}
+
+/* The row that is sounding says so without being hovered, and says it in the accent
+ * across the whole row. */
+.listing > li.sounding { color: var(--accent); }
+
+.listing > li.sounding .starter .acting { opacity: 1; }
+
+.listing > li.sounding .by,
+.listing > li.sounding .from,
+.listing > li.sounding .kind,
+.listing > li.sounding .figure { color: inherit; }
+
 /* --- the records ---------------------------------------------------------- */
 
 /* As many columns as fit rather than a number of them, so the same markup is two
@@ -2181,6 +2389,50 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   gap: 0.5625rem;
   min-width: 0;
 }
+
+/* The square, and the button over it. Nothing but a frame for the two of them to be
+ * positioned against. */
+.cover {
+  position: relative;
+  display: block;
+}
+
+/* A circle in the middle of the cover, there only while the pointer is on the
+ * record. Deliberately not the whole square: the rest of the cover is what will open
+ * the record itself, and a target that filled it would leave nowhere to press for
+ * that. The wash behind is what keeps a white glyph legible over a pale sleeve. */
+.cover .over {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: light-dark(rgb(28 28 30 / 30%), rgb(0 0 0 / 45%));
+  opacity: 0;
+  cursor: pointer;
+}
+
+.cover .over::before {
+  content: "";
+  position: absolute;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+.cover .over .icon {
+  position: relative;
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--ink);
+  /* The triangle's mass is to the left of its box, so centring the box leaves it
+   * looking left of centre in the circle. */
+  margin-left: 0.1875rem;
+}
+
+.sleeve:hover .cover .over, .cover .over:focus-visible { opacity: 1; }
 
 /* Square whether or not there is anything in it, so the names below sit on one
  * line across the shelf rather than stepping up and down with the art.
@@ -2383,18 +2635,26 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
    *
    * Set out by area rather than by order, so the pairs can be built out of cells
    * the markup lists one after another. */
-  .listing .what { grid-column: 1 / -1; }
+  /* The number and its button stay on the title's line, which is the line that was
+   * left holding one thing across its whole width for exactly this. Everything below
+   * lines up with the title rather than with the edge of the row, so the number
+   * stands at the head of the three lines it belongs to. */
+  .listing > li { grid-template-columns: 1.75rem minmax(0, 1fr) auto; }
 
-  .listing .by { grid-area: 2 / 1; }
+  .listing .starter { grid-area: 1 / 1; }
+
+  .listing .what { grid-area: 1 / 2 / 1 / 4; }
+
+  .listing .by { grid-area: 2 / 2; }
 
   .listing .kind {
-    grid-area: 2 / 2;
+    grid-area: 2 / 3;
     text-align: right;
   }
 
-  .listing .from { grid-area: 3 / 1; }
+  .listing .from { grid-area: 3 / 2; }
 
-  .listing .figure { grid-area: 3 / 2; }
+  .listing .figure { grid-area: 3 / 3; }
 
   /* All four at the size every second line in this panel is set at, so each pair
    * reads as one line rather than as a value with a caption beside it. */

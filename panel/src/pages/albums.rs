@@ -19,6 +19,7 @@ use super::endless::{Fetch, Foot, Reel};
 use crate::api;
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use rust_i18n::t;
 use tocata::types::Album;
 
@@ -85,7 +86,23 @@ pub fn Albums(on_expired: Callback<()>) -> impl IntoView {
 /// One record: its cover, its name, who made it, and what it is.
 #[component]
 fn Sleeve(album: Album) -> impl IntoView {
+    let player = crate::player::player();
     let who = album.artist.unwrap_or_else(|| super::MISSING.to_string());
+
+    // A record is a narrowing of its own, so the whole of it goes in the queue
+    // however long it is — no sitting's cap here, unlike an unfiltered listing of
+    // every track there is. Somebody who pressed play on a record asked for that
+    // record.
+    let id = StoredValue::new(album.id.clone());
+    let start = move |_| {
+        let mine = id.get_value();
+
+        spawn_local(async move {
+            if let Ok(queue) = api::queue("", Some(&mine), None, false, None).await {
+                player.play(queue, 0);
+            }
+        });
+    };
 
     // When it came out, how much of it there is and how long it lasts, joined with
     // dots — and joined rather than laid out, because a record with no year is not
@@ -109,23 +126,34 @@ fn Sleeve(album: Album) -> impl IntoView {
 
     view! {
         <div class="sleeve">
-            // Asked for only where the listing says there is one, so a shelf of
-            // records with no art is not a shelf of requests for pictures that are
-            // not there. And lazily, because a window of fifty covers on a grid two
-            // rows tall is forty-odd images nobody has scrolled to yet.
-            {if album.cover {
-                view! {
-                    <img class="art" src=api::cover(&album.id) alt="" loading="lazy" />
-                }
-                    .into_any()
-            } else {
-                view! {
-                    <span class="art">
-                        <Glyph icon=Icon::Albums />
-                    </span>
-                }
-                    .into_any()
-            }}
+            // The cover, and over it the button that plays the record. The button is
+            // its own target rather than the whole square, which the mockups do not
+            // cover and which matters for what comes next: the rest of the cover is
+            // what will open the record's own panel, and a play button filling it
+            // would leave nowhere to press for that.
+            <span class="cover">
+                // Asked for only where the listing says there is one, so a shelf of
+                // records with no art is not a shelf of requests for pictures that
+                // are not there. And lazily, because a window of fifty covers on a
+                // grid two rows tall is forty-odd images nobody has scrolled to yet.
+                {if album.cover {
+                    view! {
+                        <img class="art" src=api::cover(&album.id) alt="" loading="lazy" />
+                    }
+                        .into_any()
+                } else {
+                    view! {
+                        <span class="art">
+                            <Glyph icon=Icon::Albums />
+                        </span>
+                    }
+                        .into_any()
+                }}
+
+                <button class="over" title=t!("player.play_record") on:click=start>
+                    <Glyph icon=Icon::Play />
+                </button>
+            </span>
 
             // Three lines: what it is called, who made it, and what it is. The last
             // two are inside the first because the three are one label for one

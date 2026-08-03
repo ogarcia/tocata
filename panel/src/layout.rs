@@ -28,6 +28,7 @@
 
 use crate::api;
 use crate::icon::{Glyph, Icon};
+use crate::pages;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
@@ -174,12 +175,15 @@ pub fn Shell(
                     </Show>
                 </nav>
 
-                // Against the bottom, in the order they were added to the panel's
-                // life: what the server is doing now, then who is asking.
+                // Against the bottom, in the order of how long each has been
+                // there: what the server is doing, then what is sounding, then
+                // who is asking. Scanning above playback, never sharing an edge
+                // with it.
                 <div class="foot">
                     <Show when=move || admin>
                         <ScanStrip scan />
                     </Show>
+                    <Dock />
                     <WhoAmI identity on_out fold />
                 </div>
             </aside>
@@ -300,6 +304,162 @@ fn ScanStrip(scan: ReadSignal<Option<Status>>) -> impl IntoView {
                         running().and_then(|status| status.path.or(status.library)).unwrap_or_default()
                     }}
                 </span>
+            </div>
+        </Show>
+    }
+}
+
+/// What is sounding, at the foot of the column.
+///
+/// Here rather than across the bottom of the window on the principle the whole
+/// column runs on: everything permanently live lives in the left column, and the
+/// screen keeps its full height. A strip across the foot would take a band off every
+/// screen to hold what this holds.
+///
+/// Nothing at all until something has been played. An idle player showing a blank
+/// square and a dead progress line is furniture.
+///
+/// The `<audio>` element is the whole of the machinery. It is what actually plays,
+/// what knows where it has got to, and what says whether it is running — this only
+/// points it at a file and reads back what it reports. Hidden, because the browser's
+/// own controls would be a second set of buttons doing what the three below do.
+#[component]
+fn Dock() -> impl IntoView {
+    let player = crate::player::player();
+    let sound = NodeRef::<leptos::html::Audio>::new();
+
+    // Pressing play is asking the element to play, which can be refused — a file
+    // that will not decode, a browser that wants a gesture first. So the signal is
+    // followed rather than trusted: this asks, and what comes back is whatever the
+    // element then reports through `on:play` and `on:pause`.
+    Effect::new(move |_| {
+        let Some(audio) = sound.get() else { return };
+
+        if player.playing.get() {
+            let _ = audio.play();
+        } else {
+            let _ = audio.pause();
+        }
+    });
+
+    // Going back to the start of the current track is a seek rather than a reload:
+    // the file is already there.
+    Effect::new(move |_| {
+        let Some(audio) = sound.get() else { return };
+
+        if player.elapsed.get() == 0.0 && audio.current_time() > 3.0 {
+            audio.set_current_time(0.0);
+        }
+    });
+
+    let title = move || {
+        player
+            .now
+            .get()
+            .map(|track| track.title)
+            .unwrap_or_else(|| t!("player.loading").to_string())
+    };
+
+    let who = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.artists)
+            .unwrap_or_default()
+    };
+
+    // How far along, as a percentage for the fill to be wide. Guarded against a
+    // length of zero, which is what a track reports before its metadata arrives.
+    let along = move || {
+        let (elapsed, whole) = (player.elapsed.get(), player.duration.get());
+        let share = if whole > 0.0 {
+            (elapsed / whole * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+
+        format!("width: {share}%")
+    };
+
+    view! {
+        <Show when=move || player.loaded()>
+            <div class="dock">
+                <audio
+                    node_ref=sound
+                    src=move || player.current().map(|id| api::audio(&id)).unwrap_or_default()
+                    on:timeupdate:target=move |e| {
+                        player.ticked(e.target().current_time(), e.target().duration())
+                    }
+                    on:play=move |_| player.playing.set(true)
+                    on:pause=move |_| player.playing.set(false)
+                    on:ended=move |_| player.next()
+                ></audio>
+
+                <div class="sounding">
+                    // The cover of the record it is from, which is the one picture
+                    // the sidebar has room for.
+                    {move || match player.now.get().and_then(|track| track.album_id) {
+                        Some(album) => {
+                            view! { <img class="art" src=api::cover(&album) alt="" /> }.into_any()
+                        }
+                        None => {
+                            view! {
+                                <span class="art">
+                                    <Glyph icon=Icon::Albums />
+                                </span>
+                            }
+                                .into_any()
+                        }
+                    }}
+
+                    <span class="what">
+                        <span>{title}</span>
+                        <span class="by">{who}</span>
+                    </span>
+                </div>
+
+                <div class="along">
+                    <span>{move || pages::length(player.elapsed.get() as i64)}</span>
+                    <span class="track">
+                        <span style=along></span>
+                    </span>
+                    <span>{move || pages::length(player.duration.get() as i64)}</span>
+                </div>
+
+                <div class="transport">
+                    <button
+                        class="step"
+                        title=t!("player.previous")
+                        on:click=move |_| player.previous()
+                    >
+                        <Glyph icon=Icon::Previous />
+                    </button>
+
+                    <button
+                        class="toggle"
+                        title=t!("player.toggle")
+                        on:click=move |_| player.toggle()
+                    >
+                        {move || {
+                            if player.playing.get() {
+                                view! { <Glyph icon=Icon::Pause /> }
+                            } else {
+                                view! { <Glyph icon=Icon::Play /> }
+                            }
+                        }}
+                    </button>
+
+                    <button class="step" title=t!("player.next") on:click=move |_| player.next()>
+                        <Glyph icon=Icon::Next />
+                    </button>
+
+                    // How much is queued behind this. Not a button yet: the queue has
+                    // nowhere to be looked at, and a count is worth saying on its own.
+                    <span class="queued" title=t!("player.queued")>
+                        <Glyph icon=Icon::Playlists />
+                        {move || thousands(player.queue.with(Vec::len) as u64)}
+                    </span>
+                </div>
             </div>
         </Show>
     }

@@ -32,6 +32,14 @@ pub enum Icon {
     Key,
     Search,
     Loading,
+    /// The filled triangle a player is started with, as against the outlined one
+    /// that stands for a count of plays.
+    Play,
+    Pause,
+    Previous,
+    Next,
+    /// On the row that is sounding, where another row has its number.
+    Sounding,
     Plays,
     Favourites,
     Ratings,
@@ -63,6 +71,11 @@ impl Icon {
             // An open arc rather than the scan's two arrows: what turns here is
             // one thing arriving, not a cycle going round again.
             Self::Loading => include_str!("../icons/loading.svg"),
+            Self::Play => include_str!("../icons/play-solid.svg"),
+            Self::Pause => include_str!("../icons/pause.svg"),
+            Self::Previous => include_str!("../icons/previous.svg"),
+            Self::Next => include_str!("../icons/next.svg"),
+            Self::Sounding => include_str!("../icons/sounding.svg"),
             Self::Plays => include_str!("../icons/play.svg"),
             Self::Favourites => include_str!("../icons/heart.svg"),
             Self::Ratings => include_str!("../icons/star.svg"),
