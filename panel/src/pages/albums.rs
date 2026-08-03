@@ -98,7 +98,7 @@ fn Sleeve(album: Album) -> impl IntoView {
         } else {
             t!("albums.many_tracks", count = super::thousands(album.tracks)).to_string()
         }),
-        album.duration.map(super::tracks::length),
+        album.duration.map(super::runs),
     ];
 
     let facts = facts.into_iter().flatten().collect::<Vec<_>>().join(" · ");

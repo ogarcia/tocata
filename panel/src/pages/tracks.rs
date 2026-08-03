@@ -123,7 +123,7 @@ fn Row(track: Track) -> impl IntoView {
             <span class="from">{track.album.unwrap_or_else(|| super::MISSING.to_string())}</span>
             <span class="kind">{track.genre.unwrap_or_else(|| super::MISSING.to_string())}</span>
             <span class="figure">
-                {track.duration.map(length).unwrap_or_else(|| super::MISSING.to_string())}
+                {track.duration.map(super::length).unwrap_or_else(|| super::MISSING.to_string())}
             </span>
         </li>
     }
@@ -139,40 +139,5 @@ fn held(total: Option<i64>) -> String {
         None => t!("common.loading").to_string(),
         Some(1) => t!("tracks.one").to_string(),
         Some(count) => t!("tracks.many", count = super::thousands(count)).to_string(),
-    }
-}
-
-/// Minutes and seconds, and hours only when there are any.
-///
-/// Zero-padded from the minutes down but never at the front: "3:44" rather than
-/// "03:44", which is how a length is written everywhere it is read as one.
-pub fn length(seconds: i64) -> String {
-    let seconds = seconds.max(0);
-    let (hours, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
-
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::length;
-
-    #[test]
-    fn a_length_is_written_the_way_a_length_is_read() {
-        assert_eq!(length(224), "3:44");
-        assert_eq!(length(0), "0:00");
-        assert_eq!(length(9), "0:09");
-        assert_eq!(length(60), "1:00");
-        // The minutes are padded once there are hours in front of them, and not
-        // before: "1:2:03" is not a time.
-        assert_eq!(length(3723), "1:02:03");
-        assert_eq!(length(36_000), "10:00:00");
-        // Nothing sends a negative length. If something did, the row would say
-        // zero rather than an hour with a minus in the middle of it.
-        assert_eq!(length(-5), "0:00");
     }
 }

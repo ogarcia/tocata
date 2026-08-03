@@ -193,6 +193,35 @@ pub fn thousands(count: i64) -> String {
     if count < 0 { format!("-{out}") } else { out }
 }
 
+/// How long one track lasts.
+///
+/// Zero-padded from the minutes down but never at the front: "3:44" rather than
+/// "03:44", which is how a length is written everywhere it is read as one. Hours
+/// appear only when there are any — a recording of a whole concert is one track,
+/// and "97:20" is not how anybody says an hour and a half.
+pub fn length(seconds: i64) -> String {
+    let seconds = seconds.max(0);
+    let (hours, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+/// How long a record runs, in minutes and seconds however many minutes that is.
+///
+/// Never hours, unlike a single track. A record sits on a line with two other
+/// figures beside it, and a third group of digits appearing on the long ones alone
+/// is what makes that line ragged down a shelf — where "78:45" reads as a record's
+/// length to anybody who has ever looked at the back of a sleeve.
+pub fn runs(seconds: i64) -> String {
+    let seconds = seconds.max(0);
+
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
 /// Powers of two, and the unit spelled the way the standard spells it. Not
 /// translated: a unit symbol is a symbol.
 pub fn bytes(count: i64) -> String {
@@ -320,5 +349,40 @@ pub fn said(why: &Failure) -> String {
             _ => t!("common.refused").to_string(),
         },
         Failure::Unauthenticated => t!("common.refused").to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{length, runs};
+
+    #[test]
+    fn a_length_is_written_the_way_a_length_is_read() {
+        assert_eq!(length(224), "3:44");
+        assert_eq!(length(0), "0:00");
+        assert_eq!(length(9), "0:09");
+        assert_eq!(length(60), "1:00");
+        // The minutes are padded once there are hours in front of them, and not
+        // before: "1:2:03" is not a time.
+        assert_eq!(length(3723), "1:02:03");
+        assert_eq!(length(36_000), "10:00:00");
+        // Nothing sends a negative length. If something did, the row would say zero
+        // rather than an hour with a minus in the middle of it.
+        assert_eq!(length(-5), "0:00");
+    }
+
+    /// A record's length never grows a third group of digits, however long it is.
+    #[test]
+    fn a_record_runs_for_minutes_however_many_there_are() {
+        assert_eq!(runs(2796), "46:36");
+        assert_eq!(runs(0), "0:00");
+        assert_eq!(runs(59), "0:59");
+        // An hour and a quarter, which a track would call 1:15:00 and a record
+        // calls what it says on the sleeve.
+        assert_eq!(runs(4500), "75:00");
+        // A boxed set. Still minutes, because the alternative is one shelf where
+        // some records carry hours and the rest do not.
+        assert_eq!(runs(38_524), "642:04");
+        assert_eq!(runs(-5), "0:00");
     }
 }

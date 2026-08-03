@@ -2170,7 +2170,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * third of the window each, which is a shelf of three enormous covers. */
 .shelves {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(10.625rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
   gap: 1.625rem 1.375rem;
 }
 
