@@ -46,6 +46,9 @@ pub enum Icon {
     /// Takes something out of a list without destroying it, which is why it is a
     /// cross and not the bin that removes a thing for good.
     Close,
+    /// What a row is dragged by. Two columns of dots, which is the one shape that
+    /// says "hold me" without saying anything else.
+    Handle,
     Plays,
     Favourites,
     Ratings,
@@ -83,6 +86,7 @@ impl Icon {
             Self::Next => include_str!("../icons/next.svg"),
             Self::Sounding => include_str!("../icons/sounding.svg"),
             Self::Close => include_str!("../icons/close.svg"),
+            Self::Handle => include_str!("../icons/handle.svg"),
             Self::Plays => include_str!("../icons/play.svg"),
             Self::Favourites => include_str!("../icons/heart.svg"),
             Self::Ratings => include_str!("../icons/star.svg"),

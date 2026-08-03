@@ -203,6 +203,26 @@ impl Player {
         }
     }
 
+    /// Moves a track in what is coming from one place to another.
+    ///
+    /// Both ends have to be ahead of what is sounding, for the same reason as
+    /// dropping one: nothing here may disturb the track being played or where we are
+    /// in the queue, so `at` never needs adjusting.
+    pub fn move_in_queue(&self, from: usize, to: usize) {
+        let now = self.at.get_untracked();
+
+        if from <= now || to <= now || from == to {
+            return;
+        }
+
+        self.queue.update(|queue| {
+            if from < queue.len() && to < queue.len() {
+                let moved = queue.remove(from);
+                queue.insert(to, moved);
+            }
+        });
+    }
+
     /// How far through, from nought to one. What the bar is filled with, and the one
     /// place that guards against the length being zero — which is what a track
     /// reports until its metadata has arrived.

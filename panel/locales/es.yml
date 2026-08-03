@@ -145,6 +145,7 @@ queue:
   many_ahead: "%{count} pistas por delante"
   nothing_ahead: Nada después de esta.
   drop: Sacarla de la cola
+  reorder: Mantén pulsado para moverla
 
 # Cuánto hace. Sección propia porque lo usa media interfaz: filas de bibliotecas,
 # de claves, de sesiones y el último escaneo. Las cortas son para una cifra que va

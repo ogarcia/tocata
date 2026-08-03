@@ -576,6 +576,12 @@ fn Afoot(on_open: Callback<()>) -> impl IntoView {
     }
 }
 
+/// How far the sheet has to be pushed down before letting go closes it.
+///
+/// A fifth of a tall phone. Short enough to be an easy flick, far enough that reaching
+/// for the cover and slipping does not put the player away.
+const SHOVED: f64 = 160.0;
+
 /// The player at full height, over whatever was on screen.
 ///
 /// A sheet and not a route, which is the whole of why it works: the listing behind it
@@ -594,6 +600,10 @@ fn Afoot(on_open: Callback<()>) -> impl IntoView {
 #[component]
 fn Sheet(open: RwSignal<bool>, queue: RwSignal<bool>) -> impl IntoView {
     let player = crate::player::player();
+
+    // Pushed back down to close, which is the gesture a sheet asks for by being one.
+    // Only downwards: there is nothing above it to reach.
+    let push = crate::drag::Drag::new();
 
     let title = move || {
         player
@@ -652,7 +662,27 @@ fn Sheet(open: RwSignal<bool>, queue: RwSignal<bool>) -> impl IntoView {
 
     view! {
         <Show when=move || open.get() && player.loaded()>
-            <div class="sheet-player">
+            <div
+                class="sheet-player"
+                class:pushed=move || push.going.get()
+                style=move || format!("transform: translateY({}px)", push.down().max(0.0))
+                on:pointerdown=move |e: web_sys::PointerEvent| {
+                    push.begin(&e);
+                }
+                on:pointermove=move |e: web_sys::PointerEvent| push.moved(&e)
+                on:pointerup=move |_| {
+                    // Far enough down and it goes; short of that it springs back,
+                    // which is what clearing the offset does on its own.
+                    if let Some((_, down)) = push.end()
+                        && down >= SHOVED
+                    {
+                        open.set(false);
+                    }
+                }
+                on:pointercancel=move |_| {
+                    push.end();
+                }
+            >
                 <header>
                     <button
                         class="tap"

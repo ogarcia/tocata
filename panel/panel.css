@@ -2521,7 +2521,13 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     flex-direction: column;
     background: var(--paper);
     padding-bottom: env(safe-area-inset-bottom);
+    /* The sheet takes the vertical gesture; there is nothing inside it to scroll. */
+    touch-action: none;
   }
+
+  /* Springs back when a push was not far enough, and follows the finger while it is
+   * happening. */
+  .sheet-player:not(.pushed) { transition: transform 200ms ease-out; }
 
   .sheet-player > header {
     display: flex;
@@ -2788,11 +2794,69 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * listings colour. */
 .rolling .row, .rolling .waiting > li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: 1.125rem minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--line);
+}
+
+/* The row that is sounding has no handle and nothing to drop it with, so its first and
+ * last cells stand empty rather than its columns being different ones: the two runs
+ * have to line up down the drawer. */
+.rolling .row > .what { grid-column: 2; }
+
+/* Hands the browser the vertical scroll and keeps the horizontal for the swipe, which
+ * is what stops a list from feeling like it is fighting the finger. Declared here and
+ * not in the handler, because a default the browser has already committed to cannot be
+ * taken back. */
+.rolling .waiting > li {
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+/* While a gesture is running the row follows the finger, so no transition; when it
+ * ends the offset goes back to nought and this is what makes it spring rather than
+ * jump. */
+.rolling .waiting > li:not(.sliding, .lifted) {
+  transition: transform 160ms ease-out, opacity 160ms ease-out;
+}
+
+/* Lifted off the list while it is being moved, so it is plainly the thing travelling
+ * and not the list scrolling under it. */
+.rolling .lifted {
+  position: relative;
+  z-index: 1;
+  background: var(--paper);
+  box-shadow: 0 6px 20px light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 45%));
+}
+
+/* What the row is dragged by, and the only part of it that takes a vertical gesture —
+ * `none` keeps both axes here, where everywhere else on the row the vertical one is
+ * the list being scrolled.
+ *
+ * `--quiet` and never `--line`: that is the hairline token, and a handle drawn in it
+ * disappears against the paper it sits on. */
+.rolling .handle {
+  display: grid;
+  gap: 0;
+  place-content: center;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  touch-action: none;
+  cursor: grab;
+}
+
+.rolling .handle:active { cursor: grabbing; }
+
+.rolling .handle .icon {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 .rolling .now { color: var(--accent); }

@@ -12,6 +12,7 @@
 
 mod accent;
 mod api;
+mod drag;
 mod events;
 mod icon;
 mod layout;

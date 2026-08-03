@@ -34,6 +34,16 @@ use tocata::types::Track;
 /// not doing anything the queue is for.
 const SHOWN: usize = 50;
 
+/// How tall a row in the queue is, which is what turns a gesture's distance into a
+/// number of rows to move by.
+///
+/// Written here as well as in the stylesheet, which is the one thing in this module
+/// that has to be kept in step with it: 12px of padding either side of two lines at
+/// 1.3, which is the shape every other row in the panel is. Being a little out only
+/// means a long drag lands a row early or late, so this is worth knowing rather than
+/// worth measuring on every move.
+const ROW: f64 = 61.0;
+
 /// The queue, over whatever was on screen.
 #[component]
 pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
@@ -171,11 +181,89 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
     }
 }
 
-/// One track waiting, and the way to drop it.
+/// How far a row has to be pushed sideways before letting go drops it.
+///
+/// Far enough that a thumb travelling down the list does not throw a track out by
+/// brushing past it, near enough that the gesture does not need the whole width.
+const SWIPED: f64 = 96.0;
+
+/// One track waiting: what it is, the way to drop it, and the two gestures.
 #[component]
 fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
+    // Two gestures on one row, each with its own axis, so neither has to work out
+    // whether it is the one being asked for.
+    let swipe = crate::drag::Drag::new();
+    let hold = crate::drag::Drag::new();
+
+    // Pushed sideways to be dropped. It follows the finger only outwards: dragging a
+    // row back past where it started would be dragging it the other way, and rows do
+    // not go anywhere in that direction.
+    let pushed = move || {
+        let across = swipe.across().min(0.0);
+        format!("transform: translateX({across}px); opacity: {}", {
+            let gone = (across.abs() / (SWIPED * 2.0)).min(0.6);
+            1.0 - gone
+        })
+    };
+
+    // Held to be moved. Rows are a fixed height in this drawer, so where it would land
+    // is how many of them the finger has travelled — no measuring, and no asking the
+    // browser what is under the pointer.
+    //
+    // Given the distance rather than reading it, because by the time the gesture has
+    // ended the offset is back to nought: that is what springs a short drag back.
+    let landing = move |down: f64| {
+        let rows = (down / ROW).round() as i64;
+        (at as i64 + rows).max(player.at.get() as i64 + 1) as usize
+    };
+
+    let lifted = move || format!("transform: translateY({}px)", hold.down());
+
     view! {
-        <li>
+        <li
+            class:sliding=move || swipe.going.get()
+            class:lifted=move || hold.going.get()
+            style=move || if hold.going.get() { lifted() } else { pushed() }
+            on:pointerdown=move |e: web_sys::PointerEvent| {
+                swipe.begin(&e);
+            }
+            on:pointermove=move |e: web_sys::PointerEvent| swipe.moved(&e)
+            on:pointerup=move |_| {
+                // Far enough out and it goes; anything short of that springs back,
+                // which is what `end` clearing the offset does on its own.
+                if let Some((across, _)) = swipe.end()
+                    && across <= -SWIPED
+                {
+                    player.drop_at(at);
+                }
+            }
+            on:pointercancel=move |_| {
+                swipe.end();
+            }
+        >
+            // What the row is dragged by, and the only part of it that takes a
+            // vertical gesture: everywhere else on the row that gesture is the list
+            // being scrolled.
+            <button
+                class="handle"
+                title=t!("queue.reorder")
+                on:pointerdown=move |e: web_sys::PointerEvent| {
+                    e.stop_propagation();
+                    hold.begin(&e);
+                }
+                on:pointermove=move |e: web_sys::PointerEvent| hold.moved(&e)
+                on:pointerup=move |_| {
+                    if let Some((_, down)) = hold.end() {
+                        player.move_in_queue(at, landing(down));
+                    }
+                }
+                on:pointercancel=move |_| {
+                    hold.end();
+                }
+            >
+                <Glyph icon=Icon::Handle />
+            </button>
+
             <span class="what">
                 <span>{track.title}</span>
                 <span class="by">{track.artists.unwrap_or_else(|| pages::MISSING.to_string())}</span>
@@ -186,7 +274,8 @@ fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
             </span>
 
             // Takes it out of what is coming. Not a deletion of anything: the track
-            // stays in the collection and this only changes what sounds next.
+            // stays in the collection and this only changes what sounds next. The
+            // same thing the swipe does, for a pointer that has no swipe.
             <button class="drop" title=t!("queue.drop") on:click=move |_| player.drop_at(at)>
                 <Glyph icon=Icon::Close />
             </button>
