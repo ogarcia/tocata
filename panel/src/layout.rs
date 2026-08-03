@@ -213,6 +213,12 @@ pub fn Shell(
             </header>
 
             <main class="body">{children()}</main>
+
+            // Outside the column on purpose. Both of these belong to the panel and
+            // not to the sections: the machine has to outlive the drawer opening and
+            // closing, and the bar has to be reachable while it is shut.
+            <Sound />
+            <Afoot />
         </div>
     }
 }
@@ -319,12 +325,17 @@ fn ScanStrip(scan: ReadSignal<Option<Status>>) -> impl IntoView {
 /// Nothing at all until something has been played. An idle player showing a blank
 /// square and a dead progress line is furniture.
 ///
-/// The `<audio>` element is the whole of the machinery. It is what actually plays,
-/// what knows where it has got to, and what says whether it is running — this only
-/// points it at a file and reads back what it reports. Hidden, because the browser's
-/// own controls would be a second set of buttons doing what the three below do.
+/// What actually plays, drawn nowhere.
+///
+/// One of these for the whole panel, and exactly one: there are two views of the
+/// player — the block in the column and the bar across the foot of a phone — and two
+/// `<audio>` elements would be two things sounding at once. So the machine is here on
+/// its own and the views only read from it and press its buttons.
+///
+/// It carries no `controls`, because the browser's own would be a second set of
+/// buttons doing what the views already do.
 #[component]
-fn Dock() -> impl IntoView {
+fn Sound() -> impl IntoView {
     let player = crate::player::player();
     let sound = NodeRef::<leptos::html::Audio>::new();
 
@@ -352,6 +363,25 @@ fn Dock() -> impl IntoView {
         }
     });
 
+    view! {
+        <audio
+            node_ref=sound
+            src=move || player.current().map(|id| api::audio(&id)).unwrap_or_default()
+            on:timeupdate:target=move |e| {
+                player.ticked(e.target().current_time(), e.target().duration())
+            }
+            on:play=move |_| player.playing.set(true)
+            on:pause=move |_| player.playing.set(false)
+            on:ended=move |_| player.next()
+        ></audio>
+    }
+}
+
+/// What is sounding, as the column shows it.
+#[component]
+fn Dock() -> impl IntoView {
+    let player = crate::player::player();
+
     let title = move || {
         player
             .now
@@ -368,33 +398,9 @@ fn Dock() -> impl IntoView {
             .unwrap_or_default()
     };
 
-    // How far along, as a percentage for the fill to be wide. Guarded against a
-    // length of zero, which is what a track reports before its metadata arrives.
-    let along = move || {
-        let (elapsed, whole) = (player.elapsed.get(), player.duration.get());
-        let share = if whole > 0.0 {
-            (elapsed / whole * 100.0).clamp(0.0, 100.0)
-        } else {
-            0.0
-        };
-
-        format!("width: {share}%")
-    };
-
     view! {
         <Show when=move || player.loaded()>
             <div class="dock">
-                <audio
-                    node_ref=sound
-                    src=move || player.current().map(|id| api::audio(&id)).unwrap_or_default()
-                    on:timeupdate:target=move |e| {
-                        player.ticked(e.target().current_time(), e.target().duration())
-                    }
-                    on:play=move |_| player.playing.set(true)
-                    on:pause=move |_| player.playing.set(false)
-                    on:ended=move |_| player.next()
-                ></audio>
-
                 <div class="sounding">
                     // The cover of the record it is from, which is the one picture
                     // the sidebar has room for.
@@ -421,7 +427,7 @@ fn Dock() -> impl IntoView {
                 <div class="along">
                     <span>{move || pages::length(player.elapsed.get() as i64)}</span>
                     <span class="track">
-                        <span style=along></span>
+                        <span style=move || along(player)></span>
                     </span>
                     <span>{move || pages::length(player.duration.get() as i64)}</span>
                 </div>
@@ -463,6 +469,102 @@ fn Dock() -> impl IntoView {
             </div>
         </Show>
     }
+}
+
+/// What is sounding, as a phone shows it: a bar across the foot of the screen.
+///
+/// Not in the column, because on a phone the column is a drawer — it is not there
+/// until you ask for it, and something you are listening to cannot live behind a
+/// button. So it comes out of the drawer entirely and sits where nothing else
+/// competes for the room.
+///
+/// It says less than the block in the column does, and everything it drops is
+/// something a thumb cannot use well anyway: no elapsed and no total, because the
+/// line along its top edge already says where you are; no previous, because at 44px
+/// a row of four is a row of mistakes; no queue count, because there is nowhere yet
+/// to look at a queue. Pause and next, both 44px, and that is the bar.
+#[component]
+fn Afoot() -> impl IntoView {
+    let player = crate::player::player();
+
+    let title = move || {
+        player
+            .now
+            .get()
+            .map(|track| track.title)
+            .unwrap_or_else(|| t!("player.loading").to_string())
+    };
+
+    let who = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.artists)
+            .unwrap_or_default()
+    };
+
+    view! {
+        <Show when=move || player.loaded()>
+            <div class="afoot">
+                // Drawn on the bar's own top edge rather than as a row of its own:
+                // where you are in a track is worth a glance and not a line of
+                // figures, and it costs no height at all.
+                <span class="track">
+                    <span style=move || along(player)></span>
+                </span>
+
+                <div class="holding">
+                    {move || match player.now.get().and_then(|track| track.album_id) {
+                        Some(album) => {
+                            view! { <img class="art" src=api::cover(&album) alt="" /> }.into_any()
+                        }
+                        None => {
+                            view! {
+                                <span class="art">
+                                    <Glyph icon=Icon::Albums />
+                                </span>
+                            }
+                                .into_any()
+                        }
+                    }}
+
+                    <span class="what">
+                        <span>{title}</span>
+                        <span class="by">{who}</span>
+                    </span>
+
+                    <button class="tap" title=t!("player.toggle") on:click=move |_| player.toggle()>
+                        {move || {
+                            if player.playing.get() {
+                                view! { <Glyph icon=Icon::Pause /> }
+                            } else {
+                                view! { <Glyph icon=Icon::Play /> }
+                            }
+                        }}
+                    </button>
+
+                    <button class="tap quiet" title=t!("player.next") on:click=move |_| player.next()>
+                        <Glyph icon=Icon::Next />
+                    </button>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
+/// How far into the current track, as the width its fill should be.
+///
+/// Shared by both views, and guarded against a length of zero — which is what a
+/// track reports until its metadata has arrived.
+fn along(player: crate::player::Player) -> String {
+    let (elapsed, whole) = (player.elapsed.get(), player.duration.get());
+    let share = if whole > 0.0 {
+        (elapsed / whole * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+
+    format!("width: {share}%")
 }
 
 /// A label and a figure, apart from each other on one line.
