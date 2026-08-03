@@ -212,9 +212,12 @@ fn Row(at: usize, track: Track, player: Player) -> impl IntoView {
     //
     // Given the distance rather than reading it, because by the time the gesture has
     // ended the offset is back to nought: that is what springs a short drag back.
+    // Where the queue may not go is the queue's own business, so nothing is clamped
+    // here: a drag past either end says "first" or "last", and it says it by landing
+    // outside the list.
     let landing = move |down: f64| {
         let rows = (down / ROW).round() as i64;
-        (at as i64 + rows).max(player.at.get() as i64 + 1) as usize
+        (at as i64 + rows).max(0) as usize
     };
 
     let lifted = move || format!("transform: translateY({}px)", hold.down());

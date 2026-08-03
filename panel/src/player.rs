@@ -205,18 +205,25 @@ impl Player {
 
     /// Moves a track in what is coming from one place to another.
     ///
-    /// Both ends have to be ahead of what is sounding, for the same reason as
+    /// The track has to be one ahead of what is sounding, for the same reason as
     /// dropping one: nothing here may disturb the track being played or where we are
     /// in the queue, so `at` never needs adjusting.
+    ///
+    /// **Where it lands is brought inside the queue rather than refused.** Dragging a
+    /// row past the end of the list means putting it last, and past the start means
+    /// putting it first — those are answers, not mistakes. Refusing them is what made
+    /// the two ends behave differently: the near end was already clamped, so dragging
+    /// to the top worked, while a drop past the bottom fell outside the list, was
+    /// discarded, and sprang back as though nothing had been asked.
     pub fn move_in_queue(&self, from: usize, to: usize) {
         let now = self.at.get_untracked();
 
-        if from <= now || to <= now || from == to {
+        if from <= now {
             return;
         }
 
         self.queue.update(|queue| {
-            if from < queue.len() && to < queue.len() {
+            if let Some(to) = settled(from, to, now, queue.len()) {
                 let moved = queue.remove(from);
                 queue.insert(to, moved);
             }
@@ -280,4 +287,72 @@ impl Default for Player {
 /// something to handle.
 pub fn player() -> Player {
     use_context::<Player>().expect("the player is provided above every screen")
+}
+
+/// Where a track being moved actually ends up, or `None` when there is nothing to do.
+///
+/// Pulled out of the queue itself because it is the whole of the thinking and none of
+/// the state — and because it is where the two ends of the list stopped agreeing. A
+/// drop past the bottom used to fall outside the list and be discarded, so the row
+/// sprang back as though nothing had been asked, while the top end was clamped and
+/// worked. Both ends clamp now, and this says so in a form a test can ask about.
+fn settled(from: usize, to: usize, now: usize, len: usize) -> Option<usize> {
+    // Never the track sounding or anything behind it, and never a queue with nothing
+    // waiting in it but that one.
+    if from <= now || from >= len || len < now + 2 {
+        return None;
+    }
+
+    let to = to.clamp(now + 1, len - 1);
+
+    (to != from).then_some(to)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::settled;
+
+    /// A track dropped past either end of the queue goes to that end.
+    ///
+    /// Which is the asymmetry this function exists for: the far end was refused rather
+    /// than clamped, so dragging a row to the bottom of the list quietly did nothing
+    /// while dragging it to the top worked.
+    #[test]
+    fn a_drop_past_either_end_lands_on_that_end() {
+        // Five queued, the first sounding, so four are waiting.
+        assert_eq!(settled(1, 99, 0, 5), Some(4), "past the bottom is last");
+        assert_eq!(settled(4, 0, 0, 5), Some(1), "past the top is first");
+        assert_eq!(settled(3, 1, 0, 5), Some(1), "and in between is itself");
+    }
+
+    /// Nothing may disturb what is sounding, or anything already played.
+    #[test]
+    fn nothing_moves_what_is_sounding_or_what_is_behind_it() {
+        // The third of five is playing, so only the fourth and fifth may move.
+        assert_eq!(settled(2, 4, 2, 5), None, "the one sounding stays put");
+        assert_eq!(settled(1, 4, 2, 5), None, "and so does one already played");
+        assert_eq!(
+            settled(4, 0, 2, 5),
+            Some(3),
+            "a waiting one goes no further back"
+        );
+    }
+
+    /// A move that changes nothing is not a move.
+    #[test]
+    fn a_move_that_lands_where_it_started_is_no_move() {
+        assert_eq!(settled(2, 2, 0, 5), None);
+        // Clamped onto its own position, which is what dragging the last row further
+        // down amounts to.
+        assert_eq!(settled(4, 9, 0, 5), None);
+    }
+
+    /// Nothing to reorder in a queue with only the track that is playing.
+    #[test]
+    fn one_track_playing_is_not_a_queue_to_reorder() {
+        assert_eq!(settled(1, 1, 0, 1), None);
+        assert_eq!(settled(0, 0, 0, 0), None);
+        // And an index past the end of it, which is what a stale row would ask for.
+        assert_eq!(settled(7, 1, 0, 3), None);
+    }
 }
