@@ -96,6 +96,7 @@ albums:
   one: Un álbum
   many: "%{count} álbumes"
   none_found: Ningún disco coincide con lo que has escrito.
+  playing: sonando
 
 artists:
   search: Buscar artistas

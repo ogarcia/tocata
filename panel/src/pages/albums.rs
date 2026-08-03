@@ -89,12 +89,30 @@ fn Sleeve(album: Album) -> impl IntoView {
     let player = crate::player::player();
     let who = album.artist.unwrap_or_else(|| super::MISSING.to_string());
 
+    let id = StoredValue::new(album.id.clone());
+
+    // Whether what is sounding came off this record. Read from the track playing
+    // rather than remembered when play was pressed, so it is still right after the
+    // queue has walked on to the next one — and right about a record reached from
+    // anywhere else, since it is the same question either way.
+    let sounding = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.album_id)
+            .is_some_and(|from| from == id.get_value())
+    };
+
     // A record is a narrowing of its own, so the whole of it goes in the queue
     // however long it is — no sitting's cap here, unlike an unfiltered listing of
     // every track there is. Somebody who pressed play on a record asked for that
     // record.
-    let id = StoredValue::new(album.id.clone());
     let start = move |_| {
+        if sounding() {
+            player.toggle();
+            return;
+        }
+
         let mine = id.get_value();
 
         spawn_local(async move {
@@ -104,25 +122,39 @@ fn Sleeve(album: Album) -> impl IntoView {
         });
     };
 
-    // When it came out, how much of it there is and how long it lasts, joined with
-    // dots — and joined rather than laid out, because a record with no year is not
-    // a record whose year is blank: it reads as "5 tracks · 46:36" with nothing
-    // missing from in front of it. Same for a record nothing on which has a length.
-    let facts = [
-        album.year.map(|year| year.to_string()),
-        Some(if album.tracks == 1 {
-            t!("collection.one_track").to_string()
-        } else {
-            t!(
-                "collection.many_tracks",
-                count = super::thousands(album.tracks)
-            )
-            .to_string()
-        }),
-        album.duration.map(super::runs),
-    ];
+    // When it came out, how much of it there is, and how long it lasts — or that it
+    // is sounding, which takes the place of the length rather than of the year: the
+    // year is a fact about the record and does not stop being true while it plays.
+    //
+    // Joined rather than laid out, because a record with no year is not a record
+    // whose year is blank: it reads as "5 tracks · 46:36" with nothing missing from
+    // in front of it. Same for a record nothing on which has a length.
+    let counted = if album.tracks == 1 {
+        t!("collection.one_track").to_string()
+    } else {
+        t!(
+            "collection.many_tracks",
+            count = super::thousands(album.tracks)
+        )
+        .to_string()
+    };
 
-    let facts = facts.into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let year = album.year.map(|year| year.to_string());
+    let long = album.duration.map(super::runs);
+
+    let facts = move || {
+        let last = if sounding() {
+            Some(t!("albums.playing").to_string())
+        } else {
+            long.clone()
+        };
+
+        [year.clone(), Some(counted.clone()), last]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ")
+    };
 
     view! {
         <div class="sleeve">
@@ -150,15 +182,28 @@ fn Sleeve(album: Album) -> impl IntoView {
                         .into_any()
                 }}
 
-                <button class="over" title=t!("player.play_record") on:click=start>
-                    <Glyph icon=Icon::Play />
+                // Kept in view while this record is the one sounding, so a shelf says
+                // which of it is playing without being pointed at — and so the way to
+                // pause is where the way to play was.
+                <button
+                    class="over"
+                    class:sounding=sounding
+                    title=t!("player.play_record")
+                    on:click=start
+                >
+                    <Show
+                        when=move || sounding() && player.playing.get()
+                        fallback=|| view! { <Glyph icon=Icon::Play /> }
+                    >
+                        <Glyph icon=Icon::Pause />
+                    </Show>
                 </button>
             </span>
 
             // Three lines: what it is called, who made it, and what it is. The last
             // two are inside the first because the three are one label for one
             // record, not three things that happen to sit under a picture.
-            <span class="what">
+            <span class="what" class:sounding=sounding>
                 {album.name} <span class="by">{who}</span> <span>{facts}</span>
             </span>
         </div>

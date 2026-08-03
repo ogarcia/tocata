@@ -100,6 +100,7 @@ albums:
   one: One album
   many: "%{count} albums"
   none_found: No record here matches what you typed.
+  playing: playing
 
 artists:
   search: Search artists

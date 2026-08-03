@@ -2810,7 +2810,16 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   color: light-dark(#fff, #0c1a14);
 }
 
-.sleeve:hover .cover .over, .cover .over:focus-visible { opacity: 1; }
+/* Under the pointer, on focus, and for as long as this is the record sounding —
+ * which is the one case where it is not a way to start something but the way to stop
+ * it, and a control that only exists while pointed at would be a shelf you have to
+ * hunt across to find what is playing. */
+.sleeve:hover .cover .over,
+.cover .over:focus-visible,
+.cover .over.sounding { opacity: 1; }
+
+/* And the name in the accent, the way the sounding row of a track listing is. */
+.sleeve .what.sounding { color: var(--accent); }
 
 /* Square whether or not there is anything in it, so the names below sit on one
  * line across the shelf rather than stepping up and down with the art.
