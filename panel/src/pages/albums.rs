@@ -94,9 +94,13 @@ fn Sleeve(album: Album) -> impl IntoView {
     let facts = [
         album.year.map(|year| year.to_string()),
         Some(if album.tracks == 1 {
-            t!("albums.one_track").to_string()
+            t!("collection.one_track").to_string()
         } else {
-            t!("albums.many_tracks", count = super::thousands(album.tracks)).to_string()
+            t!(
+                "collection.many_tracks",
+                count = super::thousands(album.tracks)
+            )
+            .to_string()
         }),
         album.duration.map(super::runs),
     ];

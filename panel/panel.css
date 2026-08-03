@@ -1955,7 +1955,8 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 /* Numbers under a heading that is also a number's, both against the right and both
  * in tabular figures, so "1 · 1" and "12 · 3" line up on the dot. */
-.roster-head .figure, .roster .figure, .listing-head .figure, .listing .figure {
+.roster-head .figure, .roster .figure, .listing-head .figure, .listing .figure,
+.crowd .figure {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -2222,6 +2223,56 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 .sleeve .by { font-size: var(--control); }
 
 .sleeve .what > :last-child { font-variant-numeric: tabular-nums; }
+
+/* --- everybody credited --------------------------------------------------- */
+
+/* Two columns of rows on a wide window, one on a narrow one. The only screen in the
+ * collection that fills the room by running two columns rather than by making
+ * anything larger, because there is nothing here to make larger: a name and two
+ * figures is a row, and a row stretched to fourteen hundred pixels is a name at one
+ * end and a number at the other.
+ *
+ * They fill across and not down, which is what the grid does on its own — and is the
+ * only way round that survives a list growing as it is scrolled. Columns filled
+ * downwards would be rebalanced end to end every time another fifty names arrived,
+ * moving the one somebody was reading.
+ *
+ * The rule across the top belongs to the whole listing, so it runs through the gap
+ * as well; every row closes itself. */
+.crowd {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 0 3.5rem;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+/* The bleed is per row here rather than on the block: with two columns, a block
+ * pulled out at its edges would do nothing for the row in the second column. There
+ * is room for it either side — the gap between the columns is 3.5rem and the page's
+ * own padding is the same. */
+.crowd > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 0 -0.75rem;
+  padding: 0.8125rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.crowd > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+.crowd .what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crowd .figure { color: var(--quiet); }
 
 /* The edge of the list: that more is on its way, how much of it there is, and the
  * thing whose coming into view asks for it. Centred under the rows rather than

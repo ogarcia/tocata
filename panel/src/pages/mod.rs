@@ -17,6 +17,7 @@
 pub mod account;
 pub mod accounts;
 pub mod albums;
+pub mod artists;
 pub mod endless;
 pub mod home;
 pub mod libraries;

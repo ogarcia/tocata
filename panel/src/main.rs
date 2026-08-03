@@ -187,9 +187,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     />
                     <Route
                         path=path!("/artists")
-                        view=move || {
-                            view! { <pages::Unbuilt heading=t!("nav.artists").to_string() /> }
-                        }
+                        view=move || view! { <pages::artists::Artists on_expired=forget /> }
                     />
                     <Route
                         path=path!("/genres")
@@ -291,7 +289,7 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 14] = [
+    const SOURCES: [&str; 15] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
@@ -305,6 +303,7 @@ mod tests {
         include_str!("pages/maintenance.rs"),
         include_str!("pages/tracks.rs"),
         include_str!("pages/albums.rs"),
+        include_str!("pages/artists.rs"),
         include_str!("pages/endless.rs"),
     ];
 
