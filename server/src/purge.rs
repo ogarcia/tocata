@@ -253,10 +253,12 @@ mod tests {
             .bind(&at).bind(&at).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO albums (id, public_id, name, artwork_id, created_at, updated_at) VALUES (1, 'b1', 'Único', 1, ?, ?)")
             .bind(&at).bind(&at).execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO album_artists (album_id, artist_id, role) VALUES (1, 1, 'main')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role) VALUES (1, 1, 'albumartist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("INSERT INTO genres (id, name) VALUES (1, 'Flamenco')")
             .execute(&pool)
             .await
@@ -284,7 +286,7 @@ mod tests {
             .unwrap();
 
             sqlx::query(
-                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, 1, 'main')",
+                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, 1, 'artist')",
             )
             .bind(id)
             .execute(&pool)

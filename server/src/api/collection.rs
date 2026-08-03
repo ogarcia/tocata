@@ -135,14 +135,14 @@ pub async fn tracks(
         "SELECT t.public_id, t.title,
                 (SELECT group_concat(a.name, ', ')
                    FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
-                  WHERE ta.track_id = t.id AND ta.role = 'main') AS artists,
+                  WHERE ta.track_id = t.id AND ta.role = 'artist') AS artists,
                 al.name AS album, al.public_id AS album_id,
                 (SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
                   WHERE tg.track_id = t.id ORDER BY g.name LIMIT 1) AS genre,
                 t.duration_ms, t.missing_since IS NOT NULL AS missing
            FROM tracks t
            LEFT JOIN albums al ON al.id = t.album_id
-           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'main'
+           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
            LEFT JOIN artists ar ON ar.id = aa.artist_id
           WHERE t.library_id IN (SELECT id FROM visible_libraries)"
     ));
@@ -208,7 +208,7 @@ pub async fn queue(
         "SELECT t.public_id
            FROM tracks t
            LEFT JOIN albums al ON al.id = t.album_id
-           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'main'
+           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
            LEFT JOIN artists ar ON ar.id = aa.artist_id
           WHERE t.library_id IN (SELECT id FROM visible_libraries)
             AND t.missing_since IS NULL"
@@ -270,13 +270,13 @@ pub async fn albums(
         "SELECT al.public_id, al.name,
                 (SELECT group_concat(a.name, ', ')
                    FROM album_artists aa JOIN artists a ON a.id = aa.artist_id
-                  WHERE aa.album_id = al.id AND aa.role = 'main') AS artist,
+                  WHERE aa.album_id = al.id AND aa.role = 'albumartist') AS artist,
                 al.year,
                 (SELECT count(*) FROM tracks t
                   WHERE t.album_id = al.id AND t.missing_since IS NULL) AS tracks,
                 al.artwork_id IS NOT NULL AS cover
            FROM albums al
-           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'main'
+           LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
            LEFT JOIN artists ar ON ar.id = aa.artist_id
           WHERE ",
         album_is_visible!("al.id")
@@ -788,7 +788,7 @@ mod tests {
             .await
             .unwrap();
             sqlx::query(
-                "INSERT INTO album_artists (album_id, artist_id, role) VALUES (?, 1, 'main')",
+                "INSERT INTO album_artists (album_id, artist_id, role) VALUES (?, 1, 'albumartist')",
             )
             .bind(id)
             .execute(&pool)
@@ -832,7 +832,7 @@ mod tests {
 
                 sqlx::query(
                     "INSERT INTO track_artists (track_id, artist_id, role, position)
-                     VALUES (?, 1, 'main', 0)",
+                     VALUES (?, 1, 'artist', 0)",
                 )
                 .bind(track_id)
                 .execute(&pool)
@@ -957,6 +957,55 @@ mod tests {
         .unwrap();
 
         assert_eq!(listed.total, 4);
+    }
+
+    /// A row says who made it and what record it is from.
+    ///
+    /// Which sounds like the least worth asserting of anything here, and is the
+    /// one thing that was wrong. Both columns are read through the credit's role,
+    /// and the roles these statements asked for — `main` for a track and for an
+    /// album alike — are a name the scanner never writes: it writes `artist` on a
+    /// track's credit and `albumartist` on a record's. So every row came back with
+    /// no artist at all, and the ordering, which is by the album artist before
+    /// anything else, ordered by a column that was always null.
+    ///
+    /// Nothing else caught it. Not the ordering tests, because with the whole key
+    /// null the rows still came out in a stable order; not the search, which reads
+    /// its own index; and not the fixtures, which sowed `main` themselves and so
+    /// agreed with the mistake. Hence this: the assertion is on the value in the
+    /// row rather than on the count of rows, and the fixture now sows the two roles
+    /// the scanner actually writes.
+    #[tokio::test]
+    async fn a_row_says_who_made_it_and_what_record_it_is_from() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let ana_again = again(&ana);
+
+        let Json(listed) = tracks(ana, State(pool.clone()), nothing(), all_of_it())
+            .await
+            .unwrap();
+
+        for track in &listed.tracks {
+            assert_eq!(
+                track.artists.as_deref(),
+                Some("Triana"),
+                "the credit is read through its role, and the row lost it"
+            );
+            assert!(
+                track.album.is_some(),
+                "every track in the fixture is on a record"
+            );
+        }
+
+        // The same credit, on the record rather than on the song, which is a
+        // different role and a different statement.
+        let Json(records) = albums(ana_again, State(pool.clone()), nothing(), all_of_it())
+            .await
+            .unwrap();
+
+        for record in &records.albums {
+            assert_eq!(record.artist.as_deref(), Some("Triana"));
+        }
     }
 
     /// A track whose file is gone stays in the listing and says so — the Overview

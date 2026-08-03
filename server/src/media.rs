@@ -625,7 +625,7 @@ mod tests {
 
             sqlx::query(
                 "INSERT INTO track_artists (track_id, artist_id, role, position)
-                 VALUES (?, 1, 'main', 0)",
+                 VALUES (?, 1, 'artist', 0)",
             )
             .bind(id)
             .execute(&pool)
@@ -687,7 +687,7 @@ mod tests {
         .unwrap();
         sqlx::query(
             "INSERT INTO track_artists (track_id, artist_id, role, position)
-             VALUES (1, 1, 'main', 0)",
+             VALUES (1, 1, 'artist', 0)",
         )
         .execute(&pool)
         .await

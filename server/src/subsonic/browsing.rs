@@ -1469,7 +1469,7 @@ mod visibility_tests {
             .unwrap();
 
             sqlx::query(
-                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, ?, 'main')",
+                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, ?, 'artist')",
             )
             .bind(id)
             .bind(id)
