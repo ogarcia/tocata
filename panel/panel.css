@@ -2411,6 +2411,202 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   .body { padding-bottom: 5.5rem; }
 }
 
+/* The player at full height, over whatever was on screen.
+ *
+ * A sheet and not a route, so what is behind it keeps its scroll and its search and
+ * closing it puts somebody back where they were. Which is also why it is opaque
+ * rather than a dialogue over a scrim: it is not asking anything, it is the same
+ * player with room to say more.
+ *
+ * Three bands: a header that closes it, the middle that grows, and a foot naming the
+ * file. Only the middle gives way when the screen is short. */
+.sheet-player {
+  display: none;
+}
+
+@media (max-width: 45rem) {
+  .sheet-player {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    flex-direction: column;
+    background: var(--paper);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .sheet-player > header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.5rem;
+  }
+
+  /* Which record it is from, in the small capitals every heading in this panel
+   * uses. Centred, which is what the empty third cell of the row is for. */
+  .sheet-player .whence {
+    overflow: hidden;
+    font-size: var(--lettering);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Both ends of the header row, and the two on the bar below: 44px, which is the
+   * smallest a thumb hits reliably. */
+  .sheet-player .tap {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  /* The chevron this panel already has, turned to point the way the sheet goes. */
+  .downward {
+    display: inline-flex;
+    transform: rotate(90deg);
+  }
+
+  .sheet-player .tap .icon {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .sheet-player .middle {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    padding: 0.5rem 1.75rem 0;
+  }
+
+  /* The cover at the size a cover is worth looking at, which is the whole width. */
+  .sheet-player .art {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: 6px;
+  }
+
+  .sheet-player .art .icon {
+    width: 4rem;
+    height: 4rem;
+  }
+
+  .sheet-player .named { margin-top: 1.875rem; }
+
+  /* A heading rather than a line, and allowed two of them: a title is the one thing
+   * on this screen worth wrapping for. */
+  .sheet-player h1 {
+    margin: 0 0 0.25rem;
+    font-size: 1.5rem;
+    text-wrap: pretty;
+  }
+
+  .sheet-player .named p { font-size: var(--name); }
+
+  .sheet-player .along { margin-top: 1.625rem; }
+
+  /* Thicker than the hairline the bar draws, because here it is the thing being
+   * read rather than a mark on an edge. */
+  .sheet-player .track {
+    display: block;
+    height: 0.1875rem;
+    background: var(--line);
+  }
+
+  .sheet-player .track > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+
+  .sheet-player .clock {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 0.5rem;
+    color: var(--quiet);
+    font-size: var(--aside);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sheet-player .transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.125rem;
+    margin-top: 1.25rem;
+  }
+
+  .sheet-player .step {
+    display: grid;
+    place-items: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  /* The one control somebody reaches for without looking, so it is the one with a
+   * shape to aim at and the size to match. */
+  .sheet-player .toggle {
+    display: grid;
+    place-items: center;
+    width: 4.5rem;
+    height: 4.5rem;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .sheet-player .step .icon, .sheet-player .toggle .icon {
+    width: 1.625rem;
+    height: 1.625rem;
+  }
+
+  .sheet-player .foot-note {
+    flex: none;
+    margin: 0 1.75rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--line);
+    font-size: var(--aside);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* Everything on the bar but its two buttons opens the sheet. A button of its own
+   * would be a fourth target on a bar with room for three. */
+  .afoot .most {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+}
+
 /* --- starting something --------------------------------------------------- */
 
 /* The first column of a track's row: its number at rest, the play triangle when the

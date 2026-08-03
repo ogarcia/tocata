@@ -55,7 +55,8 @@ macro_rules! a_tracks_row {
                 al.name AS album, al.public_id AS album_id,
                 (SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
                   WHERE tg.track_id = t.id ORDER BY g.name LIMIT 1) AS genre,
-                t.track_number, t.duration_ms, t.missing_since IS NOT NULL AS missing
+                t.track_number, t.duration_ms, t.suffix, t.bit_rate,
+                t.missing_since IS NOT NULL AS missing
            FROM tracks t
            LEFT JOIN albums al ON al.id = t.album_id
            LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
@@ -700,6 +701,8 @@ struct TrackRow {
     genre: Option<String>,
     track_number: Option<i64>,
     duration_ms: Option<i64>,
+    suffix: String,
+    bit_rate: Option<i64>,
     missing: bool,
 }
 
@@ -716,6 +719,8 @@ impl From<TrackRow> for Track {
             // Milliseconds in the row and seconds in the answer, like every other
             // length this API reports.
             duration: row.duration_ms.map(|ms| ms / 1000),
+            suffix: row.suffix,
+            bit_rate: row.bit_rate,
             missing: row.missing,
         }
     }

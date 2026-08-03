@@ -695,6 +695,14 @@ pub struct Track {
     pub track_number: Option<i64>,
     /// Seconds, like every other length in this API.
     pub duration: Option<i64>,
+    /// The file's extension, as scanned: flac, mp3, ogg. What the player names at
+    /// the foot of its sheet — this is an administration panel before it is a
+    /// listening client, and that is where somebody notices a file is not the
+    /// quality they thought it was.
+    pub suffix: String,
+    /// Thousands of bits a second, where the file said. Absent for a format that
+    /// does not report one.
+    pub bit_rate: Option<i64>,
     /// Its file is not where it was. The row says so and stays in the listing,
     /// because a scan marks rather than deletes.
     pub missing: bool,

@@ -149,6 +149,9 @@ pub fn Shell(
 ) -> impl IntoView {
     let admin = identity.admin;
     let (folded_out, fold) = signal(false);
+    // Whether the player is open over the screen. Client-only and deliberately not a
+    // route: what is behind it keeps its scroll and its search.
+    let sheet = RwSignal::new(false);
 
     view! {
         <div class="shell">
@@ -218,7 +221,8 @@ pub fn Shell(
             // not to the sections: the machine has to outlive the drawer opening and
             // closing, and the bar has to be reachable while it is shut.
             <Sound />
-            <Afoot />
+            <Afoot on_open=Callback::new(move |()| sheet.set(true)) />
+            <Sheet open=sheet />
         </div>
     }
 }
@@ -484,7 +488,7 @@ fn Dock() -> impl IntoView {
 /// a row of four is a row of mistakes; no queue count, because there is nowhere yet
 /// to look at a queue. Pause and next, both 44px, and that is the bar.
 #[component]
-fn Afoot() -> impl IntoView {
+fn Afoot(on_open: Callback<()>) -> impl IntoView {
     let player = crate::player::player();
 
     let title = move || {
@@ -514,6 +518,11 @@ fn Afoot() -> impl IntoView {
                 </span>
 
                 <div class="holding">
+                    // Everything but the two buttons opens the player. A button of
+                    // its own would be a fourth 44px target on a bar that has room
+                    // for three; the art and the title are what somebody presses
+                    // when they want to see what is playing.
+                    <button class="most" title=t!("player.open") on:click=move |_| on_open.run(())>
                     {move || match player.now.get().and_then(|track| track.album_id) {
                         Some(album) => {
                             view! { <img class="art" src=api::cover(&album) alt="" /> }.into_any()
@@ -532,6 +541,7 @@ fn Afoot() -> impl IntoView {
                         <span>{title}</span>
                         <span class="by">{who}</span>
                     </span>
+                    </button>
 
                     <button class="tap" title=t!("player.toggle") on:click=move |_| player.toggle()>
                         {move || {
@@ -546,6 +556,177 @@ fn Afoot() -> impl IntoView {
                     <button class="tap quiet" title=t!("player.next") on:click=move |_| player.next()>
                         <Glyph icon=Icon::Next />
                     </button>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
+/// The player at full height, over whatever was on screen.
+///
+/// A sheet and not a route, which is the whole of why it works: the listing behind it
+/// keeps its scroll and its search, so closing this puts somebody back exactly where
+/// they were rather than at the top of nine hundred tracks.
+///
+/// What it says that the bar cannot: the cover at the size a cover is worth looking
+/// at, the title as a heading rather than as a line, room for previous, and the
+/// format at its foot — this is an administration panel before it is a listening
+/// client, and the foot of the player is where somebody notices that a file is not
+/// the quality they thought.
+///
+/// The time on the right counts down rather than up. While something plays, "how much
+/// is left" is the question; the total is a fact about the file and is already in
+/// every listing.
+#[component]
+fn Sheet(open: RwSignal<bool>) -> impl IntoView {
+    let player = crate::player::player();
+
+    let title = move || {
+        player
+            .now
+            .get()
+            .map(|track| track.title)
+            .unwrap_or_else(|| t!("player.loading").to_string())
+    };
+
+    let who = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.artists)
+            .unwrap_or_default()
+    };
+
+    // Which record it is from, over the top of the sheet. Nothing at all for a track
+    // that belongs to no album, rather than a heading with an empty name in it.
+    let from = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.album)
+            .map(|album| t!("player.from", album = album).to_string())
+            .unwrap_or_default()
+    };
+
+    // What is left, not what there is. Never positive, and never a stray minus in
+    // front of a zero before the metadata has arrived.
+    let left = move || {
+        let (elapsed, whole) = (player.elapsed.get(), player.duration.get());
+        let over = (whole - elapsed).max(0.0);
+
+        if whole > 0.0 {
+            format!("-{}", pages::length(over as i64))
+        } else {
+            pages::MISSING.to_string()
+        }
+    };
+
+    // What the file is, which is two facts joined only where there are two: a format
+    // that reports no rate should read "flac", not "flac ·".
+    let file = move || {
+        let Some(track) = player.now.get() else {
+            return String::new();
+        };
+
+        let format = track.suffix.to_uppercase();
+
+        match track.bit_rate {
+            Some(rate) => format!("{format} · {}", t!("player.kbps", rate = rate)),
+            None => format,
+        }
+    };
+
+    view! {
+        <Show when=move || open.get() && player.loaded()>
+            <div class="sheet-player">
+                <header>
+                    <button
+                        class="tap"
+                        title=t!("common.close")
+                        on:click=move |_| open.set(false)
+                    >
+                        // The chevron this panel already has, turned to point the way
+                        // the sheet will go.
+                        <span class="downward">
+                            <Glyph icon=Icon::Chevron />
+                        </span>
+                    </button>
+
+                    <span class="whence">{from}</span>
+
+                    // The third place in the row stays empty: the frame puts a menu
+                    // for the track here, and what it would open is the drawer that
+                    // does not exist yet. An empty cell keeps the name centred.
+                    <span class="tap"></span>
+                </header>
+
+                <div class="middle">
+                    {move || match player.now.get().and_then(|track| track.album_id) {
+                        Some(album) => {
+                            view! { <img class="art" src=api::cover(&album) alt="" /> }.into_any()
+                        }
+                        None => {
+                            view! {
+                                <span class="art">
+                                    <Glyph icon=Icon::Albums />
+                                </span>
+                            }
+                                .into_any()
+                        }
+                    }}
+
+                    <div class="named">
+                        <h1>{title}</h1>
+                        <p class="quiet">{who}</p>
+                    </div>
+
+                    <div class="along">
+                        <span class="track">
+                            <span style=move || along(player)></span>
+                        </span>
+                        <div class="clock">
+                            <span>{move || pages::length(player.elapsed.get() as i64)}</span>
+                            <span>{left}</span>
+                        </div>
+                    </div>
+
+                    <div class="transport">
+                        <button
+                            class="step"
+                            title=t!("player.previous")
+                            on:click=move |_| player.previous()
+                        >
+                            <Glyph icon=Icon::Previous />
+                        </button>
+
+                        <button
+                            class="toggle"
+                            title=t!("player.toggle")
+                            on:click=move |_| player.toggle()
+                        >
+                            {move || {
+                                if player.playing.get() {
+                                    view! { <Glyph icon=Icon::Pause /> }
+                                } else {
+                                    view! { <Glyph icon=Icon::Play /> }
+                                }
+                            }}
+                        </button>
+
+                        <button
+                            class="step"
+                            title=t!("player.next")
+                            on:click=move |_| player.next()
+                        >
+                            <Glyph icon=Icon::Next />
+                        </button>
+                    </div>
+                </div>
+
+                // What the file is. The frame also puts the way into the queue here,
+                // which arrives when there is a queue to look at.
+                <div class="foot-note">
+                    <span class="quiet">{file}</span>
                 </div>
             </div>
         </Show>
