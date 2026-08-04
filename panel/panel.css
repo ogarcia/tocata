@@ -4116,8 +4116,6 @@ select.narrow { width: 12.5rem; }
 /* The row that is sounding has no handle and nothing to drop it with, so its first and
  * last cells stand empty rather than its columns being different ones: the two runs
  * have to line up down the drawer. */
-.rolling .row > .what { grid-column: 2; }
-
 /* Hands the browser the vertical scroll and keeps the horizontal for the swipe, which
  * is what stops a list from feeling like it is fighting the finger. Declared here and
  * not in the handler, because a default the browser has already committed to cannot be
@@ -4172,6 +4170,13 @@ select.narrow { width: 12.5rem; }
 }
 
 .rolling .now { color: var(--accent); }
+
+/* The glyph in the column a waiting row keeps its handle in. Sized like the handle's,
+ * so the two runs of rows begin at the same place. */
+.rolling .now .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
 
 /* Two lines that both give way rather than wrap: a drawer is narrow and a queue is
  * read down its left edge. */

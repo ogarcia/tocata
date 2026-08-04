@@ -136,6 +136,15 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                         <p class="lettering">{t!("queue.playing")}</p>
 
                         <div class="row now">
+                            // In the column the waiting rows keep their handle in, which
+                            // was standing empty: a row indented past everything above it
+                            // with nothing in the gap reads as something that failed to
+                            // load. The one row that cannot be dragged is the one that is
+                            // sounding, so it says that instead — the same glyph the track
+                            // listing puts on its sounding row, and the titles stay lined
+                            // up all the way down the list.
+                            <Glyph icon=Icon::Sounding />
+
                             <span class="what">
                                 <span>
                                     {move || {

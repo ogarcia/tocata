@@ -8,7 +8,7 @@
 //! business, which is what makes a library added here survive a restart.
 
 use super::error::ApiError;
-use super::session::{Administrator, Panel};
+use super::session::Administrator;
 use crate::db;
 use crate::scanner::overlaps;
 use crate::types::{ErrorBody, Library, LibraryChanges, NewLibrary};
@@ -52,6 +52,18 @@ macro_rules! library_columns {
 ///
 /// Every library, enabled or not, with how much is in it and when it was last
 /// scanned.
+///
+/// Administrators only, and the reason is the path. A row here names the directory a
+/// library reads from, which says where somebody's disks are mounted and how they have
+/// arranged them — and that is answered nowhere else: a track's own panel reports its
+/// path *relative* to its library, deliberately, so that everybody who may hear the
+/// music does not thereby learn the shape of the machine serving it. Leaving this open
+/// to any account that could log in would have handed back what that decision withheld.
+///
+/// Nothing needed it. Both screens that read this are administration screens, and the
+/// one other caller — the sentence an empty collection shows on a first run — asks only
+/// when the account is an administrator, because a listener with nothing to look at
+/// needs a sentence they can repeat rather than a path.
 #[utoipa::path(
     get,
     path = "/libraries",
@@ -59,10 +71,11 @@ macro_rules! library_columns {
     responses(
         (status = 200, description = "Every library there is", body = Vec<Library>),
         (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Not an administrator", body = ErrorBody),
     )
 )]
 pub async fn list(
-    _panel: Panel,
+    _admin: Administrator,
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<Library>>, ApiError> {
     let rows: Vec<LibraryRow> = sqlx::query_as(concat!(library_columns!(), " ORDER BY l.name"))
