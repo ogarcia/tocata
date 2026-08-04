@@ -4107,6 +4107,15 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   height: 1.375rem;
 }
 
+/* The record's own cover where there is one, filling the frame the glyph sat in the
+ * middle of. Cropped rather than fitted: sleeves are square and the ones that are not
+ * are better cropped than letterboxed inside a hairline. */
+.emblem .art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .drawer > header > div {
   flex: 1;
   min-width: 0;

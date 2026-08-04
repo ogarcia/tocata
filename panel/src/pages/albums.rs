@@ -91,6 +91,11 @@ fn Sleeve(album: Album) -> impl IntoView {
 
     let id = StoredValue::new(album.id.clone());
 
+    // Whether asking for the cover came back with nothing, which is the only answer
+    // that says a record has none: the listing cannot say it, since a record nothing
+    // has looked at yet is indistinguishable there from one with no art at all.
+    let broken = RwSignal::new(false);
+
     // Whether what is sounding came off this record. Read from the track playing
     // rather than remembered when play was pressed, so it is still right after the
     // queue has walked on to the next one — and right about a record reached from
@@ -164,23 +169,37 @@ fn Sleeve(album: Album) -> impl IntoView {
             // what will open the record's own panel, and a play button filling it
             // would leave nowhere to press for that.
             <span class="cover">
-                // Asked for only where the listing says there is one, so a shelf of
-                // records with no art is not a shelf of requests for pictures that
-                // are not there. And lazily, because a window of fifty covers on a
-                // grid two rows tall is forty-odd images nobody has scrolled to yet.
-                {if album.cover {
-                    view! {
-                        <img class="art" src=api::cover(&album.id) alt="" loading="lazy" />
+                // Always asked for, and the answer is what settles it.
+                //
+                // The listing's own `cover` is not "there is one" — it is "one has
+                // been found already", which is false for every record nothing has
+                // looked at yet, because the looking is what asking does. So gating
+                // the request on it meant a shelf of empty frames that filled in one
+                // square at a time as something else happened to ask: in practice a
+                // cover appeared once you had played the record, which is the one
+                // moment you are not looking at the shelf.
+                //
+                // Still lazily, so a window of fifty covers two rows deep is not
+                // fifty files opened on the server for pictures nobody has scrolled
+                // to.
+                <Show
+                    when=move || !broken.get()
+                    fallback=|| {
+                        view! {
+                            <span class="art">
+                                <Glyph icon=Icon::Albums />
+                            </span>
+                        }
                     }
-                        .into_any()
-                } else {
-                    view! {
-                        <span class="art">
-                            <Glyph icon=Icon::Albums />
-                        </span>
-                    }
-                        .into_any()
-                }}
+                >
+                    <img
+                        class="art"
+                        src=api::cover(&id.get_value())
+                        alt=""
+                        loading="lazy"
+                        on:error=move |_| broken.set(true)
+                    />
+                </Show>
 
                 // Kept in view while this record is the one sounding, so a shelf says
                 // which of it is playing without being pointed at — and so the way to

@@ -103,15 +103,37 @@ pub fn Head(
     /// that is a person.
     #[prop(optional)]
     round: bool,
+    /// The record whose cover stands for this thing, once it is known.
+    ///
+    /// A signal because it is not known when the panel opens: the identifier arrives
+    /// with everything else, a moment later. The glyph is what is there in the
+    /// meantime, and what stays where there is no cover to be had.
+    #[prop(optional, into)]
+    cover: Signal<Option<String>>,
     heading: Signal<String>,
     /// The line under it, which every one of these has and none of them needs: it is
     /// empty until what was asked for arrives.
     lead: Signal<String>,
 ) -> impl IntoView {
+    // Whether asking came back with nothing. Asked for rather than checked first, for
+    // the same reason a shelf of records asks: the flag a listing carries says a cover
+    // has been *found* already, and the finding is what the asking does.
+    let missing = RwSignal::new(false);
+
     view! {
         <header>
             <span class="emblem" class:round=round>
-                <Glyph icon />
+                <Show
+                    when=move || cover.get().is_some() && !missing.get()
+                    fallback=move || view! { <Glyph icon /> }
+                >
+                    <img
+                        class="art"
+                        src=move || crate::api::cover(&cover.get().unwrap_or_default())
+                        alt=""
+                        on:error=move |_| missing.set(true)
+                    />
+                </Show>
             </span>
 
             <div>
