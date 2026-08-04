@@ -188,6 +188,7 @@ album:
   # figures: a record missing four of its files is not a record with four fewer tracks.
   one_gone: One of its files is not where it was. It is still in the running order below.
   many_gone: "%{count} of its files are not where they were. They are still in the running order below."
+  pause_record: Pause
   one_file: One file in one directory.
   many_files: "%{count} files in one directory."
 
@@ -236,7 +237,50 @@ genres:
 
 # What the four listings share. At the foot of every one of them, beside the
 # turning glyph, while more of it is on its way.
+# Why a listing has nothing in it, which is never one answer. Four states needing four
+# different things done about them, and a single "nothing found" would be the panel
+# knowing which and not saying.
+empty:
+  # A search that narrowed too far. The reassurance matters more than the news: what
+  # somebody fears is that the list lost something, and it did not.
+  no_track_matches: No track matches what you typed.
+  no_album_matches: No record matches what you typed.
+  no_artist_matches: Nobody matches what you typed.
+  no_genre_matches: No genre matches what you typed.
+  tracks_still_there: "All %{count} tracks are still there. Only the list is narrowed."
+  albums_still_there: "All %{count} records are still there. Only the list is narrowed."
+  artists_still_there: "All %{count} names are still there. Only the list is narrowed."
+  genres_still_there: "All %{count} genres are still there. Only the list is narrowed."
+  clear_the_search: Clear the search
+  # A collection with music in it and none of this kind, which is a fact about the tags
+  # rather than about the music. Nothing to press: the fix is not in here.
+  no_tracks: Nothing has a title.
+  no_albums: No file says what record it is off.
+  no_artists: No file says who made it.
+  no_genres: None of the files say what they are.
+  outside_tocata: Tocata reads what the files carry and adds nothing of its own, so this is a question for whatever tagged them. Fix the tags and the next scan picks it up.
+  tracks_read: Tracks read
+  with_a_title: With a title
+  with_an_album: With an album tag
+  with_an_artist: With an artist tag
+  with_a_genre: With a genre tag
+  # There is music here and none of it is theirs to see.
+  all_switched_off: Every library is switched off.
+  switch_one_back_on: There is music on this server and nothing is being read, because every library it was given is off. Switch one back on and it appears here — nothing has to be scanned again.
+  nothing_you_reach: Nothing here is yours to see.
+  ask_an_administrator: There is music on this server, and your account has not been given a library it can read — or the ones it was given are switched off. Whoever runs the server can change that.
+  # The first run, and the only empty state with something to press.
+  nothing_yet: Nothing has been read yet.
+  nothing_added_yet: Nothing has been added to this server yet. Whoever runs it adds a library and scans it, and it appears here.
+  no_libraries: There are no libraries yet. A library is a directory to read music out of, and nothing is read until there is one.
+  one_library: "There is one library, %{path}, and it has never been read. A scan walks it and puts what it finds here."
+  many_libraries: "There are %{count} libraries and none of them has been read. A scan walks them and puts what it finds here."
+  scan_now: Scan now
+  scanning: Scanning…
+
 collection:
+  stopped_at: "Could not read past the first %{shown}."
+  try_again: Try again
   reading: "Reading more · %{shown} of %{total}"
   # How much of something there is, counted in the two things a collection is
   # counted in. On a record's third line and at the end of an artist's row.
@@ -267,6 +311,8 @@ queue:
   next: Next
   one_ahead: "1 track ahead"
   many_ahead: "%{count} tracks ahead"
+  one_beyond: One more is waiting past these. It appears as the queue moves on.
+  many_beyond: "%{count} more are waiting past these. They appear as the queue moves on."
   nothing_ahead: Nothing after this one.
   drop: Take it out of the queue
   reorder: Hold to move it

@@ -27,6 +27,7 @@ use crate::api::Failure;
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 use rust_i18n::t;
 use send_wrapper::SendWrapper;
 use std::future::Future;
@@ -74,6 +75,13 @@ pub struct Reel<T: Send + Sync + 'static> {
     /// Whether a window is on its way. The foot says so while it is.
     pub fetching: RwSignal<bool>,
     pub failure: RwSignal<Option<String>>,
+    /// How many there were when nothing had been typed.
+    ///
+    /// What a search that matched nothing says as its reassurance — "all 1 842 albums
+    /// are still there" — and the only place it can come from without a second call:
+    /// the first window of every screen is fetched with an empty field, so the figure
+    /// has already been through here.
+    pub held: RwSignal<Option<i64>>,
     /// What is in the search field. A quarter of a second ahead of what has been
     /// asked of the server, and that gap is the whole reason there are two.
     pub typing: RwSignal<String>,
@@ -114,6 +122,7 @@ impl<T: Send + Sync + 'static> Reel<T> {
             total: RwSignal::new(None),
             fetching: RwSignal::new(false),
             failure: RwSignal::new(None),
+            held: RwSignal::new(None),
             typing: RwSignal::new(String::new()),
             asked: StoredValue::new(String::new()),
             run: StoredValue::new(0),
@@ -160,6 +169,29 @@ impl<T: Send + Sync + 'static> Reel<T> {
         if !self.fetching.get_untracked() && !self.all_of_it() {
             self.fetch(false);
         }
+    }
+
+    /// Asks again for whatever failed.
+    ///
+    /// Which window that is depends on how far it got: nothing on screen means the
+    /// first one never arrived, and rows on screen mean the list stopped partway. The
+    /// second case must not start over — everything already read stays where it is,
+    /// which is the whole difference between a list that broke and a list that stopped.
+    pub fn again(&self) {
+        self.failure.set(None);
+        self.fetch(self.rows.with_untracked(Vec::is_empty));
+    }
+
+    /// Clears the search and asks for everything again.
+    pub fn clear(&self) {
+        let reel = *self;
+
+        if let Some(pending) = reel.waiting.get_value() {
+            pending.take().clear();
+        }
+
+        reel.typing.set(String::new());
+        reel.search(String::new());
     }
 
     /// A key was pressed in the search field. The search itself happens a quarter of
@@ -216,6 +248,12 @@ impl<T: Send + Sync + 'static> Reel<T> {
 
                     reel.total.set(Some(total));
                     reel.failure.set(None);
+
+                    // Only while nothing is being searched for, which is what makes it
+                    // the count of everything rather than of whatever was last typed.
+                    if reel.asked.get_value().is_empty() {
+                        reel.held.set(Some(total));
+                    }
                     reel.rows.update(|have| {
                         if restart {
                             have.clear();
@@ -231,6 +269,296 @@ impl<T: Send + Sync + 'static> Reel<T> {
                 reel.fetching.set(false);
             }
         });
+    }
+}
+
+/// Which of the four listings this is, for the sentences that have to name it.
+///
+/// The states below are the same shape on all four screens and the same words on none
+/// of them: "no album matches" and "nobody here matches" are the same state, and a
+/// panel that said "no results" would be a panel that had given up explaining.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Listing {
+    Tracks,
+    Albums,
+    Artists,
+    Genres,
+}
+
+impl Listing {
+    /// How many of this kind the server holds altogether, whoever is asking.
+    ///
+    /// Read from the figures rather than from the listing, and that difference is the
+    /// whole diagnosis: a listing that came back empty while the server holds thousands
+    /// is an account that may not reach them, and one that came back empty because
+    /// there are none is a collection with nothing of that kind in it.
+    fn held_by_the_server(self, stats: &tocata::types::Stats) -> i64 {
+        match self {
+            Self::Tracks => stats.tracks,
+            Self::Albums => stats.albums,
+            Self::Artists => stats.artists,
+            Self::Genres => stats.genres,
+        }
+    }
+
+    /// What it says when the server has none of this kind at all — which for three of
+    /// the four is a fact about the tags rather than about the music.
+    fn none_of_this_kind(self) -> String {
+        match self {
+            Self::Tracks => t!("empty.no_tracks"),
+            Self::Albums => t!("empty.no_albums"),
+            Self::Artists => t!("empty.no_artists"),
+            Self::Genres => t!("empty.no_genres"),
+        }
+        .to_string()
+    }
+
+    /// And what the figure beside "tracks read" is counting.
+    fn with_a_tag(self) -> String {
+        match self {
+            Self::Tracks => t!("empty.with_a_title"),
+            Self::Albums => t!("empty.with_an_album"),
+            Self::Artists => t!("empty.with_an_artist"),
+            Self::Genres => t!("empty.with_a_genre"),
+        }
+        .to_string()
+    }
+
+    fn nothing_matches(self) -> String {
+        match self {
+            Self::Tracks => t!("empty.no_track_matches"),
+            Self::Albums => t!("empty.no_album_matches"),
+            Self::Artists => t!("empty.no_artist_matches"),
+            Self::Genres => t!("empty.no_genre_matches"),
+        }
+        .to_string()
+    }
+
+    /// The reassurance under it: that narrowing a list did not lose anything.
+    fn all_still_there(self, held: i64) -> String {
+        let count = super::thousands(held);
+
+        match self {
+            Self::Tracks => t!("empty.tracks_still_there", count = count),
+            Self::Albums => t!("empty.albums_still_there", count = count),
+            Self::Artists => t!("empty.artists_still_there", count = count),
+            Self::Genres => t!("empty.genres_still_there", count = count),
+        }
+        .to_string()
+    }
+}
+
+/// Why a listing has nothing in it, which is never one answer.
+///
+/// "Empty" is four different things needing four different things done about them: a
+/// server nothing has been read into, a search that narrowed too far, a collection
+/// whose files never said what they are, and an account that may not reach any of it.
+/// A single "nothing found" would be the panel knowing which and not saying.
+///
+/// Nothing here is a card floating mid-page. It sits where the first row would have
+/// been, on the same hairline block every run of rows in this panel starts with.
+#[component]
+pub fn Nothing(
+    which: Listing,
+    /// What is in the search field, which is what tells a narrowed list from an empty
+    /// collection. The pieces of the reel rather than the reel itself: this component
+    /// draws no rows, so making it generic over them would be a type parameter earning
+    /// nothing.
+    typing: RwSignal<String>,
+    /// How many there were before anything was typed.
+    held: RwSignal<Option<i64>>,
+    on_clear: Callback<()>,
+    /// Whether the account may do anything about it. Only an administrator is offered
+    /// a scan, and only they are told which directory is being read — a listener with
+    /// nothing to look at needs a sentence they can repeat, not a path.
+    admin: bool,
+) -> impl IntoView {
+    // Asked for here rather than by the screen, because this is the only thing that
+    // wants it and it only exists when a listing came back empty. The figures are not
+    // filtered by which libraries an account may see, which is what makes them the
+    // measure the diagnosis needs: the server's own total against yours.
+    let stats = RwSignal::new(None::<tocata::types::Stats>);
+    let libraries = RwSignal::new(Vec::<tocata::types::Library>::new());
+
+    spawn_local(async move {
+        if let Ok(read) = crate::api::stats().await {
+            stats.set(Some(read));
+        }
+    });
+
+    // Only for whoever could act on it, and only to name the directory on a first run.
+    if admin {
+        spawn_local(async move {
+            if let Ok(read) = crate::api::libraries().await {
+                libraries.set(read);
+            }
+        });
+    }
+
+    // Whether this account can reach any music at all, asked of the one listing that
+    // answers it for all four: no tracks means no albums, no artists and no genres
+    // either, whatever the figures say the server holds.
+    //
+    // It is what stops the wrong story being told. A listener given nothing, opening
+    // Albums on a server whose files carry no album tags, would otherwise read that the
+    // files say nothing — true of the server, and not why *she* is looking at an empty
+    // screen. Asked only here, so it costs one request in the one case that needs it.
+    let reaches = RwSignal::new(None::<i64>);
+
+    spawn_local(async move {
+        if let Ok(page) = crate::api::tracks("", 0, 1).await {
+            reaches.set(Some(page.total));
+        }
+    });
+
+    let searching = move || !typing.with(String::is_empty);
+
+    view! {
+        <div class="diagnosis">
+            <Show when=searching>
+                <h2>{move || which.nothing_matches()}</h2>
+
+                <p class="quiet">
+                    {move || {
+                        which.all_still_there(held.get().unwrap_or_default())
+                    }}
+                </p>
+
+                // The one action an empty search has, and it is the whole of what is
+                // wrong: a filter is on. No link to another section — without carrying
+                // the words across it would only be the sidebar again.
+                <button class="plainly" on:click=move |_| on_clear.run(())>
+                    {t!("empty.clear_the_search")}
+                </button>
+            </Show>
+
+            <Show when=move || !searching() && stats.get().is_some() && reaches.get().is_some()>
+                {move || {
+                    let Some(read) = stats.get() else { return ().into_any() };
+                    let within_reach = reaches.get().unwrap_or_default();
+
+                    // Nothing has been read at all, which is every server on its first
+                    // run and the only empty state with something to press.
+                    if read.tracks == 0 {
+                        return view! { <Unread admin libraries /> }.into_any();
+                    }
+
+                    // There is music and this account reaches none of it, which is two
+                    // different situations wanting opposite sentences. An administrator
+                    // reaches everything that is switched on, so for them it means every
+                    // library is off — something they did and may well have forgotten. A
+                    // listener cannot see the switch, so for them it is about access.
+                    if within_reach == 0 {
+                        if admin {
+                            return view! {
+                                <h2>{t!("empty.all_switched_off")}</h2>
+                                <p class="quiet">{t!("empty.switch_one_back_on")}</p>
+
+                                <div class="remedy">
+                                    <A href="/libraries" attr:class="plainly">
+                                        {t!("nav.libraries")}
+                                    </A>
+                                </div>
+                            }
+                                .into_any();
+                        }
+
+                        return view! {
+                            <h2>{t!("empty.nothing_you_reach")}</h2>
+                            <p class="quiet">{t!("empty.ask_an_administrator")}</p>
+                        }
+                            .into_any();
+                    }
+
+                    // The server holds none of this kind though it holds music, so the
+                    // files never said. Nothing to press: the fix is in the tags.
+                    if which.held_by_the_server(&read) == 0 {
+                        return view! {
+                            <h2>{which.none_of_this_kind()}</h2>
+                            <p class="quiet">{t!("empty.outside_tocata")}</p>
+
+                            <dl class="facts">
+                                <div>
+                                    <dt>{t!("empty.tracks_read")}</dt>
+                                    <dd>{super::thousands(read.tracks)}</dd>
+                                </div>
+                                <div>
+                                    <dt>{which.with_a_tag()}</dt>
+                                    <dd>{super::thousands(0)}</dd>
+                                </div>
+                            </dl>
+                        }
+                            .into_any();
+                    }
+
+                    // Music within reach, some of this kind on the server, and none of it
+                    // in this listing. Nothing known says why, so it says only that.
+                    view! { <h2>{which.none_of_this_kind()}</h2> }.into_any()
+                }}
+            </Show>
+        </div>
+    }
+}
+
+/// The first run: a server with libraries and nothing read out of them.
+#[component]
+fn Unread(admin: bool, libraries: RwSignal<Vec<tocata::types::Library>>) -> impl IntoView {
+    let scanning = RwSignal::new(false);
+
+    let scan = move |_| {
+        scanning.set(true);
+        spawn_local(async move {
+            let _ = crate::api::start_scan(false).await;
+        });
+    };
+
+    view! {
+        <h2>{t!("empty.nothing_yet")}</h2>
+
+        // Which directory, in monospace, because the useful question on a first run is
+        // whether it points where the music actually is. Only for whoever can change
+        // it: a listener reading a path has been told where somebody else's disk is.
+        <Show
+            when=move || admin
+            fallback=|| view! { <p class="quiet">{t!("empty.nothing_added_yet")}</p> }
+        >
+            <p class="quiet">
+                {move || {
+                    let held = libraries.get();
+
+                    match held.len() {
+                        0 => t!("empty.no_libraries").to_string(),
+                        1 => {
+                            t!("empty.one_library", path = held[0].path.clone()).to_string()
+                        }
+                        count => {
+                            t!("empty.many_libraries", count = super::thousands(count as i64))
+                                .to_string()
+                        }
+                    }
+                }}
+            </p>
+
+            <div class="remedy">
+                <Show when=move || !libraries.with(Vec::is_empty)>
+                    <button
+                        class="pill solid"
+                        disabled=move || scanning.get()
+                        on:click=scan
+                    >
+                        {move || {
+                            if scanning.get() {
+                                t!("empty.scanning").to_string()
+                            } else {
+                                t!("empty.scan_now").to_string()
+                            }
+                        }}
+                    </button>
+                </Show>
+
+                <A href="/libraries" attr:class="plainly">{t!("nav.libraries")}</A>
+            </div>
+        </Show>
     }
 }
 
@@ -251,7 +579,13 @@ pub fn Foot(
     shown: Signal<usize>,
     total: RwSignal<Option<i64>>,
     fetching: RwSignal<bool>,
+    /// Whether the last window did not arrive. Shown here rather than at the top of the
+    /// screen, which is where it used to go: a list that stopped partway is not a broken
+    /// screen, and everything already read stays on it. The message belongs where the
+    /// reading stopped, with the way to carry on.
+    stumbled: Signal<bool>,
     on_reach: Callback<()>,
+    on_retry: Callback<()>,
 ) -> impl IntoView {
     let edge = NodeRef::<leptos::html::Div>::new();
 
@@ -310,6 +644,24 @@ pub fn Foot(
         // a line under the last row repeating it would only be there to be read
         // after there is nothing left to read.
         <div class="brink" node_ref=edge>
+            // One line and a way to carry on, and no alarm anywhere: the page is not
+            // broken, one request is. It says how far it got, because that is what turns
+            // "it failed" into something somebody can act on.
+            <Show when=move || stumbled.get() && !fetching.get()>
+                <span>
+                    {move || {
+                        t!(
+                            "collection.stopped_at",
+                            shown = super::thousands(shown.get() as i64),
+                        )
+                    }}
+                </span>
+
+                <button class="plainly" on:click=move |_| on_retry.run(())>
+                    {t!("collection.try_again")}
+                </button>
+            </Show>
+
             <Show when=move || fetching.get()>
                 <Glyph icon=Icon::Loading />
                 <span>

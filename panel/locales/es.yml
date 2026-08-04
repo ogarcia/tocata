@@ -185,6 +185,7 @@ album:
   # disco al que le faltan cuatro ficheros no es un disco con cuatro pistas menos.
   one_gone: Uno de sus ficheros no está donde estaba. Sigue en el listado de abajo.
   many_gone: "%{count} de sus ficheros no están donde estaban. Siguen en el listado de abajo."
+  pause_record: Pausar
   one_file: Un fichero en un directorio.
   many_files: "%{count} ficheros en un directorio."
 
@@ -234,7 +235,50 @@ genres:
 
 # Lo que comparten los cuatro listados. Al pie de todos ellos, junto al glifo que
 # gira, mientras viene algo de camino.
+# Por qué un listado no tiene nada, que nunca es una sola respuesta. Cuatro estados que
+# piden cuatro cosas distintas, y un «no hay resultados» sería el panel sabiendo cuál es
+# y no diciéndolo.
+empty:
+  # Una búsqueda que ha estrechado demasiado. Tranquilizar importa más que la noticia:
+  # lo que se teme es que la lista haya perdido algo, y no lo ha perdido.
+  no_track_matches: Ninguna pista coincide con lo que has escrito.
+  no_album_matches: Ningún disco coincide con lo que has escrito.
+  no_artist_matches: Nadie coincide con lo que has escrito.
+  no_genre_matches: Ningún género coincide con lo que has escrito.
+  tracks_still_there: "Las %{count} pistas siguen ahí. Solo está estrechada la lista."
+  albums_still_there: "Los %{count} discos siguen ahí. Solo está estrechada la lista."
+  artists_still_there: "Los %{count} nombres siguen ahí. Solo está estrechada la lista."
+  genres_still_there: "Los %{count} géneros siguen ahí. Solo está estrechada la lista."
+  clear_the_search: Limpiar la búsqueda
+  # Una colección con música y sin nada de este tipo, que es un hecho sobre las
+  # etiquetas y no sobre la música. Nada que pulsar: el arreglo no está aquí.
+  no_tracks: Nada tiene título.
+  no_albums: Ningún fichero dice de qué disco es.
+  no_artists: Ningún fichero dice quién lo hizo.
+  no_genres: Ninguno de los ficheros dice lo que es.
+  outside_tocata: Tocata lee lo que llevan los ficheros y no añade nada de su parte, así que esto es cosa de lo que los etiquetó. Arregla las etiquetas y el próximo escaneo lo recoge.
+  tracks_read: Pistas leídas
+  with_a_title: Con título
+  with_an_album: Con etiqueta de álbum
+  with_an_artist: Con etiqueta de artista
+  with_a_genre: Con etiqueta de género
+  # Hay música aquí y nada de ella es suya para verla.
+  all_switched_off: Todas las bibliotecas están apagadas.
+  switch_one_back_on: Hay música en este servidor y no se está leyendo nada, porque todas las bibliotecas que tiene están apagadas. Vuelve a encender una y aparece aquí; no hay que reescanear nada.
+  nothing_you_reach: Aquí no hay nada que tú puedas ver.
+  ask_an_administrator: Hay música en este servidor y a tu cuenta no se le ha dado ninguna biblioteca que pueda leer — o las que se le dieron están apagadas. Quien lleva el servidor puede cambiarlo.
+  # El primer arranque, y el único estado vacío con algo que pulsar.
+  nothing_yet: Todavía no se ha leído nada.
+  nothing_added_yet: Todavía no se ha añadido nada a este servidor. Quien lo lleva añade una biblioteca y la escanea, y aparece aquí.
+  no_libraries: Aún no hay bibliotecas. Una biblioteca es un directorio del que leer música, y no se lee nada hasta que haya una.
+  one_library: "Hay una biblioteca, %{path}, y nunca se ha leído. Un escaneo la recorre y pone aquí lo que encuentre."
+  many_libraries: "Hay %{count} bibliotecas y no se ha leído ninguna. Un escaneo las recorre y pone aquí lo que encuentre."
+  scan_now: Escanear ahora
+  scanning: Escaneando…
+
 collection:
+  stopped_at: "No se ha podido leer más allá de las %{shown} primeras."
+  try_again: Volver a intentarlo
   reading: "Trayendo más · %{shown} de %{total}"
   # Cuánto hay de algo, en las dos cosas en que se cuenta una colección. En la
   # tercera línea de un disco y al final de la fila de un artista.
@@ -265,6 +309,8 @@ queue:
   next: A continuación
   one_ahead: "1 pista por delante"
   many_ahead: "%{count} pistas por delante"
+  one_beyond: Queda una más detrás de estas. Aparecerá según avance la cola.
+  many_beyond: "Quedan %{count} más detrás de estas. Irán apareciendo según avance la cola."
   nothing_ahead: Nada después de esta.
   drop: Sacarla de la cola
   reorder: Mantén pulsado para moverla

@@ -1647,6 +1647,64 @@ h1 {
  * make the message drift away from the field it belongs to. */
 form .failure, .sheet .failure { margin-top: 0.25rem; }
 
+/* Why a listing has nothing in it. Where the first row would have been, on the hairline
+ * every run of rows in this panel starts with — never a card floating mid-page, and no
+ * illustration. Only a genuine failure gets the alarm colour, and none of these is one:
+ * an empty collection is a state, not a fault.
+ *
+ * Not `.empty`, which a date field with nothing in it already wears, and not `.nothing`,
+ * which is the one-line version of this and still what a queue and a roster use. This
+ * one says *why*, which is the whole difference. */
+.diagnosis {
+  max-width: 46ch;
+  padding: 1.875rem 0 2rem;
+  border-top: 1px solid var(--line);
+}
+
+.diagnosis h2 {
+  margin-bottom: 0.375rem;
+  font-size: var(--name);
+  font-weight: 400;
+}
+
+.diagnosis p {
+  font-size: var(--control);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* The figures that are the proof of the diagnosis: how much was read against how much
+ * of it said anything. */
+.diagnosis .facts { margin-top: 1.25rem; }
+
+/* What can be done about it, where there is anything. */
+.diagnosis .remedy {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+/* A text button that reads as a link and is one in every way but the element. Used for
+ * the one action an empty state has beside a pill, and for carrying on down a list that
+ * stopped. */
+.plainly {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--control);
+  cursor: pointer;
+}
+
+.plainly:hover { text-decoration: underline; }
+
+.diagnosis > .plainly { margin-top: 1.25rem; }
+
+/* In the foot of a list that stopped partway, beside the line saying how far it got. */
+.brink .plainly { font-size: var(--aside); }
+
 /* --- the collection ------------------------------------------------------- */
 
 /* One row per track, and the heading row over them, sharing their columns the way
@@ -1980,6 +2038,20 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 .sleeve:hover .cover .over,
 .cover .over:focus-visible,
 .cover .over.sounding { opacity: 1; }
+
+/* Gone entirely where there is no pointer to hover with, which is every phone and
+ * tablet. The alternative was leaving it on every cover for good, and a shelf of
+ * records with a button stamped on each of them is a shelf of buttons — the covers are
+ * the one thing on this screen worth looking at.
+ *
+ * Nothing is lost by taking it away there. Playing a record is what its own panel is
+ * for, which a tap already opens; stopping one is what the bar at the bottom of the
+ * screen is for, which is always in reach; and which record is playing is said in words
+ * on the third line of every sleeve, and in the accent on its name. The button was the
+ * shortcut, not the way. */
+@media (hover: none) {
+  .cover .over { display: none; }
+}
 
 /* And the name in the accent, the way the sounding row of a track listing is. */
 .sleeve .what.sounding { color: var(--accent); }
@@ -4228,6 +4300,15 @@ select.narrow { width: 12.5rem; }
 .dock .queued:hover, .dock .queued:focus-visible { color: var(--accent); }
 
 .dock .queued:focus-visible { outline: none; }
+
+/* What is waiting past the last row drawn. Centred and quiet: it is not a row and does
+ * not pretend to be one — it is the list saying where it stops. */
+.beyond {
+  padding: 1.125rem 0 0.25rem;
+  font-size: var(--aside);
+  text-align: center;
+  text-wrap: pretty;
+}
 
 /* --- more about the thing you pressed ------------------------------------- */
 

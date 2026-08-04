@@ -37,9 +37,28 @@ pub fn Album(id: String) -> impl IntoView {
         }
     });
 
+    // Whether what is sounding came off this record, read from the track playing rather
+    // than remembered, so it is still right after the queue has walked on.
+    let sounding = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.album_id)
+            .is_some_and(|from| from == id.get_value())
+    };
+
     // A record is a narrowing of its own, so the whole of it goes in the queue however
     // long it is — the same reading the shelf's own play button makes.
+    //
+    // And it pauses the record it is already playing, which the shelf's button does too.
+    // That matters most where the shelf has no button at all: on a touch screen this is
+    // the only way to start a record, so it had better also be a way to stop it.
     let play = move |_| {
+        if sounding() {
+            player.toggle();
+            return;
+        }
+
         let mine = id.get_value();
 
         spawn_local(async move {
@@ -75,7 +94,13 @@ pub fn Album(id: String) -> impl IntoView {
                         detail.with(|read| read.as_ref().is_some_and(|read| read.tracks > 0))
                     }>
                         <button class="leading" on:click=play>
-                            {t!("player.play_record")}
+                            {move || {
+                                if sounding() && player.playing.get() {
+                                    t!("album.pause_record").to_string()
+                                } else {
+                                    t!("player.play_record").to_string()
+                                }
+                            }}
                         </button>
                     </Show>
                 </span>

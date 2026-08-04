@@ -189,19 +189,19 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     // administrator wants to see what they are administering.
                     <Route
                         path=path!("/tracks")
-                        view=move || view! { <pages::tracks::Tracks on_expired=forget /> }
+                        view=move || view! { <pages::tracks::Tracks admin on_expired=forget /> }
                     />
                     <Route
                         path=path!("/albums")
-                        view=move || view! { <pages::albums::Albums on_expired=forget /> }
+                        view=move || view! { <pages::albums::Albums admin on_expired=forget /> }
                     />
                     <Route
                         path=path!("/artists")
-                        view=move || view! { <pages::artists::Artists on_expired=forget /> }
+                        view=move || view! { <pages::artists::Artists admin on_expired=forget /> }
                     />
                     <Route
                         path=path!("/genres")
-                        view=move || view! { <pages::genres::Genres on_expired=forget /> }
+                        view=move || view! { <pages::genres::Genres admin on_expired=forget /> }
                     />
 
                     // The administration sections. The menu does not offer these

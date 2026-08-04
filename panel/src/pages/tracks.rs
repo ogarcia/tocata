@@ -36,7 +36,7 @@ fn window(search: String, offset: usize, limit: i64) -> super::endless::Window<T
 }
 
 #[component]
-pub fn Tracks(on_expired: Callback<()>) -> impl IntoView {
+pub fn Tracks(admin: bool, on_expired: Callback<()>) -> impl IntoView {
     let reel = Reel::new(window as Fetch<Track>, on_expired);
 
     view! {
@@ -67,14 +67,27 @@ pub fn Tracks(on_expired: Callback<()>) -> impl IntoView {
             </div>
         </header>
 
+        // Only where nothing arrived at all. A list that stopped partway says so in
+        // its own foot, beside the way to carry on.
         {move || {
-            reel.failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
+            reel.failure
+                .get()
+                .filter(|_| reel.rows.with(Vec::is_empty))
+                .map(|why| view! { <p class="failure" role="alert">{why}</p> })
         }}
 
         // Nothing at all until the first answer, and then either the list or the
         // news that a search matched none of it.
+        // Never one answer, so never one sentence. Which of them it is lives in
+        // `endless`, because all four screens have the same four.
         <Show when=move || reel.total.get().is_some_and(|held| held == 0)>
-            <p class="nothing">{t!("tracks.none_found")}</p>
+            <super::endless::Nothing
+                which=super::endless::Listing::Tracks
+                typing=reel.typing
+                held=reel.held
+                on_clear=Callback::new(move |()| reel.clear())
+                admin
+            />
         </Show>
 
         <Show when=move || !reel.rows.with(Vec::is_empty)>
@@ -110,7 +123,11 @@ pub fn Tracks(on_expired: Callback<()>) -> impl IntoView {
             shown=reel.shown()
             total=reel.total
             fetching=reel.fetching
+            stumbled=Signal::derive(move || {
+                reel.failure.with(Option::is_some) && !reel.rows.with(Vec::is_empty)
+            })
             on_reach=Callback::new(move |()| reel.more())
+            on_retry=Callback::new(move |()| reel.again())
         />
     }
 }

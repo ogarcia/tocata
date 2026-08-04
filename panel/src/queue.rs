@@ -85,6 +85,10 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
         });
     });
 
+    // How many are waiting past the last row drawn. Counted against what is on screen
+    // rather than against `SHOWN`, so it stays right after a track has been taken out.
+    let beyond = move || player.ahead().saturating_sub(coming.with(Vec::len));
+
     // How many are still to come, and which record they came out of. The count is of
     // the whole queue rather than of the rows below it: fifty rows drawn out of four
     // hundred to come is worth saying.
@@ -177,6 +181,29 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                                 <Row at=queued.0 track=queued.1 player moving />
                             </For>
                         </ul>
+                    </Show>
+
+                    // What is not drawn, at the end of what is.
+                    //
+                    // Only the next fifty are fetched, because nobody reorders the four
+                    // hundredth track of a shuffle — but a list that stopped at fifty
+                    // with nothing said would read as a queue of fifty, and the heading
+                    // above says there are four hundred. So this is the line that makes
+                    // the two agree, and it says the useful half: they are not missing,
+                    // they arrive as this one moves on.
+                    <Show when=move || { beyond() > 0 }>
+                        <p class="quiet beyond">
+                            {move || {
+                                let more = beyond();
+
+                                if more == 1 {
+                                    t!("queue.one_beyond").to_string()
+                                } else {
+                                    t!("queue.many_beyond", count = pages::thousands(more as i64))
+                                        .to_string()
+                                }
+                            }}
+                        </p>
                     </Show>
 
                     // The end of a queue rather than an empty one: something is
