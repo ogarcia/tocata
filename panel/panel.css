@@ -1654,9 +1654,16 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  *
  * Not `.empty`, which a date field with nothing in it already wears, and not `.nothing`,
  * which is the one-line version of this and still what a queue and a roster use. This
- * one says *why*, which is the whole difference. */
+ * one says *why*, which is the whole difference.
+ *
+ * The same width a run of settings is capped at, rather than a measure of its own. It
+ * was `46ch` — about half of this — on the reasoning that these are paragraphs and
+ * paragraphs want a short line. But nothing else in the panel is set to a reading
+ * measure, so the one block that was came out looking like a column that had failed to
+ * fill, and a block sitting where a list should be reads as part of that list. Matching
+ * the widest thing the panel caps is what makes it look deliberate. */
 .diagnosis {
-  max-width: 46ch;
+  max-width: 47.5rem;
   padding: 1.875rem 0 2rem;
   border-top: 1px solid var(--line);
 }
