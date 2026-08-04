@@ -532,7 +532,13 @@ fn Unread(admin: bool, libraries: RwSignal<Vec<tocata::types::Library>>) -> impl
                     // already been walked by the time anybody looks at this. Saying it
                     // has never been read would send somebody to press a button that has
                     // already been pressed, and leave them none the wiser.
-                    let read = held.iter().any(|one| one.last_scanned_at.is_some());
+                    //
+                    // Every one of them, not any: with one library read and another added
+                    // since and never scanned, the thing worth saying is that something
+                    // has not been read yet — because that is the one somebody can do
+                    // something about. "Reading them found nothing" is only true once
+                    // there is nothing left to read.
+                    let read = held.iter().all(|one| one.last_scanned_at.is_some());
 
                     match (held.len(), read) {
                         (0, _) => t!("empty.no_libraries").to_string(),
