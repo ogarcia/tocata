@@ -40,6 +40,8 @@ pub struct Metadata {
     pub mbid_release: Option<String>,
     pub mbid_release_group: Option<String>,
     pub isrc: Option<String>,
+    /// Who put the record out. A fact about the release, kept on the album.
+    pub label: Option<String>,
     pub rg_track_gain: Option<f64>,
     pub rg_track_peak: Option<f64>,
     pub rg_album_gain: Option<f64>,
@@ -313,6 +315,9 @@ fn read_tag(tag: &Tag, metadata: &mut Metadata) {
 
     metadata.bpm = text(tag, ItemKey::Bpm).and_then(|v| v.parse().ok());
     metadata.isrc = text(tag, ItemKey::Isrc);
+    // `Label` and `Publisher` are the same frame in every format that has one —
+    // `TPUB` in ID3v2 — and taggers reach for either name, so both are asked.
+    metadata.label = text(tag, ItemKey::Label).or_else(|| text(tag, ItemKey::Publisher));
     metadata.mbid_recording = text(tag, ItemKey::MusicBrainzRecordingId);
     metadata.mbid_track = text(tag, ItemKey::MusicBrainzTrackId);
     metadata.mbid_release = text(tag, ItemKey::MusicBrainzReleaseId);

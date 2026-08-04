@@ -112,7 +112,9 @@ fn Sleeve(album: Album) -> impl IntoView {
     // however long it is — no sitting's cap here, unlike an unfiltered listing of
     // every track there is. Somebody who pressed play on a record asked for that
     // record.
-    let start = move |_| {
+    let start = move |event: web_sys::MouseEvent| {
+        event.stop_propagation();
+
         if sounding() {
             player.toggle();
             return;
@@ -162,7 +164,12 @@ fn Sleeve(album: Album) -> impl IntoView {
     };
 
     view! {
-        <div class="sleeve">
+        // Everywhere but the button over the cover opens what is known about the
+        // record. The button keeps its own press, so playing never also opens.
+        <div
+            class="sleeve"
+            on:click=move |_| crate::drawer::open(crate::drawer::Open::Album(id.get_value()))
+        >
             // The cover, and over it the button that plays the record. The button is
             // its own target rather than the whole square, which the mockups do not
             // cover and which matters for what comes next: the rest of the cover is

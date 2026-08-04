@@ -110,6 +110,12 @@ CREATE TABLE albums (
                        CHECK (is_compilation IN (0, 1)),
     mbid_release       TEXT,
     mbid_release_group TEXT,
+    -- Who put the record out, as the tag says. A fact about the release and not
+    -- about any one song on it, which is why it is here rather than on tracks —
+    -- and taken from whichever of its files the album was first built from, since
+    -- a record with two different labels in its tags has one label and a tagging
+    -- mistake.
+    label              TEXT,
     rg_album_gain      REAL,
     rg_album_peak      REAL,
     artwork_id         INTEGER REFERENCES artworks (id) ON DELETE SET NULL,

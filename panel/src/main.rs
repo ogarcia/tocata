@@ -301,11 +301,12 @@ mod tests {
     /// same reason the translations are read from the source.
     /// Named as well as read, so a test that finds one word on two screens can say
     /// which two.
-    const SOURCES: [(&str, &str); 20] = [
+    const SOURCES: [(&str, &str); 21] = [
         ("main.rs", include_str!("main.rs")),
         ("icon.rs", include_str!("icon.rs")),
         ("layout.rs", include_str!("layout.rs")),
         ("drawer/mod.rs", include_str!("drawer/mod.rs")),
+        ("drawer/album.rs", include_str!("drawer/album.rs")),
         ("drawer/track.rs", include_str!("drawer/track.rs")),
         ("login.rs", include_str!("login.rs")),
         ("pages/mod.rs", include_str!("pages/mod.rs")),
@@ -340,7 +341,7 @@ mod tests {
     /// library and the play glyph over a track number, `named` was a link in the roster
     /// and the title block of the opened player. The way out of those is a different
     /// word, never a line here.
-    const SHARED: [&str; 65] = [
+    const SHARED: [&str; 72] = [
         // How something reads, wherever it is.
         "quiet",
         "lead",
@@ -388,6 +389,20 @@ mod tests {
         "options",
         "forms",
         "pane",
+        // The chrome of a drawer, which is one shape whichever thing it is about: the
+        // body that scrolls, a name against a value, a note under what it explains,
+        // the actions at the foot and the one of them that is the point, and the block
+        // that says something is not where it was. Two of these panels agreeing about
+        // them is the whole reason they read as one thing.
+        "leafing",
+        "spelt",
+        "remark",
+        "deeds",
+        "leading",
+        "absent",
+        // A row whose file has gone: quiet rather than removed, in a listing and in a
+        // running order alike.
+        "gone",
         // One thing wherever it appears.
         "pill",
         "solid",

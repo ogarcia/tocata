@@ -890,6 +890,62 @@ pub struct Album {
     pub cover: bool,
 }
 
+/// Everything a record's own panel shows.
+///
+/// One call and not four, because a panel about a record is one thing to read: its
+/// figures, what it is, what is on it, and who played. Fetching the track list apart
+/// from the rest would only mean the panel drawing itself twice.
+///
+/// Like a track's, every optional field means nothing said so, and the panel leaves
+/// the row out rather than printing a blank.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumDetail {
+    pub id: String,
+    pub name: String,
+    /// Who it is filed under, which on a compilation is not who played on it.
+    pub artist: Option<String>,
+    pub year: Option<i64>,
+    /// Every genre its tracks carry, not the first one a row has room for.
+    pub genres: Option<String>,
+    /// Who put it out, as the tag said.
+    pub label: Option<String>,
+    /// How many of its tracks are still there.
+    pub tracks: i64,
+    /// And how many are not. Kept apart rather than added in, because a record
+    /// missing four of its files is a thing to say out loud.
+    pub missing: i64,
+    /// Seconds, over the tracks that are still there.
+    pub duration: Option<i64>,
+    /// Bytes, over the same tracks.
+    pub size: i64,
+    /// The directory its files sit in, relative to the library — the same choice a
+    /// track's own panel makes, and for the same reason.
+    pub path: Option<String>,
+    pub library: String,
+    /// When the server last read any of its files.
+    pub read_at: Option<String>,
+    /// How many discs its tracks say it came on. Absent where none of them says.
+    pub discs: Option<i64>,
+    pub listing: Vec<AlbumTrack>,
+    /// Everybody credited on its tracks, which is a different question from who the
+    /// record is filed under: it is where the guests are.
+    pub players: Vec<String>,
+}
+
+/// One track as a record's panel lists it: enough to read down the running order and
+/// to open any of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumTrack {
+    pub id: String,
+    pub title: String,
+    pub track_number: Option<i64>,
+    pub disc_number: Option<i64>,
+    pub duration: Option<i64>,
+    pub missing: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Artists {

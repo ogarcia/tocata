@@ -355,6 +355,14 @@ pub async fn detail(id: &str) -> Result<tocata::types::TrackDetail, Failure> {
     read(get(&format!("/tracks/{id}/detail"))?).await
 }
 
+/// Everything the database holds about one record: its figures, what it is, the
+/// running order, and who played on it.
+///
+/// One call, because a panel about a record is one thing to read.
+pub async fn album(id: &str) -> Result<tocata::types::AlbumDetail, Failure> {
+    read(get(&format!("/albums/{id}/detail"))?).await
+}
+
 /// Every tag in a track's file, as the file spells them.
 ///
 /// Read from disk on the server every time it is asked, which is why the panel asks

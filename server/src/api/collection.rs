@@ -23,8 +23,8 @@
 use super::error::ApiError;
 use super::session::Panel;
 use crate::types::{
-    Album, Albums, Artist, Artists, ErrorBody, Genre, Genres, LyricLine, LyricSource, Lyrics,
-    Queue, Tags, Track, TrackDetail, Tracks,
+    Album, AlbumDetail, AlbumTrack, Albums, Artist, Artists, ErrorBody, Genre, Genres, LyricLine,
+    LyricSource, Lyrics, Queue, Tags, Track, TrackDetail, Tracks,
 };
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -631,6 +631,139 @@ pub async fn albums(
     }))
 }
 
+/// All about one record
+///
+/// Its figures, what it is, the running order, and who played on it — in one answer,
+/// because a panel about a record is one thing to read and fetching the track list
+/// apart from the rest would only mean drawing the panel twice.
+///
+/// A record nobody may see is a record they may not learn exists, so that is the same
+/// 404 as one that is not there.
+#[utoipa::path(
+    get,
+    path = "/albums/{id}/detail",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which album")),
+    responses(
+        (status = 200, description = "Everything known about it", body = AlbumDetail),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such album, or not one you may see", body = ErrorBody),
+    )
+)]
+pub async fn album(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<AlbumDetail>, ApiError> {
+    let who = panel.user.id;
+
+    // Figures over the tracks that are still there, except the count of the ones that
+    // are not — a record missing four of its files is a thing to say out loud rather
+    // than to quietly leave out of every total.
+    //
+    // The library and the directory come off one of its tracks. A record's files live
+    // together, and where they do not the first of them is still the answer to "where
+    // is this": one folder is the honest half of a fact, and a list of folders is not
+    // a fact anybody asked for.
+    let row: Option<AlbumRow2> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT al.public_id, al.name, al.year, al.label,
+                (SELECT group_concat(a.name, ', ')
+                   FROM album_artists aa JOIN artists a ON a.id = aa.artist_id
+                  WHERE aa.album_id = al.id AND aa.role = 'albumartist') AS artist,
+                (SELECT group_concat(DISTINCT g.name)
+                   FROM tracks t
+                   JOIN track_genres tg ON tg.track_id = t.id
+                   JOIN genres g ON g.id = tg.genre_id
+                  WHERE t.album_id = al.id) AS genres,
+                (SELECT count(*) FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NULL) AS tracks,
+                (SELECT count(*) FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NOT NULL) AS missing,
+                (SELECT sum(t.duration_ms) / 1000 FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration,
+                (SELECT coalesce(sum(t.file_size), 0) FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NULL) AS size,
+                (SELECT count(DISTINCT t.disc_number) FROM tracks t
+                  WHERE t.album_id = al.id AND t.disc_number IS NOT NULL) AS discs,
+                (SELECT f.path FROM tracks t JOIN folders f ON f.id = t.folder_id
+                  WHERE t.album_id = al.id
+                  ORDER BY t.disc_number, t.track_number LIMIT 1) AS path,
+                (SELECT l.name FROM tracks t JOIN libraries l ON l.id = t.library_id
+                  WHERE t.album_id = al.id LIMIT 1) AS library,
+                (SELECT max(t.updated_at) FROM tracks t
+                  WHERE t.album_id = al.id) AS read_at
+           FROM albums al
+          WHERE al.public_id = ? AND ",
+        album_is_visible!("al.id")
+    ))
+    .bind(who)
+    .bind(&id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading everything about an album"))?;
+
+    let row = row.ok_or(ApiError::NotFound)?;
+
+    // The running order, missing files and all: this is the one screen where a file
+    // that has gone is worth showing, because it is where somebody comes to find out
+    // what is gone.
+    let listing: Vec<TrackOnRecord> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT t.public_id, t.title, t.track_number, t.disc_number, t.duration_ms,
+                t.missing_since IS NOT NULL AS missing
+           FROM tracks t JOIN albums al ON al.id = t.album_id
+          WHERE al.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)
+          ORDER BY t.disc_number, t.track_number, t.title COLLATE NOCASE"
+    ))
+    .bind(who)
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "listing what is on a record"))?;
+
+    // Everybody credited on its tracks. Not the same question as who it is filed
+    // under, which is the point: this is where the guests are.
+    let players: Vec<String> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
+        "SELECT DISTINCT a.name
+           FROM tracks t
+           JOIN albums al ON al.id = t.album_id
+           JOIN track_artists ta ON ta.track_id = t.id AND ta.role = 'artist'
+           JOIN artists a ON a.id = ta.artist_id
+          WHERE al.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)
+          ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE"
+    ))
+    .bind(who)
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading who played on a record"))?;
+
+    Ok(Json(AlbumDetail {
+        id: row.public_id,
+        name: row.name,
+        artist: row.artist,
+        year: row.year,
+        genres: row.genres,
+        label: row.label,
+        tracks: row.tracks,
+        missing: row.missing,
+        duration: row.duration,
+        size: row.size,
+        // The root of a library is the empty string, which is where a record whose
+        // files sit loose at the top of one would be. Nothing to show for it.
+        path: row.path.filter(|path| !path.is_empty()),
+        library: row.library.unwrap_or_default(),
+        read_at: row.read_at,
+        // Null rather than nought where nothing on it numbers a disc, the same as a
+        // track's own panel: a record that said nothing did not say one.
+        discs: row.discs.filter(|discs| *discs > 0),
+        listing: listing.into_iter().map(AlbumTrack::from).collect(),
+        players,
+    }))
+}
+
 /// The artists
 #[utoipa::path(
     get,
@@ -1063,6 +1196,50 @@ impl From<DetailRow> for TrackDetail {
     }
 }
 
+/// A record's own panel, as one row of figures. Its own struct rather than a wider
+/// `AlbumRow`, because that one is read fifty at a time by the shelf and this one is
+/// read once.
+#[derive(sqlx::FromRow)]
+struct AlbumRow2 {
+    public_id: String,
+    name: String,
+    artist: Option<String>,
+    year: Option<i64>,
+    label: Option<String>,
+    genres: Option<String>,
+    tracks: i64,
+    missing: i64,
+    duration: Option<i64>,
+    size: i64,
+    discs: Option<i64>,
+    path: Option<String>,
+    library: Option<String>,
+    read_at: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct TrackOnRecord {
+    public_id: String,
+    title: String,
+    track_number: Option<i64>,
+    disc_number: Option<i64>,
+    duration_ms: Option<i64>,
+    missing: bool,
+}
+
+impl From<TrackOnRecord> for AlbumTrack {
+    fn from(row: TrackOnRecord) -> Self {
+        Self {
+            id: row.public_id,
+            title: row.title,
+            track_number: row.track_number,
+            disc_number: row.disc_number,
+            duration: row.duration_ms.map(|ms| ms / 1000),
+            missing: row.missing,
+        }
+    }
+}
+
 #[derive(sqlx::FromRow)]
 struct AlbumRow {
     public_id: String,
@@ -1449,6 +1626,52 @@ mod tests {
                 Err(ApiError::NotFound)
             ),
             "the second library is not hers to read about either"
+        );
+    }
+
+    /// A record's own panel, and the two figures that have to be kept apart.
+    #[tokio::test]
+    async fn a_record_counts_what_is_there_and_says_what_is_not() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+
+        let Json(read) = album(hers, State(pool.clone()), UrlPath("al1".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(read.name, "El Patio");
+        assert_eq!(read.artist.as_deref(), Some("Triana"));
+        assert_eq!(read.genres.as_deref(), Some("Flamenco"));
+        assert_eq!(read.year, Some(1975));
+        assert_eq!(read.library, "kept");
+
+        // The fixture's first record has two tracks and one of them has gone. The
+        // figures a panel prints are over what can be played; the one that has gone
+        // is counted on its own, because a record missing a file is worth saying out
+        // loud rather than quietly leaving out of every total.
+        assert_eq!(read.tracks, 1);
+        assert_eq!(read.missing, 1);
+        assert_eq!(read.duration, Some(180));
+
+        // And the running order shows both, which is the one place a file that has
+        // gone belongs: this is where somebody comes to find out what is gone.
+        assert_eq!(read.listing.len(), 2);
+        assert_eq!(read.listing.iter().filter(|t| t.missing).count(), 1);
+
+        assert_eq!(
+            read.players,
+            vec!["Triana".to_string()],
+            "credited on its tracks, which is a different question from who it is \
+             filed under"
+        );
+
+        let walled = somebody_else(&pool).await;
+        assert!(
+            matches!(
+                album(walled, State(pool.clone()), UrlPath("al2".to_string())).await,
+                Err(ApiError::NotFound)
+            ),
+            "a record in a library she may not see is not one she may learn exists"
         );
     }
 

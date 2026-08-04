@@ -964,9 +964,9 @@ impl State {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO albums (
                  public_id, name, sort_name, year, release_date, is_compilation,
-                 mbid_release, mbid_release_group, rg_album_gain, rg_album_peak,
+                 mbid_release, mbid_release_group, label, rg_album_gain, rg_album_peak,
                  created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING id",
         )
         .bind(db::public_id()?)
@@ -977,6 +977,7 @@ impl State {
         .bind(is_compilation)
         .bind(&metadata.mbid_release)
         .bind(&metadata.mbid_release_group)
+        .bind(&metadata.label)
         .bind(metadata.rg_album_gain)
         .bind(metadata.rg_album_peak)
         .bind(&self.timestamp)

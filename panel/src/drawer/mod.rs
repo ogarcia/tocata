@@ -22,6 +22,7 @@
 //! against a value that draws nothing at all when there is no value. That last one is
 //! the rule of these panels in one place: a row with nothing in it is not a row.
 
+pub mod album;
 pub mod track;
 
 use crate::icon::{Glyph, Icon};
@@ -33,6 +34,8 @@ use rust_i18n::t;
 pub enum Open {
     /// One track, by identifier.
     Track(String),
+    /// One record.
+    Album(String),
 }
 
 /// The one signal that says. Held above the router so it survives nothing and
@@ -77,6 +80,7 @@ pub fn Drawers() -> impl IntoView {
                 .get()
                 .map(|what| match what {
                     Open::Track(id) => view! { <track::Track id /> }.into_any(),
+                    Open::Album(id) => view! { <album::Album id /> }.into_any(),
                 })
         }}
     }

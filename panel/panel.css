@@ -3292,6 +3292,75 @@ select.narrow { width: 12.5rem; }
   white-space: nowrap;
 }
 
+/* The running order of a record. Its own thing rather than the track listing's rows:
+ * that one is a table of five columns being read down one of them, and this is a
+ * numbered list being read in order. Bled by the same twelve pixels every other run of
+ * rows in these panels is. */
+.running { margin: 0 -0.75rem; }
+
+.running > div {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: 0.875rem;
+  align-items: baseline;
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.running > div:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+.running > div:last-child { border-bottom: 1px solid var(--line); }
+
+.running .what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running .figure {
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet);
+}
+
+/* The one that is sounding says so across the whole row, like a track listing's does. */
+.running .sounding { color: var(--accent); }
+
+.running .sounding .figure { color: inherit; }
+
+/* A file that has gone stays in the order — this is where somebody comes to find out
+ * what is gone — and says so by going quiet rather than by leaving a gap. */
+.running .gone { opacity: 0.55; }
+
+/* Which disc the rows under it are from, on a record that came on more than one. Not a
+ * `lettering` heading: those name a section of the panel, and this names a run of rows
+ * inside one. */
+.disc {
+  margin: 1.125rem 0 0.25rem;
+  font-size: var(--aside);
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Everybody credited on a record's tracks. Pills because it is a set with no order
+ * worth reading and no figures against it — a list of names down the panel would look
+ * like rows that had lost their second column. */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.pills > span {
+  padding: 0.25rem 0.6875rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: var(--aside);
+}
+
 /* --- what is sounding ----------------------------------------------------- */
 
 /* At the foot of the column rather than across the bottom of the window, on the

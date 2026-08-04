@@ -159,6 +159,35 @@ track:
   put_them_there: Pon la letra en cualquiera de los dos sitios y estará ahí la próxima vez que mires.
   as_written: "Todas las etiquetas que Tocata ha podido leer, escritas como las escribe %{kind}. No todo lo que hay en la etiqueta: un marco que este lector no conoce no llega siquiera, así que no hay forma de contar lo que se queda fuera."
 
+# El panel de un disco. En singular, como el bloque de una pista: el plural de arriba
+# es el estante que los lista.
+album:
+  the_album: El disco
+  tracks: pistas
+  length: duración
+  year: año
+  on_disc: en disco
+  artist: Artista del álbum
+  genre: Género
+  label: Sello
+  discs: Discos
+  where: Dónde está
+  library_read: "Biblioteca · leído"
+  running_order: Pistas
+  disc: "Disco %{nth}"
+  a_title_opens_it: Un título abre lo que se sabe de esa pista.
+  who_plays: Quién toca en él
+  # Se dice porque no es una consulta ni una suposición: es la etiqueta de artista de
+  # cada uno de sus ficheros, y por eso un disco puede listar gente que no sale en la
+  # contraportada.
+  from_the_tags: Sacado de las etiquetas de artista de sus propias pistas, no de una consulta.
+  # Un fichero que ya no está, en su propia línea y no metido entre las cifras: un
+  # disco al que le faltan cuatro ficheros no es un disco con cuatro pistas menos.
+  one_gone: Uno de sus ficheros no está donde estaba. Sigue en el listado de abajo.
+  many_gone: "%{count} de sus ficheros no están donde estaban. Siguen en el listado de abajo."
+  one_file: Un fichero en un directorio.
+  many_files: "%{count} ficheros en un directorio."
+
 albums:
   search: Buscar álbumes
   one: Un álbum

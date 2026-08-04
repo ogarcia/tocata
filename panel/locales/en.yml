@@ -163,6 +163,34 @@ track:
   put_them_there: Put the words in either place and they are there the next time you look.
   as_written: "Every tag Tocata could read, spelt as %{kind} spells them. Not every byte of the tag: a frame this reader has never heard of does not arrive at all, so there is no counting what was left behind."
 
+# One record's own panel. Singular, like the block for a track: the plural block above
+# is the shelf that lists them.
+album:
+  the_album: The album
+  tracks: tracks
+  length: length
+  year: year
+  on_disc: on disc
+  artist: Album artist
+  genre: Genre
+  label: Label
+  discs: Discs
+  where: Where it is
+  library_read: "Library · read"
+  running_order: Tracks
+  disc: "Disc %{nth}"
+  a_title_opens_it: A title opens what is known about that track.
+  who_plays: Who plays on it
+  # Said because it is not a lookup and not a guess: it is the artist tag of each of
+  # its own files, which is why a record can list people its sleeve does not.
+  from_the_tags: Taken from the artist tags of its own tracks, not from a lookup.
+  # A file that has gone, said on a line of its own rather than folded into the
+  # figures: a record missing four of its files is not a record with four fewer tracks.
+  one_gone: One of its files is not where it was. It is still in the running order below.
+  many_gone: "%{count} of its files are not where they were. They are still in the running order below."
+  one_file: One file in one directory.
+  many_files: "%{count} files in one directory."
+
 albums:
   search: Search albums
   one: One album
