@@ -125,7 +125,6 @@ track:
   # No está en los diseños, y el panel sería deshonesto sin ello: esta es justo la
   # fila de un listado que alguien abre porque algo va mal con ella.
   file_gone: Su fichero no está donde estaba, así que no hay nada que leer de él ni nada que reproducir.
-  copy_path: Copiar la ruta
   copy: Copiar
   from_the_scan: Lo que el último escaneo leyó y guardó en la base de datos.
   from_the_file: Leído del fichero, no de la base de datos.
@@ -147,8 +146,8 @@ track:
   where_it_looked: Tocata lee los marcos de etiqueta del propio fichero y, si no hay nada, un .lrc o un .txt del mismo nombre junto a él. No mira en ningún otro sitio y no le pregunta a nadie.
   expected: Ha buscado
   # Ninguna fecha de cuándo miró por última vez, porque nada mira antes de que se lo
-  # pidan. No hay escaneo que esperar, que es la buena noticia de todo esto.
-  put_them_there: Pon la letra en cualquiera de los dos sitios y estará ahí la próxima vez que mires. No hay que volver a escanear nada.
+  # pidan. Que no hay escaneo que esperar es todo lo que dice esta frase.
+  put_them_there: Pon la letra en cualquiera de los dos sitios y estará ahí la próxima vez que mires.
   as_written: "Todas las etiquetas que Tocata ha podido leer, escritas como las escribe %{kind}. No todo lo que hay en la etiqueta: un marco que este lector no conoce no llega siquiera, así que no hay forma de contar lo que se queda fuera."
 
 albums:

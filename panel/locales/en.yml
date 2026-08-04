@@ -129,7 +129,6 @@ track:
   # Not in the drawings, and the panel would be dishonest without it: this is the one
   # row in a listing somebody opens because something is wrong with it.
   file_gone: Its file is not where it was, so there is nothing to read out of it and nothing to play.
-  copy_path: Copy path
   copy: Copy
   from_the_scan: What the last scan read into the database.
   from_the_file: Read from the file, not the database.
@@ -150,9 +149,9 @@ track:
   no_words: No lyrics in this file.
   where_it_looked: Tocata reads the tag frames of the file itself and, failing that, an .lrc or .txt of the same name beside it. It looks nowhere else and asks nobody.
   expected: Looked for
-  # No date for when it last looked, because nothing looks ahead of being asked.
-  # There is no scan to wait for, which is the good news here.
-  put_them_there: Put the words in either place and they are there the next time you look. Nothing has to be scanned again.
+  # No date for when it last looked, because nothing looks ahead of being asked. That
+  # there is no scan to wait for is the whole of what this sentence says.
+  put_them_there: Put the words in either place and they are there the next time you look.
   as_written: "Every tag Tocata could read, spelt as %{kind} spells them. Not every byte of the tag: a frame this reader has never heard of does not arrive at all, so there is no counting what was left behind."
 
 albums:

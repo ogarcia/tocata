@@ -156,22 +156,23 @@ pub fn Track(id: String) -> impl IntoView {
                     }}
                 </span>
 
+                // No way to play a file that is not there, and so nothing here at all
+                // on one. The panel is still worth opening on it — it is where you
+                // find out what was lost — and offering to play it would be offering
+                // nothing.
+                //
+                // No way to copy the path either, and there never was one worth a
+                // button: the path is on screen, and selecting text is something every
+                // browser already does better than a button that says it will.
                 <span class="deeds">
-                    // No way to play a file that is not there. The panel is still
-                    // worth opening on one — it is where you find out what was lost —
-                    // and offering to play it would be offering nothing.
-                    <Show when=move || detail.with(|read| read.as_ref().is_some_and(|read| !read.missing))>
+                    <Show when=move || {
+                        detail.with(|read| read.as_ref().is_some_and(|read| !read.missing))
+                    }>
                         <button
                             class="leading"
                             on:click=move |_| player.play(vec![id.get_value()], 0)
                         >
                             {t!("player.play_this")}
-                        </button>
-                    </Show>
-
-                    <Show when=move || detail.with(Option::is_some)>
-                        <button on:click=move |_| copy(&detail.get())>
-                            {t!("track.copy_path")}
                         </button>
                     </Show>
                 </span>
@@ -515,13 +516,6 @@ fn whence(read: &Option<Lyrics>) -> String {
 /// A moment in a song, as a song's lengths are written everywhere else here.
 fn at_minute(millis: i64) -> String {
     pages::length(millis / 1000)
-}
-
-/// The path of the file, for pasting into whatever else is going to touch it.
-fn copy(read: &Option<TrackDetail>) {
-    if let Some(read) = read {
-        write_out(&read.path);
-    }
 }
 
 /// Straight to the clipboard, and nothing said either way.
