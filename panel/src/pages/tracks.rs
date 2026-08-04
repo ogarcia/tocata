@@ -151,7 +151,11 @@ fn Row(track: Track, reel: Reel<Track>) -> impl IntoView {
     // pressed play on an unfiltered collection meant "play me some music", not
     // "queue up nine hundred hours of it" — and somebody who searched first has said
     // what they want, so they get all of it.
-    let start = move |_| {
+    let start = move |event: web_sys::MouseEvent| {
+        // The row itself opens the panel about this track, so the button has to keep
+        // its press to itself: pressing play must never also open something.
+        event.stop_propagation();
+
         if sounding() {
             player.toggle();
             return;
@@ -174,7 +178,16 @@ fn Row(track: Track, reel: Reel<Track>) -> impl IntoView {
     };
 
     view! {
-        <li class:gone=track.missing class:sounding=sounding>
+        // Two gestures on one row and two targets for them: the first column plays it,
+        // and everywhere else on the row opens what is known about it. A row that both
+        // played and opened would be a row where neither could be had on its own.
+        <li
+            class:gone=track.missing
+            class:sounding=sounding
+            on:click=move |_| {
+                crate::drawer::open(crate::drawer::Open::Track(id.get_value()))
+            }
+        >
             // A missing file gets its number and no button: it cannot be played, and
             // it is exactly the row somebody wants to look at.
             {if track.missing {

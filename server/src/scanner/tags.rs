@@ -111,8 +111,34 @@ pub fn read_every(path: &Path) -> Result<crate::types::Tags> {
 
     let kind = tag.tag_type();
 
+    // A number and its total are one frame in the file and two keys to the reader:
+    // `TRCK` holding "1/5" arrives as a track number and a track total, and both of
+    // them name `TRCK` when asked what frame they came from. Listed as they arrive
+    // that is the same frame twice with half an answer in each, which is a list
+    // disagreeing with the file it claims to be reading. So the halves are put back
+    // together and the totals are not rows of their own.
+    let totals: Vec<(ItemKey, String)> = tag
+        .items()
+        .filter(|item| matches!(item.key(), ItemKey::TrackTotal | ItemKey::DiscTotal))
+        .filter_map(|item| Some((item.key(), item.value().text()?.trim().to_string())))
+        .collect();
+
+    let total_for = |number: ItemKey| {
+        let total = match number {
+            ItemKey::TrackNumber => ItemKey::TrackTotal,
+            ItemKey::DiscNumber => ItemKey::DiscTotal,
+            _ => return None,
+        };
+
+        totals
+            .iter()
+            .find(|(key, _)| *key == total)
+            .map(|(_, value)| value.clone())
+    };
+
     let tags = tag
         .items()
+        .filter(|item| !matches!(item.key(), ItemKey::TrackTotal | ItemKey::DiscTotal))
         .filter_map(|item| {
             // Its name in this format, and nothing where the format has none for it:
             // a reader that knows a key an encoding cannot write has nothing to show
@@ -126,7 +152,16 @@ pub fn read_every(path: &Path) -> Result<crate::types::Tags> {
                 ItemValue::Binary(bytes) => bytes_over(bytes.len()),
             };
 
-            (!value.is_empty()).then_some(crate::types::Tagged { name, value })
+            if value.is_empty() {
+                return None;
+            }
+
+            let value = match total_for(item.key()) {
+                Some(total) => format!("{value}/{total}"),
+                None => value,
+            };
+
+            Some(crate::types::Tagged { name, value })
         })
         .collect();
 

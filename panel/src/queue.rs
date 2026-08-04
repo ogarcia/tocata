@@ -107,7 +107,11 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
         <Show when=move || open.get()>
             // Catches anything aimed at the screen behind, which on a wide window is
             // most of the screen. Nothing on a phone, where the queue covers the lot.
-            <div class="veil" on:click=move |_| open.set(false)></div>
+            //
+            // The same tinted scrim the collection's panels use. It was the invisible
+            // veil a menu closes on, which caught the presses and dimmed nothing: a
+            // whole panel over the screen should say that the screen is behind it.
+            <div class="scrim" on:click=move |_| open.set(false)></div>
 
             <div class="queue">
                 <header>

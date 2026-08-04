@@ -91,6 +91,66 @@ tracks:
   many: "%{count} pistas"
   none_found: Aquí no hay nada que coincida con lo que has escrito.
 
+# El panel de una pista, que se abre pulsando su fila. En singular a propósito: el
+# bloque de arriba es la pantalla que las lista, este es la cosa en sí.
+#
+# Cada nombre de aquí etiqueta una fila que solo aparece si hay algo que poner en
+# ella, así que ninguno se queda nunca encima de una raya.
+track:
+  said: Lo que dice
+  words: Letra
+  every_tag: "Todas las etiquetas · %{count}"
+  the_recording: La grabación
+  title: Título
+  artist: Artista
+  album: Álbum
+  album_artist: Artista del álbum
+  placing: "Pista · disco"
+  nth_of: "%{nth} de %{held}"
+  disc_of: "disco %{nth} de %{held}"
+  year: Año
+  genre: Género
+  the_file: El fichero
+  length: duración
+  format: formato
+  bitrate: bitrate
+  khz_bits: kHz / bits
+  where: Dónde está
+  library: Biblioteca
+  size_read: "Tamaño · leído"
+  identifiers: Identificadores
+  isrc: ISRC
+  musicbrainz: MusicBrainz
+  comment: Comentario
+  # No está en los diseños, y el panel sería deshonesto sin ello: esta es justo la
+  # fila de un listado que alguien abre porque algo va mal con ella.
+  file_gone: Su fichero no está donde estaba, así que no hay nada que leer de él ni nada que reproducir.
+  copy_path: Copiar la ruta
+  copy: Copiar
+  from_the_scan: Lo que el último escaneo leyó y guardó en la base de datos.
+  from_the_file: Leído del fichero, no de la base de datos.
+  from_beside: Leído del fichero que está junto a la música, no de la base de datos.
+  looked_in_both: Se ha buscado en el fichero y junto a él.
+  # De dónde vino la letra, que es el sentido de mostrarla en un panel de
+  # administración: una canción cuyo fichero al lado y cuya etiqueta no coinciden es
+  # algo que conviene saber.
+  beside_the_file: "De %{name}, junto a la música"
+  in_the_frame: "Del marco %{frame} del fichero"
+  timed: con tiempos
+  untimed: sin tiempos
+  one_line: 1 línea
+  many_lines: "%{count} líneas"
+  # Un tramo de la canción donde la letra no dice nada, y merece decirse: una fila en
+  # blanco se lee como el final de la letra y no como una pausa dentro de ella.
+  instrumental: Instrumental
+  no_words: Este fichero no tiene letra.
+  where_it_looked: Tocata lee los marcos de etiqueta del propio fichero y, si no hay nada, un .lrc o un .txt del mismo nombre junto a él. No mira en ningún otro sitio y no le pregunta a nadie.
+  expected: Ha buscado
+  # Ninguna fecha de cuándo miró por última vez, porque nada mira antes de que se lo
+  # pidan. No hay escaneo que esperar, que es la buena noticia de todo esto.
+  put_them_there: Pon la letra en cualquiera de los dos sitios y estará ahí la próxima vez que mires. No hay que volver a escanear nada.
+  as_written: "Todas las etiquetas que Tocata ha podido leer, escritas como las escribe %{kind}. No todo lo que hay en la etiqueta: un marco que este lector no conoce no llega siquiera, así que no hay forma de contar lo que se queda fuera."
+
 albums:
   search: Buscar álbumes
   one: Un álbum

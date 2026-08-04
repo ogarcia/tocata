@@ -1,0 +1,536 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+//! Everything about one song.
+//!
+//! Three tabs, because the three answers come from three places and only the first is
+//! free. **What it says** is the database — what the last scan read and kept, drawn
+//! the moment the panel opens. **Lyrics** and **Every tag** are the file itself, read
+//! on the server when asked, which is why neither is fetched until the first answer
+//! says there is a file to read.
+//!
+//! Splitting them is not tidiness. Lyrics are long enough to bury a list of fields in
+//! one scroll, and a tag list is a hundred rows of names nobody reads unless they came
+//! looking for one.
+//!
+//! Every row obeys the same rule: a field the file never filled in has no row. So the
+//! length of what is on screen is itself the answer to how well tagged a song is, and
+//! there is no wall of dashes to read past to find the two things that are there.
+
+use super::{Fact, Failed, Figure, Frame, Head};
+use crate::api;
+use crate::icon::Icon;
+use crate::pages;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use rust_i18n::t;
+use tocata::types::{LyricSource, Lyrics, Tags, TrackDetail};
+
+/// Which of the three is showing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    /// The database's answer, which is the one that is always there.
+    Said,
+    Words,
+    Every,
+}
+
+#[component]
+pub fn Track(id: String) -> impl IntoView {
+    let player = crate::player::player();
+    let id = StoredValue::new(id);
+
+    let detail = RwSignal::new(None::<TrackDetail>);
+    let tags = RwSignal::new(None::<Tags>);
+    let words = RwSignal::new(None::<Lyrics>);
+    let failure = RwSignal::new(None::<api::Failure>);
+    let tab = RwSignal::new(Tab::Said);
+
+    // The database first, and the file only once that answer says there is one. Two
+    // hops rather than three requests at once: a track whose file has gone would
+    // otherwise be asked twice for something that cannot be read, and it is exactly
+    // the track somebody opens this panel to look at.
+    spawn_local(async move {
+        match api::detail(&id.get_value()).await {
+            Err(why) => failure.set(Some(why)),
+            Ok(read) => {
+                let gone = read.missing;
+                detail.set(Some(read));
+
+                if gone {
+                    return;
+                }
+
+                // Both at once, and neither's failure is worth a message: what a
+                // failure means here is that a tab does not appear, which is the same
+                // thing it means when the file simply had nothing in it.
+                let which = id.get_value();
+                if let Ok(read) = api::tags(&which).await {
+                    tags.set(Some(read));
+                }
+                if let Ok(read) = api::lyrics(&which).await {
+                    words.set(Some(read));
+                }
+            }
+        }
+    });
+
+    // A file with no tag in it is a file with nothing to list, so there is no tab —
+    // and the count goes on the tab, because how many tags a file carries is worth
+    // knowing before deciding to look.
+    let counted = move || tags.with(|read| read.as_ref().map(|read| read.tags.len()).unwrap_or(0));
+    let has_tags = move || counted() > 0;
+
+    // The words get a tab whenever the file could be read at all, including when it
+    // holds none: "there are none, and here is where they would go" is the useful
+    // answer, and it is only sayable on a tab.
+    let has_words = move || words.with(Option::is_some);
+
+    view! {
+        <Frame>
+            <Head
+                icon=Icon::Songs
+                heading=Signal::derive(move || {
+                    detail.with(|read| read.as_ref().map(|read| read.title.clone()))
+                        .unwrap_or_else(|| t!("common.loading").to_string())
+                })
+                lead=Signal::derive(move || detail.with(placing))
+            />
+
+            // Only where there is somewhere else to go. One tab is not a choice, and
+            // a strip of one reads as two that failed to load.
+            <Show when=move || has_words() || has_tags()>
+                <div class="tabs">
+                    <button
+                        class:chosen=move || tab.get() == Tab::Said
+                        on:click=move |_| tab.set(Tab::Said)
+                    >
+                        {t!("track.said")}
+                    </button>
+
+                    <Show when=has_words>
+                        <button
+                            class:chosen=move || tab.get() == Tab::Words
+                            on:click=move |_| tab.set(Tab::Words)
+                        >
+                            {t!("track.words")}
+                        </button>
+                    </Show>
+
+                    <Show when=has_tags>
+                        <button
+                            class:chosen=move || tab.get() == Tab::Every
+                            on:click=move |_| tab.set(Tab::Every)
+                        >
+                            {move || t!("track.every_tag", count = counted())}
+                        </button>
+                    </Show>
+                </div>
+            </Show>
+
+            <div class="reading">
+                {move || failure.get().map(|why| view! { <Failed why /> })}
+
+                <Show when=move || tab.get() == Tab::Said>
+                    {move || detail.get().map(|read| view! { <Said read /> })}
+                </Show>
+
+                <Show when=move || tab.get() == Tab::Words>
+                    {move || words.get().map(|read| view! { <Words read mine=id.get_value() /> })}
+                </Show>
+
+                <Show when=move || tab.get() == Tab::Every>
+                    {move || tags.get().map(|read| view! { <Every read /> })}
+                </Show>
+            </div>
+
+            <footer>
+                // What is on screen and where it came from, which changes with the
+                // tab because the answer does: one of these is the database and two
+                // of them are the file.
+                <span class="quiet">
+                    {move || match tab.get() {
+                        Tab::Said => t!("track.from_the_scan").to_string(),
+                        Tab::Words => whence(&words.get()),
+                        Tab::Every => t!("track.from_the_file").to_string(),
+                    }}
+                </span>
+
+                <span class="deeds">
+                    // No way to play a file that is not there. The panel is still
+                    // worth opening on one — it is where you find out what was lost —
+                    // and offering to play it would be offering nothing.
+                    <Show when=move || detail.with(|read| read.as_ref().is_some_and(|read| !read.missing))>
+                        <button
+                            class="leading"
+                            on:click=move |_| player.play(vec![id.get_value()], 0)
+                        >
+                            {t!("player.play_this")}
+                        </button>
+                    </Show>
+
+                    <Show when=move || detail.with(Option::is_some)>
+                        <button on:click=move |_| copy(&detail.get())>
+                            {t!("track.copy_path")}
+                        </button>
+                    </Show>
+                </span>
+            </footer>
+        </Frame>
+    }
+}
+
+/// What the database kept.
+#[component]
+fn Said(read: TrackDetail) -> impl IntoView {
+    let has_ids = read.isrc.is_some() || read.mbid_recording.is_some();
+    let comment = read.comment.clone();
+
+    view! {
+        // Not designed, and the panel would be dishonest without it: this is the one
+        // row in a listing somebody opens *because* something is wrong with it.
+        <Show when=move || read.missing>
+            <p class="absent">{t!("track.file_gone")}</p>
+        </Show>
+
+        <p class="lettering">{t!("track.the_recording")}</p>
+        <dl class="spelt">
+            <Fact name=t!("track.title").to_string() value=Some(read.title.clone()) />
+            <Fact name=t!("track.artist").to_string() value=read.artists.clone() />
+            <Fact name=t!("track.album").to_string() value=read.album.clone() />
+            <Fact name=t!("track.album_artist").to_string() value=read.album_artist.clone() />
+            <Fact name=t!("track.placing").to_string() value=where_on_it(&read) />
+            <Fact
+                name=t!("track.year").to_string()
+                value=read.year.map(|year| year.to_string())
+            />
+            <Fact name=t!("track.genre").to_string() value=read.genres.clone() />
+        </dl>
+
+        <p class="lettering">{t!("track.the_file")}</p>
+        <div class="figures">
+            <Figure
+                value=read.duration.map(pages::length)
+                name=t!("track.length").to_string()
+            />
+            <Figure
+                value=Some(read.suffix.to_uppercase())
+                name=t!("track.format").to_string()
+            />
+            <Figure
+                value=read.bit_rate.map(|rate| t!("player.kbps", rate = rate).to_string())
+                name=t!("track.bitrate").to_string()
+            />
+            <Figure value=sampled(&read) name=t!("track.khz_bits").to_string() />
+        </div>
+
+        <dl class="spelt">
+            // Relative to the library, which is what the scanner stores and all this
+            // needs to say: enough to find one file among the others, without telling
+            // everybody who may see a library where it is mounted.
+            <Fact name=t!("track.where").to_string() value=Some(read.path.clone()) typed=true />
+            <Fact name=t!("track.library").to_string() value=Some(read.library.clone()) />
+            <Fact
+                name=t!("track.size_read").to_string()
+                value=Some(format!("{} · {}", pages::bytes(read.size), pages::since(&read.read_at)))
+            />
+        </dl>
+
+        <Show when=move || has_ids>
+            <p class="lettering">{t!("track.identifiers")}</p>
+            <dl class="spelt">
+                <Fact name=t!("track.isrc").to_string() value=read.isrc.clone() typed=true />
+                <Fact
+                    name=t!("track.musicbrainz").to_string()
+                    value=read.mbid_recording.clone()
+                    typed=true
+                />
+            </dl>
+        </Show>
+
+        {comment
+            .map(|said| {
+                view! {
+                    <p class="lettering">{t!("track.comment")}</p>
+                    <p class="quoted">{said}</p>
+                }
+            })}
+    }
+}
+
+/// The words, timed or not, or the news that there are none.
+#[component]
+fn Words(read: Lyrics, mine: String) -> impl IntoView {
+    let player = crate::player::player();
+    let mine = StoredValue::new(mine);
+
+    // Only the song that is actually sounding gets a line lit. Reading the words of
+    // one track while another plays is an ordinary thing to do, and a line following
+    // somebody else's playhead would be a lie about which song this is.
+    let sounding = move || player.current().as_deref() == Some(&mine.get_value());
+
+    let timings: Vec<i64> = read.lines.iter().filter_map(|line| line.at).collect();
+
+    // The last line whose moment has passed. Nothing before the first one, which is
+    // where a song's opening bars are.
+    //
+    // A signal rather than a closure because every line asks it, and a closure would
+    // have to be moved into the first of them.
+    let at_the_playhead = Signal::derive(move || {
+        if !sounding() {
+            return None;
+        }
+
+        let elapsed = (player.elapsed.get() * 1000.0) as i64;
+        timings.iter().rposition(|at| *at <= elapsed)
+    });
+
+    let words = read.lines.clone();
+    let plain = StoredValue::new(
+        read.lines
+            .iter()
+            .map(|line| line.value.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    let counted = read.lines.len();
+    let synced = read.synced;
+    let source = read.source.clone();
+    let beside = read.beside.clone();
+
+    view! {
+        {match source {
+            None => {
+                view! {
+                    <div class="wordless">
+                        <p>{t!("track.no_words")}</p>
+                        <p class="quiet">{t!("track.where_it_looked")}</p>
+                    </div>
+
+                    <dl class="spelt">
+                        // The two extensions it would read, so the name is exact
+                        // rather than described.
+                        <Fact
+                            name=t!("track.expected").to_string()
+                            value=Some(format!("{beside}.lrc · {beside}.txt"))
+                            typed=true
+                        />
+                    </dl>
+
+                    // No date for when it last looked, because nothing ever looks
+                    // ahead of being asked: there is no scan to wait for and nothing
+                    // to reload. Put the words there and they are there.
+                    <p class="quiet remark">{t!("track.put_them_there")}</p>
+                }
+                    .into_any()
+            }
+            Some(source) => {
+                view! {
+                    <div class="whence">
+                        <p class="quiet">{told(&source, synced, counted)}</p>
+                        <button class="plain" on:click=move |_| write_out(&plain.get_value())>
+                            {t!("track.copy")}
+                        </button>
+                    </div>
+
+                    {if synced {
+                        view! {
+                            <div class="timed">
+                                {words
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(nth, line)| {
+                                        // An empty line with a time on it is a
+                                        // passage of the song with no words in it,
+                                        // which is worth saying: a blank row reads as
+                                        // the end of the words rather than as a break
+                                        // in them.
+                                        let quiet = line.value.trim().is_empty();
+                                        let said = if quiet {
+                                            t!("track.instrumental").to_string()
+                                        } else {
+                                            line.value
+                                        };
+
+                                        view! {
+                                            <div class:sounding=move || {
+                                                at_the_playhead.get() == Some(nth)
+                                            }>
+                                                <span class="figure">
+                                                    {line.at.map(at_minute).unwrap_or_default()}
+                                                </span>
+                                                <span class:quiet=quiet>{said}</span>
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </div>
+                        }
+                            .into_any()
+                    } else {
+                        // Deliberately not the timed layout with the times left out:
+                        // an empty column reads as a value that is missing rather
+                        // than as one that was never there.
+                        view! { <p class="verses">{plain.get_value()}</p> }.into_any()
+                    }}
+                }
+                    .into_any()
+            }
+        }}
+    }
+}
+
+/// Every tag the file carries, under the names its own format writes.
+#[component]
+fn Every(read: Tags) -> impl IntoView {
+    let kind = read.kind.clone().unwrap_or_default();
+
+    view! {
+        <p class="quiet remark">{t!("track.as_written", kind = kind)}</p>
+
+        <dl class="spelt frames">
+            {read
+                .tags
+                .into_iter()
+                .map(|tag| {
+                    view! {
+                        <div>
+                            <dt>{tag.name}</dt>
+                            <dd>{tag.value}</dd>
+                        </div>
+                    }
+                })
+                .collect_view()}
+
+            // Last, and quiet: the one row whose value is a description of what is in
+            // the file rather than what the file says.
+            {read
+                .picture
+                .map(|picture| {
+                    view! {
+                        <div>
+                            <dt>{picture.name}</dt>
+                            <dd class="quiet">{picture.value}</dd>
+                        </div>
+                    }
+                })}
+        </dl>
+    }
+}
+
+/// The line under a track's name: who made it, what record it is off, and when.
+///
+/// Joined rather than laid out, so a song with no year is not a song whose year is
+/// blank. Empty until the answer arrives, which is what the heading's own "loading"
+/// is already saying.
+fn placing(read: &Option<TrackDetail>) -> String {
+    let Some(read) = read else {
+        return String::new();
+    };
+
+    [
+        read.artists.clone(),
+        read.album.clone(),
+        read.year.map(|year| year.to_string()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+/// Where it sits on its record: "2 of 10 · disc 2 of 3".
+///
+/// The disc half is left out where a record came on one, which is every record most
+/// people own. "Disc 1 of 1" is not a fact about a song, it is a blank with numbers in
+/// it — and a panel whose rule is that nothing empty gets a row should not make an
+/// exception for something empty that happens to be countable.
+fn where_on_it(read: &TrackDetail) -> Option<String> {
+    let of_the_record = read.track_number.map(|number| match read.album_tracks {
+        Some(held) if held >= number => t!("track.nth_of", nth = number, held = held).to_string(),
+        _ => number.to_string(),
+    });
+
+    let discs = read.album_discs.unwrap_or(1);
+    let of_the_set = read
+        .disc_number
+        .filter(|_| discs > 1)
+        .map(|number| t!("track.disc_of", nth = number, held = discs).to_string());
+
+    let said: Vec<String> = [of_the_record, of_the_set].into_iter().flatten().collect();
+
+    (!said.is_empty()).then(|| said.join(" · "))
+}
+
+/// How well it was recorded, as one figure: "44.1 / 16".
+///
+/// One figure and not two, because neither means much without the other and a panel
+/// four columns wide has better uses for the second. Absent altogether where the file
+/// reported neither.
+fn sampled(read: &TrackDetail) -> Option<String> {
+    let rate = read
+        .sampling_rate
+        .map(|hertz| format!("{:.1}", hertz as f64 / 1000.0));
+
+    match (rate, read.bit_depth) {
+        (Some(rate), Some(bits)) => Some(format!("{rate} / {bits}")),
+        (Some(rate), None) => Some(rate),
+        (None, Some(bits)) => Some(bits.to_string()),
+        (None, None) => None,
+    }
+}
+
+/// Where the words came from, whether they are timed, and how many there are.
+fn told(source: &LyricSource, synced: bool, lines: usize) -> String {
+    let whence = match source {
+        LyricSource::Beside(name) => t!("track.beside_the_file", name = name).to_string(),
+        LyricSource::Frame(frame) => t!("track.in_the_frame", frame = frame).to_string(),
+    };
+
+    let timed = if synced {
+        t!("track.timed").to_string()
+    } else {
+        t!("track.untimed").to_string()
+    };
+
+    let counted = if lines == 1 {
+        t!("track.one_line").to_string()
+    } else {
+        t!("track.many_lines", count = lines).to_string()
+    };
+
+    format!("{whence} · {timed} · {counted}")
+}
+
+/// The footnote under the words, which says where they were read from — the one thing
+/// this tab is for in an administration panel.
+fn whence(read: &Option<Lyrics>) -> String {
+    match read.as_ref().and_then(|read| read.source.as_ref()) {
+        Some(LyricSource::Beside(_)) => t!("track.from_beside").to_string(),
+        Some(LyricSource::Frame(_)) => t!("track.from_the_file").to_string(),
+        None => t!("track.looked_in_both").to_string(),
+    }
+}
+
+/// A moment in a song, as a song's lengths are written everywhere else here.
+fn at_minute(millis: i64) -> String {
+    pages::length(millis / 1000)
+}
+
+/// The path of the file, for pasting into whatever else is going to touch it.
+fn copy(read: &Option<TrackDetail>) {
+    if let Some(read) = read {
+        write_out(&read.path);
+    }
+}
+
+/// Straight to the clipboard, and nothing said either way.
+///
+/// The clipboard needs a permission the browser may refuse, and there is nothing
+/// useful to do about that here: what would have been copied is on screen to be
+/// selected by hand.
+fn write_out(text: &str) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.navigator().clipboard().write_text(text);
+    }
+}

@@ -346,6 +346,29 @@ pub async fn track(id: &str) -> Result<Track, Failure> {
     read(get(&format!("/tracks/{id}"))?).await
 }
 
+/// Everything the database holds about one track, which is what its own panel draws.
+///
+/// A second call and not a wider [`track`]: that one is what the player asks on every
+/// change of song and wants five fields, and a listing of fifty rows must not pay for
+/// the columns only a panel reads.
+pub async fn detail(id: &str) -> Result<tocata::types::TrackDetail, Failure> {
+    read(get(&format!("/tracks/{id}/detail"))?).await
+}
+
+/// Every tag in a track's file, as the file spells them.
+///
+/// Read from disk on the server every time it is asked, which is why the panel asks
+/// for it apart from everything else and only once there is a file to read: it is the
+/// one call here that opens a file rather than a row.
+pub async fn tags(id: &str) -> Result<tocata::types::Tags, Failure> {
+    read(get(&format!("/tracks/{id}/tags"))?).await
+}
+
+/// A track's words, and which of the two places they were in.
+pub async fn lyrics(id: &str) -> Result<tocata::types::Lyrics, Failure> {
+    read(get(&format!("/tracks/{id}/lyrics"))?).await
+}
+
 /// Everything a filter matches, as identifiers, to be played.
 ///
 /// `shuffle` draws the order before any limit is applied, so a shuffled few hundred

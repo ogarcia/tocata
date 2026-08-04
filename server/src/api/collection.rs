@@ -1487,6 +1487,10 @@ mod tests {
                 (ItemKey::TrackTitle, "Abre la Puerta"),
                 (ItemKey::Composer, "Jesús de la Rosa"),
                 (ItemKey::Label, "Movieplay"),
+                // One frame in the file and two keys to the reader, which is exactly
+                // what must not come back as two rows.
+                (ItemKey::TrackNumber, "1"),
+                (ItemKey::TrackTotal, "5"),
                 // Written and not expected back. lofty has no ID3v2 mapping for a
                 // producer — ID3v2 keeps that sort of credit in the involved people
                 // list, which it does not take apart — so this one is invisible in
@@ -1523,9 +1527,14 @@ mod tests {
             Some("Movieplay"),
             "and the label, which has none either"
         );
+        // Put back together as the file holds it. Listed as the reader hands them over
+        // it would be `TRCK` twice, once saying 1 and once saying 5, which is a list
+        // disagreeing with the file it claims to be reading.
+        assert_eq!(said("TRCK").as_deref(), Some("1/5"));
+
         assert_eq!(
             tags.tags.len(),
-            3,
+            4,
             "and nothing invented: what this format cannot carry does not appear, \
              which is why this cannot claim to be every byte of the tag"
         );

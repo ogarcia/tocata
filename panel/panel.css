@@ -2156,11 +2156,15 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   list-style: none;
 }
 
+/* Pressing a row opens what is known about the track, so it says it is pressable.
+ * The first column is a button of its own and keeps its own press: playing a song
+ * must never also open a panel about it. */
 .listing > li {
   align-items: center;
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--line);
+  cursor: pointer;
 }
 
 .listing > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
@@ -2769,15 +2773,9 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   padding: 0 1.625rem 1.625rem;
 }
 
-/* The small capitals every run of rows in this panel is headed with. */
-.rolling .lettering {
-  margin: 1.25rem 0 0.25rem;
-  font-size: var(--lettering);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--quiet);
-}
+/* The small capitals every run of rows in this panel is headed with. What they all
+ * share is in `.lettering` itself; this is only how much air this one wants. */
+.rolling .lettering { margin: 1.25rem 0 0.25rem; }
 
 /* Air over the second heading, so the two runs read as two rather than as one list
  * with a word in the middle of it. */
@@ -4041,4 +4039,455 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   display: block;
   height: 100%;
   background: var(--accent);
+}
+
+/* --- more about the thing you pressed ------------------------------------- */
+
+/* A panel down the right of the window, over what you were looking at rather than
+ * instead of it: the list keeps its place and the search keeps its words, which
+ * matters because looking at one track out of nine hundred is something people do
+ * several times in a row.
+ *
+ * The second raised surface in the panel, and it takes its edge and its shadow from
+ * the first — the queue is the same thing in a narrower width, and the two are never
+ * on screen together. Wider than that one, 520px against 440, because these hold a
+ * name against a value and a path is as long as it likes. */
+.drawer {
+  display: flex;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  flex-direction: column;
+  width: min(32.5rem, 100%);
+  border-left: 1px solid var(--line);
+  background: var(--paper);
+  box-shadow: -24px 0 60px light-dark(rgb(0 0 0 / 18%), rgb(0 0 0 / 55%));
+}
+
+/* Catches a press anywhere else, which is a way out that needs no aiming — and it
+ * needs one most where the panel is at its widest and the close button at its
+ * furthest. Tinted, unlike the invisible veil a menu closes on: this dims what it is
+ * covering, because what is covering it is a whole panel and not a short list. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  background: light-dark(rgb(20 20 20 / 22%), rgb(0 0 0 / 45%));
+}
+
+/* Fixed while the body between them scrolls, like the queue's. */
+.drawer > header {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* What kind of thing this is, in a frame rather than as a bare glyph: it is the one
+ * mark on the panel and a 22px icon on its own at this size reads as a stray. */
+.emblem {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1px solid var(--line);
+  color: var(--quiet);
+}
+
+/* Round for the one of these that is a person. */
+.emblem.round { border-radius: 50%; }
+
+.emblem .icon {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.drawer > header > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.drawer h2 {
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-wrap: pretty;
+}
+
+/* One line, clipped: who made it and what record it is off, which on a compilation
+ * is longer than any panel. */
+.drawer > header p {
+  overflow: hidden;
+  margin-top: 0.25rem;
+  font-size: var(--aside);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer .tap {
+  display: grid;
+  flex: none;
+  gap: 0;
+  place-content: center;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -0.625rem -0.875rem 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+}
+
+.drawer .tap:hover { color: var(--ink); }
+
+.drawer .tap .icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* Three answers from three places, so three tabs rather than one scroll. Outside the
+ * scrolling body: which one you are reading must not move while you read it. */
+.tabs {
+  display: flex;
+  flex: none;
+  gap: 1.375rem;
+  padding: 0 1.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* No border of its own, like every other text button in the player and the drawers.
+ * What says which one is showing is the accent and the two pixel rule under it —
+ * two pixels because it measures rather than divides, the same as the mark on the
+ * section you are in. */
+.tabs button {
+  padding: 0.75rem 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--control);
+  cursor: pointer;
+}
+
+.tabs button:hover { color: var(--ink); }
+
+.tabs .chosen {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Lifted into the accent rather than ringed, like every other borderless control in
+ * the player and these panels: a box appearing round a bare word reads as something
+ * that had not been there a moment ago. */
+.tabs button:focus-visible {
+  outline: none;
+  color: var(--accent);
+}
+
+/* Everything between the head and the foot, and the only part that moves. */
+.reading {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.625rem 1.75rem 2rem;
+}
+
+/* The small capitals over a run of rows, wherever that run is. Was written inside
+ * the queue and needed here word for word, so what every one of them shares is here
+ * and what each changes about it is beside it. */
+.lettering {
+  font-size: var(--lettering);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+.reading .lettering { margin: 1.875rem 0 0.125rem; }
+
+/* And not over the first one, which already has the tab strip above it. */
+.reading > .lettering:first-child { margin-top: 0; }
+
+/* A name against a value, spelt out. Not `.facts`, which puts its value hard right
+ * and sets it in figures: half of what goes in here is a path or an identifier, and
+ * hanging those off the right edge is how a column of them becomes unreadable. So
+ * the name gets a column of its own and the value starts where the next one does. */
+.spelt {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spelt > div {
+  display: grid;
+  grid-template-columns: 8.125rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--line);
+}
+
+/* The last of a run closes it, so a section reads as a block rather than as rows
+ * that stopped. */
+.spelt > div:last-child { border-bottom: 1px solid var(--line); }
+
+.spelt dt {
+  color: var(--quiet);
+  font-size: var(--control);
+}
+
+.spelt dd {
+  min-width: 0;
+  margin: 0;
+}
+
+/* An identifier rather than words: an ISRC, a MusicBrainz id, a path. Allowed to
+ * break anywhere, because none of them has a space to break at and a path that
+ * cannot break is a panel that scrolls sideways. */
+.typed {
+  font-family: ui-monospace, monospace;
+  font-size: var(--aside);
+  overflow-wrap: anywhere;
+}
+
+/* Every tag in the file, which is a hundred rows of names nobody reads unless they
+ * came looking for one. Wider in the name column and monospaced throughout, because
+ * both halves are what the file literally says. */
+.frames > div { grid-template-columns: 11.875rem minmax(0, 1fr); }
+
+.frames dt, .frames dd {
+  font-family: ui-monospace, monospace;
+  font-size: var(--aside);
+  overflow-wrap: anywhere;
+}
+
+/* The same run of figures over their words the last scan is reported with, which is
+ * what these are — so it is that rule, and this is only what a panel changes about
+ * it.
+ *
+ * `auto-fit` rather than the fixed four: how many figures there are here depends on
+ * what the file said about itself, and a file that reports no bitrate should leave
+ * three across the panel rather than a gap where the fourth was. And a hairline
+ * underneath, because unlike the scan's these have rows following them. */
+.reading .figures {
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0 0.875rem;
+  margin-top: 0.75rem;
+  padding-top: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.reading .figures > div { padding: 0.8125rem 0; }
+
+/* One sentence on the left saying where what you are reading came from, and what can
+ * be done with it on the right. */
+.drawer > footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.drawer > footer > .quiet {
+  min-width: 0;
+  font-size: var(--aside);
+  text-wrap: pretty;
+}
+
+.deeds {
+  display: flex;
+  flex: none;
+  gap: 1.25rem;
+}
+
+/* Text and not pills. There are two of these at most and one of them is always the
+ * point of the panel; a pair of filled buttons at the foot of a reading panel reads
+ * as a form waiting to be submitted. */
+.deeds button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--control);
+  cursor: pointer;
+}
+
+.deeds button:hover { color: var(--ink); }
+
+/* The one that is the point of it. */
+.deeds .leading { color: var(--accent); }
+
+.deeds .leading:hover { color: var(--accent); }
+
+/* A note in its own words rather than a row: the intro over a tag list, and what to
+ * do about a song with no words. */
+.remark {
+  margin-top: 0.875rem;
+  font-size: var(--aside);
+  max-width: 52ch;
+  text-wrap: pretty;
+}
+
+/* What somebody wrote into the file, which is prose and not a value. Its own hairline
+ * block, because it is the one thing in here that is a paragraph. */
+.quoted {
+  margin-top: 0.75rem;
+  padding: 0.875rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--quiet);
+  font-size: var(--control);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* The file is not where it was. Not an alarm — a scan marks rather than deletes, and
+ * this is the one row in a listing somebody opens because something is wrong with it
+ * — so it is said in the alarm's colour on nothing, at the top, and then the panel
+ * carries on saying what it knows. */
+.absent {
+  padding: 0.75rem 0.875rem;
+  border-left: 2px solid var(--alarm);
+  background: color-mix(in srgb, var(--alarm) 7%, transparent);
+  font-size: var(--control);
+  text-wrap: pretty;
+}
+
+/* Where the words came from and what can be done with them, over the words. */
+.whence {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.875rem;
+}
+
+.whence p {
+  font-size: var(--aside);
+  text-wrap: pretty;
+}
+
+.whence button {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--aside);
+  text-decoration: underline;
+  text-underline-offset: 0.1875rem;
+  cursor: pointer;
+}
+
+.whence button:hover { color: var(--ink); }
+
+/* Timed words: the moment on the left, the line on the right, and the one at the
+ * playhead lit. Bled by the same twelve pixels every other run of rows in this panel
+ * is, so the lit line reaches the edges of the reading rather than stopping short. */
+.timed { margin: 0 -0.75rem; }
+
+.timed > div {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+  gap: 0.875rem;
+  padding: 0.4375rem 0.75rem;
+}
+
+.timed .figure {
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet);
+}
+
+.timed > div > :last-child { line-height: 1.5; }
+
+/* Only while this is the song that is sounding. Reading one track's words while
+ * another plays is an ordinary thing to do, and a line following somebody else's
+ * playhead would be a lie about which song this is. */
+.timed .sounding {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.timed .sounding .figure { color: inherit; }
+
+/* Words with no timings: a block of text and no column of blanks beside it. An empty
+ * column reads as a value that is missing rather than as one that was never there,
+ * which is why this is not the layout above with the times left out. */
+.verses {
+  max-width: 46ch;
+  padding: 1.125rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--name);
+  line-height: 1.65;
+  white-space: pre-line;
+  text-wrap: pretty;
+}
+
+/* No words at all, which is not a fault: no alarm colour anywhere. What it says
+ * instead is everywhere the server looked, because on a machine somebody runs
+ * themselves that is the actionable part. */
+.wordless {
+  padding: 1.875rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.wordless p { font-size: var(--name); }
+
+.wordless .quiet {
+  max-width: 52ch;
+  margin-top: 0.5rem;
+  font-size: var(--control);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+@media (max-width: 45rem) {
+  /* The whole screen rather than a panel down one side, and no scrim: there is
+   * nothing beside it left to see. */
+  .drawer {
+    inset: 0;
+    width: 100%;
+    border-left: none;
+    box-shadow: none;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .scrim { display: none; }
+
+  /* Narrower air, like every other screen at this width. */
+  .drawer > header { padding: 1.125rem 1.125rem 1rem; }
+
+  .tabs { padding: 0 1.125rem; }
+
+  .reading { padding: 1.25rem 1.125rem 1.75rem; }
+
+  .drawer > footer { padding: 0.875rem 1.125rem; }
+
+  /* The name column goes, because at this width it leaves the value four characters
+   * of room. The name sits over its value instead, which is what every other pair in
+   * this panel does when it runs out of width. */
+  .spelt > div, .frames > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.125rem;
+  }
+
+  /* Every one of these is a 44px target on a phone. */
+  .tabs button { padding: 0.9375rem 0; }
+
+  .deeds button { min-height: 2.75rem; }
 }

@@ -13,6 +13,7 @@
 mod accent;
 mod api;
 mod drag;
+mod drawer;
 mod events;
 mod icon;
 mod layout;
@@ -298,10 +299,12 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 18] = [
+    const SOURCES: [&str; 20] = [
         include_str!("main.rs"),
         include_str!("icon.rs"),
         include_str!("layout.rs"),
+        include_str!("drawer/mod.rs"),
+        include_str!("drawer/track.rs"),
         include_str!("login.rs"),
         include_str!("pages/mod.rs"),
         include_str!("pages/home.rs"),

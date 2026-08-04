@@ -95,6 +95,66 @@ tracks:
   many: "%{count} tracks"
   none_found: Nothing here matches what you typed.
 
+# One track's own panel, opened by pressing its row. Singular on purpose: the block
+# above is the screen that lists them, this one is the thing itself.
+#
+# Every name here labels a row that only appears when there is something to put in
+# it, so none of them ever stands over a dash.
+track:
+  said: What it says
+  words: Lyrics
+  every_tag: "Every tag · %{count}"
+  the_recording: The recording
+  title: Title
+  artist: Artist
+  album: Album
+  album_artist: Album artist
+  placing: "Track · disc"
+  nth_of: "%{nth} of %{held}"
+  disc_of: "disc %{nth} of %{held}"
+  year: Year
+  genre: Genre
+  the_file: The file
+  length: length
+  format: format
+  bitrate: bitrate
+  khz_bits: kHz / bits
+  where: Where it is
+  library: Library
+  size_read: "Size · read"
+  identifiers: Identifiers
+  isrc: ISRC
+  musicbrainz: MusicBrainz
+  comment: Comment
+  # Not in the drawings, and the panel would be dishonest without it: this is the one
+  # row in a listing somebody opens because something is wrong with it.
+  file_gone: Its file is not where it was, so there is nothing to read out of it and nothing to play.
+  copy_path: Copy path
+  copy: Copy
+  from_the_scan: What the last scan read into the database.
+  from_the_file: Read from the file, not the database.
+  from_beside: Read from the file beside the music, not the database.
+  looked_in_both: Looked for in the file and beside it.
+  # Where the words came from, which is the point of showing them in an
+  # administration panel: a song whose sidecar and whose tag disagree is worth
+  # knowing about.
+  beside_the_file: "From %{name} beside the music"
+  in_the_frame: "From the %{frame} frame in the file"
+  timed: timed
+  untimed: not timed
+  one_line: 1 line
+  many_lines: "%{count} lines"
+  # A stretch of the song the words leave empty, which is worth saying: a blank row
+  # reads as the end of them rather than as a break in them.
+  instrumental: Instrumental
+  no_words: No lyrics in this file.
+  where_it_looked: Tocata reads the tag frames of the file itself and, failing that, an .lrc or .txt of the same name beside it. It looks nowhere else and asks nobody.
+  expected: Looked for
+  # No date for when it last looked, because nothing looks ahead of being asked.
+  # There is no scan to wait for, which is the good news here.
+  put_them_there: Put the words in either place and they are there the next time you look. Nothing has to be scanned again.
+  as_written: "Every tag Tocata could read, spelt as %{kind} spells them. Not every byte of the tag: a frame this reader has never heard of does not arrive at all, so there is no counting what was left behind."
+
 albums:
   search: Search albums
   one: One album

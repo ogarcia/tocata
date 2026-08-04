@@ -155,6 +155,29 @@ pub fn Shell(
     let sheet = RwSignal::new(false);
     let queue = RwSignal::new(false);
 
+    // What the collection has open over it, held here because it has to outlive every
+    // screen: a panel about one track does not belong to the fifty rows that happened
+    // to be fetched when it was opened.
+    let opened: crate::drawer::Opened = RwSignal::new(None);
+    provide_context(opened);
+
+    // One thing over the screen at a time. Both of these are drawers on the same edge,
+    // and two of them stacked is a thing to unstack rather than to read — so whichever
+    // was asked for last is the one that is there.
+    //
+    // Two effects and not a ping-pong: shutting the queue does not answer the second,
+    // which only fires while it is open, and closing a panel does not answer the first.
+    Effect::new(move |_| {
+        if opened.get().is_some() {
+            queue.set(false);
+        }
+    });
+    Effect::new(move |_| {
+        if queue.get() {
+            opened.set(None);
+        }
+    });
+
     view! {
         <div class="shell">
             <aside class="side" class:out=move || folded_out.get()>
@@ -226,6 +249,10 @@ pub fn Shell(
             <Afoot on_open=Callback::new(move |()| sheet.set(true)) />
             <Sheet open=sheet queue />
             <crate::queue::Queue open=queue />
+
+            // And whichever panel the collection has open, for the same reason: it is
+            // the panel's and not the section's.
+            <crate::drawer::Drawers />
         </div>
     }
 }
