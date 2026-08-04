@@ -578,19 +578,43 @@ mod tests {
         /// What is allowed to be, and has to be, in pixels.
         const DRAWN: [&str; 3] = ["border", "outline", "box-shadow"];
 
+        /// The one rule allowed to measure in characters, and the one place where that
+        /// is not a slip.
+        ///
+        /// `ch` was never caught here, because this only knew about `px`. It is not the
+        /// accessibility fault `px` is — a `ch` scales with the reader's own size just as
+        /// a `rem` does — but it does not line up with anything: it is a fraction of
+        /// whatever typeface is in force, so a block sized in it agrees with no other
+        /// width in the sheet and moves if the font ever changes. Four rules had picked
+        /// one up, all four to hold prose to a reading measure, and nothing else in this
+        /// panel is set to a reading measure at all — so each of them came out looking
+        /// like a column that had failed to fill.
+        ///
+        /// The exception earns it. `.claim` is the one line of large type here and its
+        /// size is fluid, `clamp(2rem, 4.4vw, 3.5rem)`; a cap in characters is what makes
+        /// it break after the same words at every one of those sizes, which a cap in rem
+        /// cannot do at any value.
+        const IN_CHARACTERS: &str = ".claim";
+
         let mut wrong = Vec::new();
 
         for rule in rules() {
+            let counting = rule.selectors.iter().all(|one| *one == IN_CHARACTERS);
+
             for (property, value) in declarations(rule.body) {
                 let drawn = DRAWN.iter().any(|kind| property.starts_with(kind));
 
                 // Percentages, viewport units and bare numbers are all fine; this
-                // is only about the two units that mean the same kind of thing.
-                if !drawn && value.contains("px") {
+                // is only about the units that mean the same kind of thing.
+                if !drawn && measured_in(&value, "px") {
                     wrong.push(format!("{property}: {value}"));
                 }
 
-                if drawn && value.contains("rem") {
+                if drawn && measured_in(&value, "rem") {
+                    wrong.push(format!("{property}: {value}"));
+                }
+
+                if !counting && measured_in(&value, "ch") {
                     wrong.push(format!("{property}: {value}"));
                 }
             }
@@ -600,9 +624,26 @@ mod tests {
             wrong.is_empty(),
             "a measure in the wrong unit: {}. Measures scale with the reader's own \
              font size and are written in rem; lines, corners and shadows are drawn \
-             at a fixed size and are written in px.",
+             at a fixed size and are written in px; and a width in `ch` agrees with \
+             nothing else in the sheet, so only {IN_CHARACTERS} has one.",
             wrong.join(", ")
         );
+    }
+
+    /// Whether a value carries a number in this unit.
+    ///
+    /// As a unit and not as a substring, which is what `contains` gave: `ch` is inside
+    /// `stretch`, so `align-content: stretch` was reported as a width measured in
+    /// characters. A unit is preceded by a digit and followed by nothing that could make
+    /// it part of a longer word.
+    fn measured_in(value: &str, unit: &str) -> bool {
+        value.match_indices(unit).any(|(at, _)| {
+            let before = value[..at].chars().next_back();
+            let after = value[at + unit.len()..].chars().next();
+
+            before.is_some_and(|c| c.is_ascii_digit() || c == '.')
+                && after.is_none_or(|c| !c.is_ascii_alphanumeric())
+        })
     }
 
     /// list nobody keeps is a test that lies.

@@ -4659,10 +4659,13 @@ select.narrow { width: 12.5rem; }
  * `.remark` follows what it is about and `.preface` comes before it — which is the
  * whole difference between them, and the reason they are two names: one rule with one
  * margin was air above the line that introduces a list and none between it and the
- * list. */
+ * list.
+ *
+ * No width of its own. These live inside a panel that is already `min(32.5rem, 100%)`
+ * wide, so the panel is the measure and a second, narrower one only made these notes
+ * stop short of the rows they are about. */
 .remark, .preface {
   font-size: var(--aside);
-  max-width: 52ch;
   text-wrap: pretty;
 }
 
@@ -4756,9 +4759,13 @@ select.narrow { width: 12.5rem; }
 
 /* Words with no timings: a block of text and no column of blanks beside it. An empty
  * column reads as a value that is missing rather than as one that was never there,
- * which is why this is not the layout above with the times left out. */
+ * which is why this is not the layout above with the times left out.
+ *
+ * The drawings capped this at a reading measure and it is not capped here, for the
+ * same reason nothing else in the panel is: the panel is 520px wide, so the width is
+ * already a reading measure, and a second one inside it only looks like a column that
+ * failed to fill. */
 .verses {
-  max-width: 46ch;
   padding: 1.125rem 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -4780,7 +4787,6 @@ select.narrow { width: 12.5rem; }
 .wordless p { font-size: var(--name); }
 
 .wordless .quiet {
-  max-width: 52ch;
   margin-top: 0.5rem;
   font-size: var(--control);
   line-height: 1.55;
