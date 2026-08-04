@@ -327,7 +327,7 @@ async fn create_new(
     name: &str,
     song_ids: &[String],
 ) -> Result<Refused, sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
     let timestamp = db::now();
 
     let public_id = match db::public_id() {
@@ -372,7 +372,7 @@ async fn replace_playlist(
         return Ok(Refused::NotYours);
     }
 
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
     let track_ids = resolve_tracks(&mut tx, song_ids).await?;
     write_entries(&mut tx, row.id, &track_ids).await?;
     touch(&mut tx, row.id).await?;
@@ -393,7 +393,7 @@ async fn apply_update(
         return Ok(Refused::NotYours);
     }
 
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     if let Some(name) = &query.name {
         sqlx::query("UPDATE playlists SET name = ? WHERE id = ?")

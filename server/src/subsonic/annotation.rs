@@ -158,7 +158,7 @@ async fn set_starred(
     query: &StarQuery,
     starred_at: Option<String>,
 ) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     // A bare `id` is documented as a song or a folder, but clients also send
     // album and artist ids there, so it is resolved against all three. Public
@@ -255,7 +255,7 @@ async fn write_rating(
     public_id: &str,
     rating: Option<i64>,
 ) -> Result<bool, sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     let Some((kind, id)) = resolve(&mut tx, public_id).await? else {
         return Ok(false);

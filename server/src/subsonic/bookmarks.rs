@@ -312,7 +312,7 @@ async fn write_queue(
     auth: &Authenticated,
     query: &SaveQueueQuery,
 ) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     // The queue row first, because the entries carry a foreign key to it: the
     // entries cannot exist before the queue they belong to. The current track is

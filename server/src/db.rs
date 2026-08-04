@@ -11,6 +11,30 @@ use std::time::Duration;
 /// How long a writer waits for the lock before giving up.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Begins a transaction that is going to write.
+///
+/// `BEGIN IMMEDIATE` rather than the plain `BEGIN` sqlx issues, and this is not
+/// tuning. A deferred transaction takes a read lock and asks for the write lock
+/// only when it first writes — and if another writer has committed in between,
+/// SQLite refuses *immediately* with "database is locked" rather than waiting,
+/// because waiting there could deadlock two transactions that each hold a read
+/// lock and each want to write.
+///
+/// Which means [`BUSY_TIMEOUT`] does not cover it. That timeout is what a writer
+/// waits with, and this is the one case where there is no waiting to be done: the
+/// answer arrives at once and it is a failure. An immediate transaction asks for
+/// the write lock up front, where the timeout applies again.
+///
+/// It was found through nine album covers asked for at once on a cold cache —
+/// which is what a shelf of records does the first time it is opened. Seven came
+/// back and two came back as 500s, and reloading fixed it, because by then seven
+/// of them no longer needed writing. Every upsert in this program has the same
+/// shape and so had the same fault waiting: a play counted while a scan writes, a
+/// track starred, a bookmark moved.
+pub async fn writing(pool: &SqlitePool) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Sqlite>> {
+    pool.begin_with("BEGIN IMMEDIATE").await
+}
+
 /// Current time in the shape the schema stores: ISO-8601, UTC, to the second.
 pub fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)

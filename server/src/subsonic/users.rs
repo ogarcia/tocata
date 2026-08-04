@@ -362,7 +362,7 @@ async fn apply_update(pool: &SqlitePool, query: &UpdateUserQuery) -> Result<bool
         return Ok(false);
     };
 
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     if let Some(email) = &query.email {
         sqlx::query("UPDATE users SET email = ? WHERE id = ?")

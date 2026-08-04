@@ -34,7 +34,7 @@ pub async fn record_play(
         return Ok(());
     };
 
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     sqlx::query(
         "INSERT INTO user_track_stats (user_id, track_id, play_count, last_played)

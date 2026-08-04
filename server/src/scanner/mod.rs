@@ -275,8 +275,7 @@ async fn scan_library(
 
     let mut state = State::new(library_id, root.to_path_buf(), scan);
     let mut outcome = Outcome::default();
-    let mut tx_db = pool
-        .begin()
+    let mut tx_db = db::writing(pool)
         .await
         .context("starting the scan transaction")?;
 

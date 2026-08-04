@@ -58,7 +58,7 @@ async fn sweep(
     pool: &SqlitePool,
     until: Option<&str>,
 ) -> Result<(Removed, Vec<String>), sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     // The full text tables are maintained by the scanner as it writes, not by
     // triggers, so nothing removes their rows unless it is done here. Left

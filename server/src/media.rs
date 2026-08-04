@@ -254,7 +254,7 @@ pub(crate) async fn extract_cover(
     let hash = artwork::store(data_dir, &bytes)?;
     let timestamp = db::now();
 
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     // The hash is the identity, so two albums sharing a cover share the row.
     let existing: Option<i64> =
@@ -403,7 +403,7 @@ pub(crate) async fn artist_picture(
     let hash = artwork::store(data_dir, &bytes)?;
     let timestamp = db::now();
 
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::writing(pool).await?;
 
     // The hash is the identity, so a picture already known under another row is
     // that row rather than a second copy of it.

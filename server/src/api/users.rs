@@ -564,8 +564,7 @@ pub async fn restrict(
         return Err(ApiError::NotFound);
     };
 
-    let mut tx = pool
-        .begin()
+    let mut tx = crate::db::writing(&pool)
         .await
         .map_err(|e| ApiError::internal(e, "restricting an account"))?;
 
