@@ -14,7 +14,11 @@ if ! cargo fmt --all -- --check; then
     exit 1
 fi
 
-if ! cargo clippy --all-targets --all-features -- -D warnings; then
+# `--workspace` is not decoration. The workspace sets
+# `default-members = ["server"]`, so without it clippy never looks at the panel at
+# all — and a lint in the panel sailed through this hook and failed on CI, which is
+# the one thing the hook exists to stop. Keep this line identical to the CI's.
+if ! cargo clippy --workspace --all-targets --all-features -- -D warnings; then
     echo
     echo "✗ clippy reported warnings. Fix them before committing." >&2
     exit 1
