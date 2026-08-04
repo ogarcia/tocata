@@ -4171,11 +4171,20 @@ select.narrow { width: 12.5rem; }
 
 .rolling .now { color: var(--accent); }
 
-/* The glyph in the column a waiting row keeps its handle in. Sized like the handle's,
- * so the two runs of rows begin at the same place. */
+/* The glyph in the column a waiting row keeps its handle in.
+ *
+ * The same size as the handle's own glyph, and centred in the column. Both of those are
+ * needed and for different reasons. The handle is a button that fills the column and
+ * centres its glyph inside itself, while this is a bare span placed straight into the
+ * grid — and a grid item with a width of its own sits at the *start* of its track, not
+ * in the middle of it, so at 14px against an 18px column it stood two pixels left of the
+ * grip above it. Matching the size hides that at this width and nowhere else: on a phone
+ * the column grows to 28px and the handle grows with it, so only `justify-self` keeps the
+ * two in line there. */
 .rolling .now .icon {
-  width: 0.875rem;
-  height: 0.875rem;
+  justify-self: center;
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 /* Two lines that both give way rather than wrap: a drawer is narrow and a queue is
