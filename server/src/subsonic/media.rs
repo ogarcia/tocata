@@ -243,7 +243,7 @@ async fn read_lyrics(path: PathBuf) -> Option<String> {
         // A file beside the music wins over an embedded tag: it is what somebody
         // put there deliberately and can edit, and it is where anything fetched
         // from the network will be written.
-        if let Some(content) = crate::lyrics::find_beside(&path) {
+        if let Some((_, content)) = crate::lyrics::find_beside(&path) {
             return Some(content);
         }
 

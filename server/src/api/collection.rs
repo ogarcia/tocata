@@ -23,7 +23,8 @@
 use super::error::ApiError;
 use super::session::Panel;
 use crate::types::{
-    Album, Albums, Artist, Artists, ErrorBody, Genre, Genres, Queue, Track, Tracks,
+    Album, Albums, Artist, Artists, ErrorBody, Genre, Genres, LyricLine, LyricSource, Lyrics,
+    Queue, Tags, Track, TrackDetail, Tracks,
 };
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -269,6 +270,234 @@ pub async fn track(
 
     row.map(|row| Json(Track::from(row)))
         .ok_or(ApiError::NotFound)
+}
+
+/// All about one track
+///
+/// Everything the database holds about it, which is what a track's own panel draws.
+/// Wider than the row a listing shows and asked for one track at a time, which is
+/// the whole point of it being a second call: nobody pays for these columns fifty
+/// rows at a time.
+///
+/// What this cannot say is what the file says. The scanner keeps the fields the
+/// schema has columns for and lets the rest go by, so the credits with nowhere to be
+/// kept — composer, producer, whoever engineered it — are in `/tracks/{id}/tags`,
+/// which reads the file.
+#[utoipa::path(
+    get,
+    path = "/tracks/{id}/detail",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 200, description = "Everything known about it", body = TrackDetail),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such track, or not one you may see", body = ErrorBody),
+    )
+)]
+pub async fn detail(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<TrackDetail>, ApiError> {
+    let row: Option<DetailRow> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT t.public_id, t.title,
+                (SELECT group_concat(a.name, ', ')
+                   FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+                  WHERE ta.track_id = t.id AND ta.role = 'artist') AS artists,
+                al.name AS album, al.public_id AS album_id,
+                (SELECT group_concat(a.name, ', ')
+                   FROM album_artists aa JOIN artists a ON a.id = aa.artist_id
+                  WHERE aa.album_id = al.id AND aa.role = 'albumartist') AS album_artist,
+                (SELECT group_concat(g.name, ', ')
+                   FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
+                  WHERE tg.track_id = t.id) AS genres,
+                t.track_number,
+                -- Counted over what is still there, like every other figure about a
+                -- record: 'of 10' has to mean ten you could play.
+                (SELECT count(*) FROM tracks o
+                  WHERE o.album_id = al.id AND o.missing_since IS NULL) AS album_tracks,
+                t.disc_number,
+                -- Null rather than nought where nothing on the record numbers a
+                -- disc, so 'of 1' is only ever said by a record that said it.
+                (SELECT count(DISTINCT o.disc_number) FROM tracks o
+                  WHERE o.album_id = al.id AND o.disc_number IS NOT NULL) AS album_discs,
+                coalesce(t.year, al.year) AS year,
+                t.duration_ms, t.suffix, t.bit_rate, t.sampling_rate, t.bit_depth,
+                t.path, l.name AS library, t.file_size, t.updated_at,
+                t.isrc, t.mbid_recording, t.comment,
+                t.missing_since IS NOT NULL AS missing
+           FROM tracks t
+           JOIN libraries l ON l.id = t.library_id
+           LEFT JOIN albums al ON al.id = t.album_id
+          WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(panel.user.id)
+    .bind(&id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading everything about a track"))?;
+
+    row.map(|row| Json(TrackDetail::from(row)))
+        .ok_or(ApiError::NotFound)
+}
+
+/// A track's tags, as the file holds them
+///
+/// Read from the file every time, which is what makes it worth having: it is the
+/// answer the database cannot give. The credits a schema has no columns for are here,
+/// and so is whatever a tagger wrote that Tocata has no use for.
+///
+/// Not every byte of the tag. The reader maps the frames it knows onto one set of
+/// names and a vendor's own invention does not come through — so this is what could
+/// be read rather than what is in there, and it does not claim to count the rest.
+///
+/// 404 where a track's file is gone, since there is nothing to read, and where the
+/// track is one this account may not see. A track with a file and no tag at all
+/// answers with an empty list rather than a refusal: nothing to say is not a failure.
+#[utoipa::path(
+    get,
+    path = "/tracks/{id}/tags",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 200, description = "What the file says", body = Tags),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such track, or its file is gone", body = ErrorBody),
+        (status = 500, description = "The file is there and could not be read", body = ErrorBody),
+    )
+)]
+pub async fn tags(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<Tags>, ApiError> {
+    let path = whereabouts(&pool, panel.user.id, &id).await?;
+
+    // Blocking, and it reads the embedded picture: describing the cover is part of
+    // the answer, and the size of it is the interesting half.
+    let read = tokio::task::spawn_blocking(move || crate::scanner::read_every_tag(&path))
+        .await
+        .map_err(|e| ApiError::internal(e, "the tag reader gave up"))?;
+
+    read.map(Json)
+        .map_err(|e| ApiError::internal(e, "reading the tags of a file"))
+}
+
+/// A track's words
+///
+/// Looked for in a file beside the music first and in the file's own tag second,
+/// and nowhere else — there is nothing here that asks the network.
+///
+/// Read on the spot rather than kept: lyrics are the one long text a music file
+/// carries, and a copy in the database would be hundreds of megabytes saying what is
+/// already on disk. Which also means words put on disk show up the next time
+/// somebody looks, with no rescan.
+///
+/// Having none is not a failure. It answers 200 with no source and no lines, because
+/// "there are none, and here is where they would go" is the useful answer and a 404
+/// could not carry it.
+#[utoipa::path(
+    get,
+    path = "/tracks/{id}/lyrics",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 200, description = "The words, or that there are none", body = Lyrics),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such track, or its file is gone", body = ErrorBody),
+    )
+)]
+pub async fn lyrics(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<Lyrics>, ApiError> {
+    let path = whereabouts(&pool, panel.user.id, &id).await?;
+
+    let beside = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let found = tokio::task::spawn_blocking(move || {
+        // A file beside the music wins: it is what somebody put there deliberately,
+        // it can be edited without touching the music, and it is where anything
+        // fetched later would be written.
+        if let Some((name, words)) = crate::lyrics::find_beside(&path) {
+            return Some((words, LyricSource::Beside(name)));
+        }
+
+        let read = crate::scanner::read_tags(&path).ok()?;
+        let words = read.lyrics?;
+        // Named where the format names it, and left unnamed where it does not:
+        // "from a frame this reader has no name for" is still where they came from.
+        let frame = read.lyrics_frame.unwrap_or_default().to_string();
+
+        Some((words, LyricSource::Frame(frame)))
+    })
+    .await
+    .map_err(|e| ApiError::internal(e, "the lyric reader gave up"))?;
+
+    let Some((words, source)) = found else {
+        return Ok(Json(Lyrics {
+            source: None,
+            synced: false,
+            lines: Vec::new(),
+            beside,
+        }));
+    };
+
+    // One timed line makes the whole thing timed, which is what the LRC in the wild
+    // looks like: a header of `[ar:]` and `[ti:]` that are not lines of a song, and
+    // then the words.
+    let synced = crate::lyrics::looks_synchronised(&words);
+
+    let lines = if synced {
+        crate::lyrics::parse(&words)
+            .into_iter()
+            .map(|line| LyricLine {
+                at: Some(line.start),
+                value: line.value,
+            })
+            .collect()
+    } else {
+        words
+            .lines()
+            .map(|value| LyricLine {
+                at: None,
+                value: value.trim_end().to_string(),
+            })
+            .collect()
+    };
+
+    Ok(Json(Lyrics {
+        source: Some(source),
+        synced,
+        lines,
+        beside,
+    }))
+}
+
+/// Where a track's file is, for the two calls that have to open it.
+///
+/// Through the same finder `/rest` and the audio endpoint use, which is what keeps
+/// one set of rules about who may see which library and about a stored path that
+/// climbs out of one. A track whose file is gone is not found here at all, which is
+/// the right answer for both callers: there is nothing to read.
+async fn whereabouts(
+    pool: &SqlitePool,
+    who: i64,
+    id: &str,
+) -> Result<std::path::PathBuf, ApiError> {
+    match crate::media::locate(pool, who, id).await {
+        Ok(Some(track)) => Ok(track.path),
+        Ok(None) | Err(crate::media::Refused::Traversal) => Err(ApiError::NotFound),
+        Err(crate::media::Refused::Database(e)) => {
+            Err(ApiError::internal(e, "finding a track's file"))
+        }
+    }
 }
 
 /// What to play
@@ -771,6 +1000,70 @@ impl From<TrackRow> for Track {
 }
 
 #[derive(sqlx::FromRow)]
+struct DetailRow {
+    public_id: String,
+    title: String,
+    artists: Option<String>,
+    album: Option<String>,
+    album_id: Option<String>,
+    album_artist: Option<String>,
+    genres: Option<String>,
+    track_number: Option<i64>,
+    album_tracks: Option<i64>,
+    disc_number: Option<i64>,
+    album_discs: Option<i64>,
+    year: Option<i64>,
+    duration_ms: Option<i64>,
+    suffix: String,
+    bit_rate: Option<i64>,
+    sampling_rate: Option<i64>,
+    bit_depth: Option<i64>,
+    path: String,
+    library: String,
+    file_size: i64,
+    updated_at: String,
+    isrc: Option<String>,
+    mbid_recording: Option<String>,
+    comment: Option<String>,
+    missing: bool,
+}
+
+impl From<DetailRow> for TrackDetail {
+    fn from(row: DetailRow) -> Self {
+        Self {
+            id: row.public_id,
+            title: row.title,
+            artists: row.artists,
+            album: row.album,
+            album_id: row.album_id,
+            album_artist: row.album_artist,
+            genres: row.genres,
+            track_number: row.track_number,
+            // Counted with a subquery, so a track with no record at all comes back
+            // as nought rather than as null. Nought records hold nothing, and "of 0"
+            // is not a thing to print.
+            album_tracks: row.album_tracks.filter(|count| *count > 0),
+            disc_number: row.disc_number,
+            album_discs: row.album_discs.filter(|count| *count > 0),
+            year: row.year,
+            duration: row.duration_ms.map(|ms| ms / 1000),
+            suffix: row.suffix,
+            bit_rate: row.bit_rate,
+            sampling_rate: row.sampling_rate,
+            bit_depth: row.bit_depth,
+            path: row.path,
+            library: row.library,
+            size: row.file_size,
+            read_at: row.updated_at,
+            isrc: row.isrc,
+            mbid_recording: row.mbid_recording,
+            comment: row.comment,
+            missing: row.missing,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
 struct AlbumRow {
     public_id: String,
     name: String,
@@ -1051,6 +1344,291 @@ mod tests {
             user: panel.user.clone(),
             expires_at: panel.expires_at.clone(),
         }
+    }
+
+    /// One track whose file is really on disk, in a library rooted at a temporary
+    /// directory of its own.
+    ///
+    /// The two calls that read a file cannot be tested against a database alone, and
+    /// what they are for is exactly what a database cannot answer. `name` keeps each
+    /// test's directory to itself, since these run at the same time as each other.
+    async fn a_track_on_disk(
+        name: &str,
+        tags: &[(lofty::prelude::ItemKey, &str)],
+    ) -> (SqlitePool, Panel, std::path::PathBuf) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let root = crate::fixtures::temp_root(&format!("api-{name}"));
+        let file = root.join("song.wav");
+        crate::fixtures::write_wav(&file);
+
+        // ID3v2, because that is the tag a RIFF container will hold — and because it
+        // is the one whose lyric frame the reader used to miss.
+        if !tags.is_empty() {
+            crate::fixtures::tag_file(&file, lofty::tag::TagType::Id3v2, tags);
+        }
+
+        let at = db::now();
+        sqlx::query(
+            "INSERT INTO libraries (id, name, path, created_at, updated_at)
+             VALUES (1, 'kept', ?, ?, ?)",
+        )
+        .bind(root.to_string_lossy().as_ref())
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO folders (id, public_id, library_id, name, path, last_seen_scan)
+             VALUES (1, 'f1', 1, 'root', '', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tracks (id, public_id, library_id, folder_id, path, file_size,
+                                 file_modified_at, content_type, suffix, title,
+                                 last_seen_scan, created_at, updated_at)
+             VALUES (1, 't1', 1, 1, 'song.wav', 44, ?, 'audio/wav', 'wav', 'Song', 1, ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let who = somebody(&pool, false).await;
+        (pool, who, file)
+    }
+
+    /// The panel of one track says everything the row could not, and stops at the
+    /// same wall.
+    #[tokio::test]
+    async fn all_about_a_track_is_wider_than_its_row_and_no_less_walled() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+
+        let Json(track) = detail(hers, State(pool.clone()), UrlPath("t10".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(track.title, "El Patio 0");
+        assert_eq!(track.artists.as_deref(), Some("Triana"), "who played on it");
+        assert_eq!(
+            track.album_artist.as_deref(),
+            Some("Triana"),
+            "and who the record is filed under, which the row never carried"
+        );
+        assert_eq!(track.genres.as_deref(), Some("Flamenco"));
+        assert_eq!(track.library, "kept");
+        assert_eq!(track.size, 1);
+        assert_eq!(
+            track.year,
+            Some(1975),
+            "off the record, since the file said none"
+        );
+
+        // Two tracks on this record and one of them is gone, so "of 1" is the honest
+        // reading: a figure over what could be played rather than over what was once
+        // filed.
+        assert_eq!(track.album_tracks, Some(1));
+        assert_eq!(track.disc_number, Some(1));
+        assert_eq!(track.album_discs, Some(1));
+
+        // And the wall is the same wall. A track in a library this account may not
+        // see is not a track it may learn exists.
+        let walled = somebody_else(&pool).await;
+        assert!(
+            matches!(
+                detail(walled, State(pool.clone()), UrlPath("t20".to_string())).await,
+                Err(ApiError::NotFound)
+            ),
+            "the second library is not hers to read about either"
+        );
+    }
+
+    /// Where the file is, said without saying where the library is.
+    ///
+    /// The path is what the scanner stored, which is relative to the library root, and
+    /// the library is named beside it. That is enough to find one file among the
+    /// others and to tell two copies apart; where that library is mounted on the
+    /// machine is nobody's business but the person who mounted it, and everybody who
+    /// may see a library can read this.
+    #[tokio::test]
+    async fn a_path_locates_a_file_in_its_library_and_not_on_the_machine() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+
+        let Json(track) = detail(hers, State(pool.clone()), UrlPath("t10".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(track.path, "10.flac");
+        assert!(
+            !track.path.starts_with('/') && !track.path.contains("kept"),
+            "the library's own root has no business being in here: {}",
+            track.path
+        );
+    }
+
+    /// The whole reason the tab exists: credits the schema has no columns for.
+    #[tokio::test]
+    async fn the_tags_of_a_file_say_what_the_database_cannot() {
+        use lofty::prelude::ItemKey;
+
+        let (pool, who, _) = a_track_on_disk(
+            "tags",
+            &[
+                (ItemKey::TrackTitle, "Abre la Puerta"),
+                (ItemKey::Composer, "Jesús de la Rosa"),
+                (ItemKey::Label, "Movieplay"),
+                // Written and not expected back. lofty has no ID3v2 mapping for a
+                // producer — ID3v2 keeps that sort of credit in the involved people
+                // list, which it does not take apart — so this one is invisible in
+                // an MP3 and plain in Vorbis comments. Worth pinning down here so
+                // that "the producer is missing" is a known shape of this format
+                // rather than a bug somebody goes looking for.
+                (ItemKey::Producer, "Gonzalo García Pelayo"),
+            ],
+        )
+        .await;
+
+        let Json(tags) = tags(who, State(pool.clone()), UrlPath("t1".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(tags.kind.as_deref(), Some("ID3v2"));
+
+        let said = |name: &str| {
+            tags.tags
+                .iter()
+                .find(|tag| tag.name == name)
+                .map(|tag| tag.value.clone())
+        };
+
+        // Named as ID3v2 names them, not as Tocata does.
+        assert_eq!(said("TIT2").as_deref(), Some("Abre la Puerta"));
+        assert_eq!(
+            said("TCOM").as_deref(),
+            Some("Jesús de la Rosa"),
+            "the composer, which has no column anywhere in the schema"
+        );
+        assert_eq!(
+            said("TPUB").as_deref(),
+            Some("Movieplay"),
+            "and the label, which has none either"
+        );
+        assert_eq!(
+            tags.tags.len(),
+            3,
+            "and nothing invented: what this format cannot carry does not appear, \
+             which is why this cannot claim to be every byte of the tag"
+        );
+    }
+
+    /// A file that is not there cannot be read, and a track that is not yours cannot
+    /// be asked about. Both are the same answer.
+    #[tokio::test]
+    async fn there_is_nothing_to_read_where_there_is_no_file() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+        let again_hers = again(&hers);
+
+        // t11 is the one the fixture marks as gone. Its row is still in the listing,
+        // which is the point of marking rather than deleting — but there is no file
+        // behind it to open.
+        assert!(matches!(
+            tags(hers, State(pool.clone()), UrlPath("t11".to_string())).await,
+            Err(ApiError::NotFound)
+        ));
+        assert!(matches!(
+            lyrics(again_hers, State(pool.clone()), UrlPath("t11".to_string())).await,
+            Err(ApiError::NotFound)
+        ));
+    }
+
+    /// The regression this pass fixed, at the level it is served from: lofty has no
+    /// ID3v2 mapping for `Lyrics`, so words in an MP3 were invisible — here and over
+    /// `/rest` — and nothing said so, because no words and unreachable words answer
+    /// alike.
+    #[tokio::test]
+    async fn words_in_an_id3_frame_are_found_and_the_frame_is_named() {
+        use lofty::prelude::ItemKey;
+
+        let (pool, who, _) = a_track_on_disk(
+            "id3-words",
+            &[(ItemKey::UnsyncLyrics, "Sé que no puedo\nvolver atrás")],
+        )
+        .await;
+
+        let Json(words) = lyrics(who, State(pool.clone()), UrlPath("t1".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(words.source, Some(LyricSource::Frame("USLT".to_string())));
+        assert!(!words.synced, "no timings in there");
+        assert_eq!(words.lines.len(), 2);
+        assert_eq!(words.lines[0].value, "Sé que no puedo");
+        assert_eq!(words.lines[0].at, None, "untimed lines carry no place");
+    }
+
+    /// A file beside the music wins over the tag inside it, and says which it was.
+    ///
+    /// Which of the two the words came from is the point of showing them in an
+    /// administration panel: a song whose sidecar says one thing while its tag says
+    /// another is a thing somebody may want to know about.
+    #[tokio::test]
+    async fn words_beside_the_music_win_over_the_tag_and_bring_their_timings() {
+        use lofty::prelude::ItemKey;
+
+        let (pool, who, file) =
+            a_track_on_disk("beside", &[(ItemKey::UnsyncLyrics, "what the tag says")]).await;
+
+        std::fs::write(
+            file.with_extension("lrc"),
+            "[ar:Triana]\n[00:12.50]Abre la puerta\n[00:19.00]niña\n",
+        )
+        .unwrap();
+
+        let Json(words) = lyrics(who, State(pool.clone()), UrlPath("t1".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            words.source,
+            Some(LyricSource::Beside("song.lrc".to_string())),
+            "the file beside it, by name"
+        );
+        assert!(words.synced);
+        assert_eq!(
+            words.lines.len(),
+            2,
+            "the LRC header is not a line of the song"
+        );
+        assert_eq!(words.lines[0].at, Some(12_500));
+        assert_eq!(words.lines[0].value, "Abre la puerta");
+    }
+
+    /// Having no words is an answer, and it carries the one useful thing to say.
+    #[tokio::test]
+    async fn a_song_with_no_words_says_where_they_would_go() {
+        let (pool, who, _) = a_track_on_disk("wordless", &[]).await;
+
+        let Json(words) = lyrics(who, State(pool.clone()), UrlPath("t1".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(words.source, None);
+        assert!(words.lines.is_empty());
+        assert_eq!(
+            words.beside, "song",
+            "the name a file beside the music would have to carry"
+        );
     }
 
     fn nothing() -> Query<Filter> {

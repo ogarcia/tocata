@@ -6,10 +6,10 @@
 use anyhow::{Context, Result};
 use lofty::config::ParseOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
-use lofty::picture::PictureType;
+use lofty::picture::{MimeType, PictureType};
 use lofty::prelude::{Accessor, ItemKey};
 use lofty::probe::Probe;
-use lofty::tag::Tag;
+use lofty::tag::{ItemValue, Tag, TagType};
 use std::path::Path;
 
 /// Separators taggers use to cram several artists into one field. Splitting on
@@ -45,6 +45,15 @@ pub struct Metadata {
     pub rg_album_gain: Option<f64>,
     pub rg_album_peak: Option<f64>,
     pub lyrics: Option<String>,
+    /// Which frame the lyrics came out of, as the file's own format names it.
+    ///
+    /// The scanner has no use for it — it does not keep the words in the first
+    /// place. What wants it is the panel: telling somebody their words are in
+    /// `USLT` rather than in an `.lrc` beside the file is the whole point of
+    /// showing them at all in an administration panel. It is a borrowed name from
+    /// the reader's own table rather than a string, so carrying it costs nothing
+    /// on the scans that never look at it.
+    pub lyrics_frame: Option<&'static str>,
     /// Bytes of the embedded front cover, when the file carries one.
     pub picture: Option<Vec<u8>>,
     pub duration_ms: Option<i64>,
@@ -69,6 +78,141 @@ pub fn read(path: &Path) -> Result<Metadata> {
 /// asked to see the cover.
 pub fn read_with_cover_art(path: &Path) -> Result<Metadata> {
     read_with(path, ParseOptions::new().read_cover_art(true))
+}
+
+/// Every tag in a file, spelt as its own format spells them.
+///
+/// The answer the database cannot give, and the reason the panel offers it: the
+/// scanner keeps the fields the schema has columns for and lets the rest go by, so
+/// the composer, the producer and whoever engineered the record are only ever
+/// visible here.
+///
+/// Not every byte of the tag, and it does not claim to be. What arrives has been
+/// through a reader that maps the frames it knows onto one set of names, so a
+/// vendor's own invention is not merely unnamed — it never got here, and cannot even
+/// be counted.
+///
+/// Blocking, and it reads the embedded picture: how much of the file the artwork
+/// accounts for is half of what makes the list worth reading.
+pub fn read_every(path: &Path) -> Result<crate::types::Tags> {
+    let tagged = Probe::open(path)
+        .with_context(|| format!("opening {}", path.display()))?
+        .options(ParseOptions::new().read_cover_art(true))
+        .read()
+        .with_context(|| format!("reading tags from {}", path.display()))?;
+
+    let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
+        return Ok(crate::types::Tags {
+            kind: None,
+            tags: Vec::new(),
+            picture: None,
+        });
+    };
+
+    let kind = tag.tag_type();
+
+    let tags = tag
+        .items()
+        .filter_map(|item| {
+            // Its name in this format, and nothing where the format has none for it:
+            // a reader that knows a key an encoding cannot write has nothing to show
+            // for it, and a made up name would look like something in the file.
+            let name = item.key().map_key(kind)?.to_string();
+
+            let value = match item.value() {
+                ItemValue::Text(text) | ItemValue::Locator(text) => text.trim().to_string(),
+                // Nothing in a tag that is not text belongs on screen as text, and
+                // its size is the only thing anybody would read anyway.
+                ItemValue::Binary(bytes) => bytes_over(bytes.len()),
+            };
+
+            (!value.is_empty()).then_some(crate::types::Tagged { name, value })
+        })
+        .collect();
+
+    // The front cover if the file says which one it is, and otherwise whatever it
+    // carries, which is the same choice the scanner makes about which to cache.
+    let picture = tag
+        .pictures()
+        .iter()
+        .find(|picture| picture.pic_type() == PictureType::CoverFront)
+        .or_else(|| tag.pictures().first())
+        .map(|picture| crate::types::Tagged {
+            name: picture_frame(kind).to_string(),
+            value: [
+                depicting(picture.pic_type()).to_string(),
+                picture
+                    .mime_type()
+                    .map(MimeType::to_string)
+                    .unwrap_or_else(|| "unknown".to_string()),
+                bytes_over(picture.data().len()),
+            ]
+            .join(" · "),
+        });
+
+    Ok(crate::types::Tags {
+        kind: Some(named(kind).to_string()),
+        tags,
+        picture,
+    })
+}
+
+/// What a kind of tag is called, in the words the formats themselves use.
+fn named(kind: TagType) -> &'static str {
+    match kind {
+        TagType::Ape => "APE",
+        TagType::Id3v1 => "ID3v1",
+        TagType::Id3v2 => "ID3v2",
+        TagType::Mp4Ilst => "MP4",
+        TagType::VorbisComments => "Vorbis comments",
+        TagType::RiffInfo => "RIFF INFO",
+        TagType::AiffText => "AIFF text",
+        // lofty may learn another before we do.
+        _ => "unknown",
+    }
+}
+
+/// Where a format keeps its artwork, so the picture is named the way every other row
+/// in the list is.
+fn picture_frame(kind: TagType) -> &'static str {
+    match kind {
+        TagType::Id3v2 => "APIC",
+        TagType::Mp4Ilst => "covr",
+        TagType::VorbisComments => "METADATA_BLOCK_PICTURE",
+        TagType::Ape => "Cover Art (Front)",
+        _ => "picture",
+    }
+}
+
+/// What the picture is of, as the tag says. Only the kinds anybody's collection
+/// actually holds are worded; the rest are a picture, which is all the row needs to
+/// say for something nobody put there on purpose.
+fn depicting(what: PictureType) -> &'static str {
+    match what {
+        PictureType::CoverFront => "front cover",
+        PictureType::CoverBack => "back cover",
+        PictureType::Artist | PictureType::LeadArtist => "artist",
+        PictureType::Band => "band",
+        PictureType::Media => "media",
+        PictureType::Icon | PictureType::OtherIcon => "icon",
+        _ => "picture",
+    }
+}
+
+/// A size in the units people read them in. Rounded to whole units above a kilobyte,
+/// because nothing here is worth a decimal.
+fn bytes_over(size: usize) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+
+    let mut size = size as f64;
+    let mut unit = 0;
+
+    while size >= 1024.0 && unit + 1 < UNITS.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+
+    format!("{} {}", size.round(), UNITS[unit])
 }
 
 fn read_with(path: &Path, options: ParseOptions) -> Result<Metadata> {
@@ -144,7 +288,21 @@ fn read_tag(tag: &Tag, metadata: &mut Metadata) {
     metadata.rg_album_gain = decibels(text(tag, ItemKey::ReplayGainAlbumGain).as_deref());
     metadata.rg_album_peak = text(tag, ItemKey::ReplayGainAlbumPeak).and_then(|v| v.parse().ok());
 
-    metadata.lyrics = text(tag, ItemKey::Lyrics);
+    // Both keys, and this is not belt and braces: lofty has no ID3v2 mapping for
+    // `Lyrics` at all — its own table says to use `UnsyncLyrics`, which is the
+    // `USLT` frame — so asking only for the first found nothing in an MP3, which is
+    // where most of the world's embedded lyrics are. That was silent both here and
+    // over `/rest`, because no lyrics and unreadable lyrics look identical from
+    // outside. Vorbis comments do distinguish the two, `LYRICS` against
+    // `UNSYNCEDLYRICS`, so trying them in this order reads either.
+    (metadata.lyrics, metadata.lyrics_frame) = [ItemKey::Lyrics, ItemKey::UnsyncLyrics]
+        .into_iter()
+        .find_map(|key| {
+            let words = text(tag, key)?;
+            Some((Some(words), key.map_key(tag.tag_type())))
+        })
+        .unwrap_or_default();
+
     metadata.is_compilation = text(tag, ItemKey::FlagCompilation)
         .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
         .unwrap_or(false);
@@ -304,8 +462,8 @@ mod tests {
     /// these keys are checked against the tag directly. Do not "fix" this by
     /// moving the assertions onto a file: they will silently stop covering
     /// anything.
-    fn tag_with(items: &[(ItemKey, &str)]) -> Tag {
-        let mut tag = Tag::new(TagType::VorbisComments);
+    fn tag_of(kind: TagType, items: &[(ItemKey, &str)]) -> Tag {
+        let mut tag = Tag::new(kind);
         for (key, value) in items {
             tag.insert(TagItem::new(
                 *key,
@@ -315,10 +473,50 @@ mod tests {
         tag
     }
 
+    fn tag_with(items: &[(ItemKey, &str)]) -> Tag {
+        tag_of(TagType::VorbisComments, items)
+    }
+
     fn metadata_from(items: &[(ItemKey, &str)]) -> Metadata {
+        read_from(&tag_with(items))
+    }
+
+    fn read_from(tag: &Tag) -> Metadata {
         let mut metadata = Metadata::default();
-        read_tag(&tag_with(items), &mut metadata);
+        read_tag(tag, &mut metadata);
         metadata
+    }
+
+    /// The regression that was invisible: lofty has no ID3v2 mapping for
+    /// `ItemKey::Lyrics`, so reading only that key found nothing in an MP3 — which
+    /// is where most embedded lyrics in the world are. Nothing said so, because a
+    /// file with no lyrics and a file whose lyrics could not be reached answer the
+    /// same way.
+    #[test]
+    fn lyrics_are_read_from_either_frame_and_the_frame_is_named() {
+        let id3 = read_from(&tag_of(
+            TagType::Id3v2,
+            &[(ItemKey::UnsyncLyrics, "Is this the real life")],
+        ));
+        assert_eq!(id3.lyrics.as_deref(), Some("Is this the real life"));
+        assert_eq!(
+            id3.lyrics_frame,
+            Some("USLT"),
+            "the panel names the frame the words were in"
+        );
+
+        // Vorbis comments keep the two apart, and the timed one is preferred.
+        let timed = metadata_from(&[(ItemKey::Lyrics, "[00:12.00] words")]);
+        assert_eq!(timed.lyrics.as_deref(), Some("[00:12.00] words"));
+        assert_eq!(timed.lyrics_frame, Some("LYRICS"));
+
+        let plain = metadata_from(&[(ItemKey::UnsyncLyrics, "words")]);
+        assert_eq!(plain.lyrics.as_deref(), Some("words"));
+        assert_eq!(plain.lyrics_frame, Some("UNSYNCEDLYRICS"));
+
+        let neither = metadata_from(&[(ItemKey::TrackTitle, "Silence")]);
+        assert_eq!(neither.lyrics, None);
+        assert_eq!(neither.lyrics_frame, None, "no words, nothing to name");
     }
 
     #[test]

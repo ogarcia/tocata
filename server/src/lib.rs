@@ -123,6 +123,10 @@ macro_rules! artist_is_visible {
 
 pub mod types;
 
+/// Files on disk for the tests that need them, shared by the two modules that do.
+#[cfg(all(test, feature = "server"))]
+mod fixtures;
+
 #[cfg(feature = "server")]
 pub mod api;
 #[cfg(feature = "server")]

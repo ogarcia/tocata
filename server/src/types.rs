@@ -708,6 +708,163 @@ pub struct Track {
     pub missing: bool,
 }
 
+/// Everything a track's own panel says about it, as the database holds it.
+///
+/// The wide answer to [`Track`]'s narrow one, and a second call rather than a wider
+/// first: a listing draws fifty rows and this fills one panel, so the columns only a
+/// panel reads are not read fifty times over for nothing.
+///
+/// What is *not* here is what the file says. The scanner keeps the fields it has
+/// columns for and lets the rest of a tag go by, so the credits there is no room for
+/// — composer, producer, whoever engineered it — are read from the file itself when
+/// somebody asks. That is [`Tags`].
+///
+/// Every optional field here means the file did not say. The panel leaves a row out
+/// rather than printing a blank one, so what is on screen is what is known.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackDetail {
+    pub id: String,
+    pub title: String,
+    /// Everybody credited on the recording, joined the way a line prints them.
+    pub artists: Option<String>,
+    pub album: Option<String>,
+    /// So a panel can lead on to the record's own.
+    pub album_id: Option<String>,
+    /// Whoever the record is filed under, which is not always who played on this
+    /// song: a compilation is filed under itself and its tracks credit their acts.
+    pub album_artist: Option<String>,
+    /// All of them, not the first one a row has room for.
+    pub genres: Option<String>,
+    pub track_number: Option<i64>,
+    /// How many the record holds, so a number can be read as "2 of 10". Counted
+    /// over the tracks that are still there, like every other figure about a
+    /// record.
+    pub album_tracks: Option<i64>,
+    pub disc_number: Option<i64>,
+    /// How many discs the record came on, where its tracks say. Absent — rather
+    /// than one — when nothing on it numbers a disc at all, because a record that
+    /// said nothing is not a record that said one.
+    pub album_discs: Option<i64>,
+    /// The track's own year, or its record's where the file did not say.
+    pub year: Option<i64>,
+    /// Seconds, like every other length in this API.
+    pub duration: Option<i64>,
+    pub suffix: String,
+    pub bit_rate: Option<i64>,
+    /// Hertz, as the file reports it. Said in kilohertz by whoever draws it.
+    pub sampling_rate: Option<i64>,
+    pub bit_depth: Option<i64>,
+    /// Where the file is *within its library*, which is how the scanner stores it:
+    /// moving a library is then one update of one row rather than a rescan.
+    ///
+    /// Deliberately not the whole path. It is enough to find the file among the
+    /// others and to tell two copies apart, and every account that may see the
+    /// library can read it — where that library is mounted on the machine is
+    /// nobody's business but the person who mounted it.
+    pub path: String,
+    /// Which library it came out of, by name.
+    pub library: String,
+    /// Bytes.
+    pub size: i64,
+    /// When the server last read this file's tags — which is not when it last saw
+    /// the file. An incremental scan that finds a file unchanged marks it as seen
+    /// and reads nothing, so this answers the question worth asking: how old is
+    /// what you are looking at.
+    pub read_at: String,
+    pub isrc: Option<String>,
+    pub mbid_recording: Option<String>,
+    pub comment: Option<String>,
+    /// Its file is not where it was, so nothing can be read out of it and nothing
+    /// can be played.
+    pub missing: bool,
+}
+
+/// What a file says about itself, read from the file and not from the database.
+///
+/// Every tag the reader made sense of, under the name the file's own format writes
+/// rather than the name Tocata uses for it. This is where the credits are that the
+/// schema has no columns for, which is the whole reason for asking.
+///
+/// It is not every byte in the tag. What arrives here has been through a reader that
+/// maps the frames it knows onto one set of names, and a vendor's own invention it
+/// has never heard of does not come through at all — so this cannot say how many were
+/// left behind, and does not pretend to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Tags {
+    /// The kind of tag it turned out to be: ID3v2, Vorbis comments, MP4 and so on.
+    /// Absent where the file carries no tag at all, which is a file with a title
+    /// taken from its own name and nothing else.
+    pub kind: Option<String>,
+    /// In the order the file holds them.
+    pub tags: Vec<Tagged>,
+    /// The embedded artwork, described rather than sent: what it is a picture of,
+    /// what kind of file, and how big. Somebody reading a tag list wants to know
+    /// there is a cover in there and how much of the file it accounts for; drawing
+    /// it is what the cover endpoint is for.
+    ///
+    /// A tag like the rest, and kept apart from them because it is the one whose
+    /// value is a description rather than what the file says.
+    pub picture: Option<Tagged>,
+}
+
+/// One tag: its name as the file spells it, and what it says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Tagged {
+    pub name: String,
+    pub value: String,
+}
+
+/// The words of a song, and where they were found.
+///
+/// Read when asked and never stored: lyrics are the one long text a music file
+/// carries, and a copy of them in the database would be hundreds of megabytes
+/// saying what is already on disk. It also means words edited on disk show up
+/// without a rescan, which is why nothing here reports when a scan last looked —
+/// no scan ever looks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Lyrics {
+    /// Where they came from, so a panel can say it: the name of the file beside the
+    /// music, or the tag frame inside it. Absent when there are none, which is the
+    /// case worth explaining rather than an error.
+    pub source: Option<LyricSource>,
+    /// Whether the lines carry timings. Untimed words are one block of text and
+    /// there is nothing for a player to follow.
+    pub synced: bool,
+    pub lines: Vec<LyricLine>,
+    /// The name a file beside the music would have to have, without its extension.
+    /// What the panel spells out when there are no words at all, since "put them
+    /// here" is the only useful thing to say then.
+    pub beside: String,
+}
+
+/// Which of the two places the words turned out to be in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricSource {
+    /// A file of this name sitting beside the music. It wins over an embedded tag:
+    /// it is what somebody put there deliberately, it can be edited, and it is
+    /// where anything fetched later would be written.
+    Beside(String),
+    /// A frame inside the file, named as its format names it: `USLT` in ID3v2,
+    /// `LYRICS` or `UNSYNCEDLYRICS` in Vorbis comments.
+    Frame(String),
+}
+
+/// One line of a song, with its place in it when the words are timed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricLine {
+    /// Milliseconds from the start. Absent on words with no timings.
+    pub at: Option<i64>,
+    /// Empty on a line that is a gap between verses, which is worth keeping: it is
+    /// how a passage with no words reads as a passage rather than as the end.
+    pub value: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Albums {

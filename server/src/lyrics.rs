@@ -17,8 +17,13 @@ const LYRIC_EXTENSIONS: &[&str] = &["lrc", "txt"];
 /// is case insensitive, since `.LRC` is as common as `.lrc` and a case sensitive
 /// filesystem would otherwise miss it.
 ///
+/// Comes back with the name of the file as well as its contents. Which of the two
+/// places the words were in is worth as much as the words in an administration
+/// panel — a song whose lyrics live in a sidecar while its tag is empty is a thing
+/// somebody may want to know — and only the finder knows it.
+///
 /// Blocking: reads a directory.
-pub fn find_beside(track: &std::path::Path) -> Option<String> {
+pub fn find_beside(track: &std::path::Path) -> Option<(String, String)> {
     let stem = track.file_stem()?.to_str()?.to_lowercase();
     let directory = track.parent()?;
 
@@ -42,10 +47,16 @@ pub fn find_beside(track: &std::path::Path) -> Option<String> {
 
     candidates.sort_by_key(|(rank, _)| *rank);
 
-    candidates
-        .into_iter()
-        .find_map(|(_, path)| std::fs::read_to_string(path).ok())
-        .filter(|content| !content.trim().is_empty())
+    candidates.into_iter().find_map(|(_, path)| {
+        let content = std::fs::read_to_string(&path).ok()?;
+
+        if content.trim().is_empty() {
+            return None;
+        }
+
+        let name = path.file_name()?.to_string_lossy().to_string();
+        Some((name, content))
+    })
 }
 
 /// One line of synchronised lyrics.
@@ -127,7 +138,12 @@ mod tests {
         assert_eq!(find_beside(&track), None, "nothing there yet");
 
         std::fs::write(directory.join("song.lrc"), "[00:01.00]words").unwrap();
-        assert_eq!(find_beside(&track).as_deref(), Some("[00:01.00]words"));
+        assert_eq!(
+            find_beside(&track),
+            Some(("song.lrc".to_string(), "[00:01.00]words".to_string())),
+            "the name comes back with the words: which of the two places they were \
+             in is what a panel has to say"
+        );
     }
 
     #[test]
@@ -140,7 +156,11 @@ mod tests {
         std::fs::write(&track, b"audio").unwrap();
         std::fs::write(directory.join("SONG.LRC"), "words").unwrap();
 
-        assert_eq!(find_beside(&track).as_deref(), Some("words"));
+        assert_eq!(
+            find_beside(&track),
+            Some(("SONG.LRC".to_string(), "words".to_string())),
+            "and it is the name on disk, not the one that was looked for"
+        );
     }
 
     #[test]
@@ -154,7 +174,10 @@ mod tests {
         std::fs::write(directory.join("song.txt"), "plain").unwrap();
         std::fs::write(directory.join("song.lrc"), "timed").unwrap();
 
-        assert_eq!(find_beside(&track).as_deref(), Some("timed"));
+        assert_eq!(
+            find_beside(&track).map(|(_, words)| words).as_deref(),
+            Some("timed")
+        );
     }
 
     #[test]

@@ -47,6 +47,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tags::Metadata;
 pub use tags::read as read_tags;
+pub use tags::read_every as read_every_tag;
 pub use tags::read_with_cover_art as read_tags_with_cover_art;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};

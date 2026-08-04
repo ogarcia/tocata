@@ -28,57 +28,38 @@ async fn library(pool: &SqlitePool, root: &Path) -> i64 {
     .unwrap()
 }
 
-/// A minimal but valid WAV, so lofty reads real audio properties.
-fn write_wav(path: &Path) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
+use crate::fixtures::write_wav;
 
-    let data = [0u8; 4];
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"RIFF");
-    bytes.extend_from_slice(&(36u32 + data.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(b"WAVE");
-    bytes.extend_from_slice(b"fmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes());
-    bytes.extend_from_slice(&2u16.to_le_bytes());
-    bytes.extend_from_slice(&44_100u32.to_le_bytes());
-    bytes.extend_from_slice(&176_400u32.to_le_bytes());
-    bytes.extend_from_slice(&4u16.to_le_bytes());
-    bytes.extend_from_slice(&16u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(&data);
-
-    fs::write(path, bytes).unwrap();
-}
-
-/// Writes tags onto a file already on disk.
+/// Writes tags onto a file already on disk, in this module's own vocabulary.
+///
+/// The words rather than lofty's keys, because every test here reads better for it,
+/// and ID3v2 because that is what a RIFF container will hold.
 fn tag(path: &Path, items: &[(&str, &str)]) {
-    use lofty::prelude::{ItemKey, TagExt};
-    use lofty::tag::{ItemValue, Tag, TagItem, TagType};
+    use lofty::prelude::ItemKey;
 
-    let mut tag = Tag::new(TagType::Id3v2);
-    for (key, value) in items {
-        let key = match *key {
-            "album" => ItemKey::AlbumTitle,
-            "albumartist" => ItemKey::AlbumArtist,
-            "artist" => ItemKey::TrackArtist,
-            "title" => ItemKey::TrackTitle,
-            // Written as a recording date, which is the field that survives a
-            // RIFF container.
-            "year" => ItemKey::RecordingDate,
-            other => panic!("unknown tag {other}"),
-        };
-        tag.insert(TagItem::new(key, ItemValue::Text(value.to_string())));
-    }
-    tag.save_to_path(path, Default::default()).unwrap();
+    let items: Vec<(ItemKey, &str)> = items
+        .iter()
+        .map(|(key, value)| {
+            let key = match *key {
+                "album" => ItemKey::AlbumTitle,
+                "albumartist" => ItemKey::AlbumArtist,
+                "artist" => ItemKey::TrackArtist,
+                "title" => ItemKey::TrackTitle,
+                // Written as a recording date, which is the field that survives a
+                // RIFF container.
+                "year" => ItemKey::RecordingDate,
+                other => panic!("unknown tag {other}"),
+            };
+
+            (key, *value)
+        })
+        .collect();
+
+    crate::fixtures::tag_file(path, lofty::tag::TagType::Id3v2, &items);
 }
 
 fn temp_root(name: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("tocata-scan-{name}"));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).unwrap();
-    root
+    crate::fixtures::temp_root(&format!("scan-{name}"))
 }
 
 /// A scan expected to run to the end, which is every one of these but the last.
