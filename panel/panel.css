@@ -4258,9 +4258,35 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 }
 
 /* Every tag in the file, which is a hundred rows of names nobody reads unless they
- * came looking for one. Wider in the name column and monospaced throughout, because
- * both halves are what the file literally says. */
-.frames > div { grid-template-columns: 11.875rem minmax(0, 1fr); }
+ * came looking for one. Monospaced throughout, because both halves are what the file
+ * literally says.
+ *
+ * The name column is as wide as the widest name and no wider. It cannot be a measure:
+ * ID3v2 names its frames in four characters and Vorbis writes
+ * `REPLAYGAIN_TRACK_GAIN`, so anything fixed enough for one leaves the other with a
+ * column of air where the values should be — which is what a set width did, putting
+ * `TIT2` against the middle of the panel.
+ *
+ * `auto` alone would not do it either: the grid is each row, so every row would size
+ * its own column and the names would come out ragged. So the list is the grid, the
+ * rows borrow its columns with `subgrid`, and the width is settled once across all of
+ * them. The gutter moves to the list for the same reason — in a subgridded axis the
+ * gutters are the parent's. */
+/* Capped, because a name can be arbitrarily long and this column is shared: real
+ * files carry `MusicBrainz Album Release Country` beside `TIT2`, and the widest name
+ * is what every row's column is sized to. Past the cap a long name wraps — which
+ * costs one row two lines — rather than every value in the list being squeezed into
+ * what a name left over. */
+.frames {
+  display: grid;
+  grid-template-columns: fit-content(35%) minmax(0, 1fr);
+  column-gap: 0.875rem;
+}
+
+.frames > div {
+  grid-column: span 2;
+  grid-template-columns: subgrid;
+}
 
 .frames dt, .frames dd {
   font-family: ui-monospace, monospace;
@@ -4330,14 +4356,20 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 .deeds .leading:hover { color: var(--accent); }
 
-/* A note in its own words rather than a row: the intro over a tag list, and what to
- * do about a song with no words. */
-.remark {
-  margin-top: 0.875rem;
+/* A note in its own words rather than a row, in the two directions a note comes in.
+ * `.remark` follows what it is about and `.preface` comes before it — which is the
+ * whole difference between them, and the reason they are two names: one rule with one
+ * margin was air above the line that introduces a list and none between it and the
+ * list. */
+.remark, .preface {
   font-size: var(--aside);
   max-width: 52ch;
   text-wrap: pretty;
 }
+
+.remark { margin-top: 0.875rem; }
+
+.preface { margin-bottom: 1.125rem; }
 
 /* What somebody wrote into the file, which is prose and not a value. Its own hairline
  * block, because it is the one thing in here that is a paragraph. */
@@ -4480,7 +4512,12 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
   /* The name column goes, because at this width it leaves the value four characters
    * of room. The name sits over its value instead, which is what every other pair in
-   * this panel does when it runs out of width. */
+   * this panel does when it runs out of width.
+   *
+   * And the tag list stops being a grid, which is what lets its rows stop borrowing
+   * columns from it: a `subgrid` under a block parent is not a thing. */
+  .frames { display: block; }
+
   .spelt > div, .frames > div {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.125rem;

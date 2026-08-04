@@ -223,7 +223,7 @@ fn Said(read: TrackDetail) -> impl IntoView {
                 value=read.bit_rate.map(|rate| t!("player.kbps", rate = rate).to_string())
                 name=t!("track.bitrate").to_string()
             />
-            <Figure value=sampled(&read) name=t!("track.khz_bits").to_string() />
+            <Figure value=sampled(&read) name=sampled_name(&read) />
         </div>
 
         <dl class="spelt">
@@ -388,7 +388,7 @@ fn Every(read: Tags) -> impl IntoView {
     let kind = read.kind.clone().unwrap_or_default();
 
     view! {
-        <p class="quiet remark">{t!("track.as_written", kind = kind)}</p>
+        <p class="quiet preface">{t!("track.as_written", kind = kind)}</p>
 
         <dl class="spelt frames">
             {read
@@ -492,6 +492,19 @@ fn sampled(read: &TrackDetail) -> Option<String> {
         (Some(rate), None) => Some(rate),
         (None, Some(bits)) => Some(bits.to_string()),
         (None, None) => None,
+    }
+}
+
+/// What that figure is called, which has to follow what is in it.
+///
+/// A format with no bit depth to report — which is every MP3 there is, and so most of
+/// most collections — would otherwise stand under a label promising two numbers with
+/// one under it, and "44.1" read as kilohertz *and* bits.
+fn sampled_name(read: &TrackDetail) -> String {
+    match (read.sampling_rate.is_some(), read.bit_depth.is_some()) {
+        (true, true) => t!("track.khz_bits").to_string(),
+        (false, true) => t!("track.bits").to_string(),
+        _ => t!("track.khz").to_string(),
     }
 }
 

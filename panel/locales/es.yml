@@ -116,6 +116,10 @@ track:
   length: duración
   format: formato
   bitrate: bitrate
+  # El que de los dos haya informado el fichero. Un MP3 no tiene profundidad de bits,
+  # así que la mayoría de los ficheros de la mayoría de las colecciones son el primero.
+  khz: kHz
+  bits: bits
   khz_bits: kHz / bits
   where: Dónde está
   library: Biblioteca
@@ -128,9 +132,12 @@ track:
   # fila de un listado que alguien abre porque algo va mal con ella.
   file_gone: Su fichero no está donde estaba, así que no hay nada que leer de él ni nada que reproducir.
   copy: Copiar
-  from_the_scan: Lo que el último escaneo leyó y guardó en la base de datos.
+  # Lo bastante corto para una sola línea al lado de las acciones. Las tres frases de
+  # este grupo van en el mismo sitio y dicen de dónde viene lo que estás leyendo, así
+  # que si una parte en dos el pie cambia de alto al cambiar de pestaña.
+  from_the_scan: Lo que el último escaneo leyó.
   from_the_file: Leído del fichero, no de la base de datos.
-  from_beside: Leído del fichero que está junto a la música, no de la base de datos.
+  from_beside: Leído de un fichero junto a la música.
   looked_in_both: Se ha buscado en el fichero y junto a él.
   # De dónde vino la letra, que es el sentido de mostrarla en un panel de
   # administración: una canción cuyo fichero al lado y cuya etiqueta no coinciden es

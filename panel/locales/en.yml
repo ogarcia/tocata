@@ -120,6 +120,10 @@ track:
   length: length
   format: format
   bitrate: bitrate
+  # Whichever of the two the file reported. An MP3 has no bit depth, so most files in
+  # most collections are the first of these.
+  khz: kHz
+  bits: bits
   khz_bits: kHz / bits
   where: Where it is
   library: Library
@@ -132,9 +136,12 @@ track:
   # row in a listing somebody opens because something is wrong with it.
   file_gone: Its file is not where it was, so there is nothing to read out of it and nothing to play.
   copy: Copy
-  from_the_scan: What the last scan read into the database.
+  # Short enough for one line beside the actions. The three of these sit in the same
+  # place and say where what you are reading came from, so a wrap in one of them is a
+  # foot that changes height with the tab.
+  from_the_scan: What the last scan read.
   from_the_file: Read from the file, not the database.
-  from_beside: Read from the file beside the music, not the database.
+  from_beside: Read from a file beside the music.
   looked_in_both: Looked for in the file and beside it.
   # Where the words came from, which is the point of showing them in an
   # administration panel: a song whose sidecar and whose tag disagree is worth
