@@ -548,6 +548,17 @@ fn at_minute(millis: i64) -> String {
     pages::length(millis / 1000)
 }
 
+/// Straight to the clipboard, and nothing said either way.
+///
+/// The clipboard needs a permission the browser may refuse, and there is nothing
+/// useful to do about that here: what would have been copied is on screen to be
+/// selected by hand.
+fn write_out(text: &str) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.navigator().clipboard().write_text(text);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,16 +652,5 @@ mod tests {
         read.disc_number = None;
         read.album_discs = Some(2);
         assert_eq!(nth_disc(&read), None);
-    }
-}
-
-/// Straight to the clipboard, and nothing said either way.
-///
-/// The clipboard needs a permission the browser may refuse, and there is nothing
-/// useful to do about that here: what would have been copied is on screen to be
-/// selected by hand.
-fn write_out(text: &str) {
-    if let Some(window) = web_sys::window() {
-        let _ = window.navigator().clipboard().write_text(text);
     }
 }

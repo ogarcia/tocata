@@ -15,7 +15,7 @@
 
 use super::{Fact, Failed, Figure, Frame, Head};
 use crate::api;
-use crate::icon::{Glyph, Icon};
+use crate::icon::Icon;
 use crate::pages;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -162,7 +162,7 @@ fn Said(read: AlbumDetail) -> impl IntoView {
                         // which is a decision about a row that only the row before it
                         // can answer.
                         let heading = (discs > 1 && *shown != track.disc_number)
-                            .then(|| track.disc_number)
+                            .then_some(track.disc_number)
                             .flatten();
                         *shown = track.disc_number;
                         Some((heading, track))
