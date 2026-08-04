@@ -200,7 +200,8 @@ fn Said(read: TrackDetail) -> impl IntoView {
             <Fact name=t!("track.artist").to_string() value=read.artists.clone() />
             <Fact name=t!("track.album").to_string() value=read.album.clone() />
             <Fact name=t!("track.album_artist").to_string() value=read.album_artist.clone() />
-            <Fact name=t!("track.placing").to_string() value=where_on_it(&read) />
+            <Fact name=t!("track.track").to_string() value=nth_track(&read) />
+            <Fact name=t!("track.disc").to_string() value=nth_disc(&read) />
             <Fact
                 name=t!("track.year").to_string()
                 value=read.year.map(|year| year.to_string())
@@ -440,27 +441,40 @@ fn placing(read: &Option<TrackDetail>) -> String {
     .join(" · ")
 }
 
-/// Where it sits on its record: "2 of 10 · disc 2 of 3".
+/// Where it sits on its record.
+fn nth_track(read: &TrackDetail) -> Option<String> {
+    read.track_number
+        .map(|number| out_of(number, read.album_tracks))
+}
+
+/// Which disc of the set, and only where there is a set.
 ///
-/// The disc half is left out where a record came on one, which is every record most
-/// people own. "Disc 1 of 1" is not a fact about a song, it is a blank with numbers in
-/// it — and a panel whose rule is that nothing empty gets a row should not make an
-/// exception for something empty that happens to be countable.
-fn where_on_it(read: &TrackDetail) -> Option<String> {
-    let of_the_record = read.track_number.map(|number| match read.album_tracks {
+/// A record that came on one disc says nothing here: "1 of 1" is not a fact about a
+/// song, it is a blank with numbers in it, and a panel whose rule is that nothing
+/// empty gets a row should not make an exception for something empty that happens to
+/// be countable. Which is most records most people own.
+///
+/// A number above one is enough on its own, even where nothing says how many there
+/// were: "disc 2" of an unknown set is still a thing worth knowing. A total above one
+/// with no number against it is not — there is no disc to name.
+fn nth_disc(read: &TrackDetail) -> Option<String> {
+    let number = read.disc_number?;
+    let held = read.album_discs;
+
+    (number > 1 || held.is_some_and(|held| held > 1)).then(|| out_of(number, held))
+}
+
+/// "2 of 10", or bare where there is nothing to be out of.
+///
+/// A total smaller than the number is not a total of anything this belongs to — five
+/// of four is a disagreement between a tag and a directory, and printing it would be
+/// passing that disagreement off as a fact. The number is the half that came off this
+/// file, so the number is what is left.
+fn out_of(number: i64, held: Option<i64>) -> String {
+    match held {
         Some(held) if held >= number => t!("track.nth_of", nth = number, held = held).to_string(),
         _ => number.to_string(),
-    });
-
-    let discs = read.album_discs.unwrap_or(1);
-    let of_the_set = read
-        .disc_number
-        .filter(|_| discs > 1)
-        .map(|number| t!("track.disc_of", nth = number, held = discs).to_string());
-
-    let said: Vec<String> = [of_the_record, of_the_set].into_iter().flatten().collect();
-
-    (!said.is_empty()).then(|| said.join(" · "))
+    }
 }
 
 /// How well it was recorded, as one figure: "44.1 / 16".
@@ -516,6 +530,102 @@ fn whence(read: &Option<Lyrics>) -> String {
 /// A moment in a song, as a song's lengths are written everywhere else here.
 fn at_minute(millis: i64) -> String {
     pages::length(millis / 1000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A track that says nothing about itself, for a test to fill in the one or two
+    /// fields it is about.
+    fn nothing_much() -> TrackDetail {
+        TrackDetail {
+            id: "t1".to_string(),
+            title: "Song".to_string(),
+            artists: None,
+            album: None,
+            album_id: None,
+            album_artist: None,
+            genres: None,
+            track_number: None,
+            album_tracks: None,
+            disc_number: None,
+            album_discs: None,
+            year: None,
+            duration: None,
+            suffix: "flac".to_string(),
+            bit_rate: None,
+            sampling_rate: None,
+            bit_depth: None,
+            path: "song.flac".to_string(),
+            library: "kept".to_string(),
+            size: 1,
+            read_at: "2026-01-01T00:00:00Z".to_string(),
+            isrc: None,
+            mbid_recording: None,
+            comment: None,
+            missing: false,
+        }
+    }
+
+    /// Asserted on the numbers rather than on the wording, because the locale is
+    /// global and another test in this binary is setting it.
+    fn names_both(said: &str, nth: i64, held: i64) -> bool {
+        said.contains(&nth.to_string()) && said.contains(&held.to_string())
+    }
+
+    #[test]
+    fn a_track_is_out_of_however_many_the_record_holds() {
+        let mut read = nothing_much();
+        assert_eq!(nth_track(&read), None, "no number, no row");
+
+        read.track_number = Some(2);
+        assert_eq!(
+            nth_track(&read).as_deref(),
+            Some("2"),
+            "bare, where nothing says how many there are"
+        );
+
+        read.album_tracks = Some(10);
+        assert!(names_both(&nth_track(&read).unwrap(), 2, 10));
+
+        // A total smaller than the number is two sources disagreeing — a tag against a
+        // directory — and the number is the half that came off this file.
+        read.album_tracks = Some(1);
+        assert_eq!(nth_track(&read).as_deref(), Some("2"));
+    }
+
+    /// The rule that made this a row of its own: most records came on one disc, and for
+    /// those there is nothing here to say.
+    #[test]
+    fn a_disc_is_named_only_where_there_is_a_set() {
+        let mut read = nothing_much();
+
+        read.disc_number = Some(1);
+        read.album_discs = Some(1);
+        assert_eq!(
+            nth_disc(&read),
+            None,
+            "one of one is a blank with numbers in it"
+        );
+
+        read.album_discs = Some(2);
+        assert!(
+            names_both(&nth_disc(&read).unwrap(), 1, 2),
+            "the first of two is worth saying"
+        );
+
+        // A number above one stands on its own: disc two of an unknown set is still
+        // something to know.
+        read.disc_number = Some(2);
+        read.album_discs = None;
+        assert_eq!(nth_disc(&read).as_deref(), Some("2"));
+
+        // A set of two with nothing saying which disc this is names no disc.
+        read.disc_number = None;
+        read.album_discs = Some(2);
+        assert_eq!(nth_disc(&read), None);
+    }
 }
 
 /// Straight to the clipboard, and nothing said either way.

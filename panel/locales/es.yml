@@ -105,9 +105,11 @@ track:
   artist: Artista
   album: Álbum
   album_artist: Artista del álbum
-  placing: "Pista · disco"
+  track: Pista
+  # En su propia fila y no compartiéndola con la pista, porque la mayoría de los
+  # discos salieron en uno solo y para ellos esta fila no existe.
+  disc: Disco
   nth_of: "%{nth} de %{held}"
-  disc_of: "disco %{nth} de %{held}"
   year: Año
   genre: Género
   the_file: El fichero

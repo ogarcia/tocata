@@ -109,9 +109,11 @@ track:
   artist: Artist
   album: Album
   album_artist: Album artist
-  placing: "Track · disc"
+  track: Track
+  # Its own row and not sharing one with the track, because most records came on one
+  # disc and this row is not there at all for them.
+  disc: Disc
   nth_of: "%{nth} of %{held}"
-  disc_of: "disc %{nth} of %{held}"
   year: Year
   genre: Genre
   the_file: The file
