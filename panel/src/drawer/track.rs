@@ -131,7 +131,7 @@ pub fn Track(id: String) -> impl IntoView {
                 </div>
             </Show>
 
-            <div class="reading">
+            <div class="leafing">
                 {move || failure.get().map(|why| view! { <Failed why /> })}
 
                 <Show when=move || tab.get() == Tab::Said>
@@ -331,7 +331,7 @@ fn Words(read: Lyrics, mine: String) -> impl IntoView {
             }
             Some(source) => {
                 view! {
-                    <div class="whence">
+                    <div class="told">
                         <p class="quiet">{told(&source, synced, counted)}</p>
                         <button class="plain" on:click=move |_| write_out(&plain.get_value())>
                             {t!("track.copy")}

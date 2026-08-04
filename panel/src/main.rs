@@ -575,46 +575,52 @@ mod tests {
     /// string: `class=if enabled { "state on" } else { "state" }` is two of them in
     /// one attribute, and a rule that only read `class="…"` would call both dead.
     fn classes_in_markup() -> Vec<&'static str> {
+        let mut found: Vec<&'static str> = SOURCES.into_iter().flat_map(classes_in).collect();
+
+        found.sort_unstable();
+        found.dedup();
+        found
+    }
+
+    /// The same, for one file.
+    fn classes_in(source: &'static str) -> Vec<&'static str> {
         /// Enough to cover the longest `class=` in the panel and not enough to reach
         /// the next attribute.
         const WINDOW: usize = 160;
 
         let mut found = Vec::new();
+        let mut at = 0;
 
-        for source in SOURCES {
-            let mut at = 0;
+        while let Some(next) = source[at..].find("class") {
+            at += next + "class".len();
 
-            while let Some(next) = source[at..].find("class") {
-                at += next + "class".len();
+            // `classes_in_markup`, `.class` in a comment, and anything else that
+            // merely contains the word.
+            let follows = source[at..].chars().next().unwrap_or(' ');
+            if follows != '=' && follows != ':' {
+                continue;
+            }
 
-                // `classes_in_markup`, `.class` in a comment, and anything else that
-                // merely contains the word.
-                let follows = source[at..].chars().next().unwrap_or(' ');
-                if follows != '=' && follows != ':' {
-                    continue;
-                }
+            if follows == ':' {
+                // `class:chosen=…`, whose name is never quoted.
+                let rest = &source[at + 1..];
+                let end = rest
+                    .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+                    .unwrap_or(rest.len());
+                found.push(&rest[..end]);
+                continue;
+            }
 
-                if follows == ':' {
-                    // `class:chosen=…`, whose name is never quoted.
-                    let rest = &source[at + 1..];
-                    let end = rest
-                        .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
-                        .unwrap_or(rest.len());
-                    found.push(&rest[..end]);
-                    continue;
-                }
+            let window = &source[at..source.len().min(at + WINDOW)];
+            let mut rest = window;
 
-                let window = &source[at..source.len().min(at + WINDOW)];
-                let mut rest = window;
+            while let Some(open) = rest.find('"') {
+                rest = &rest[open + 1..];
+                let Some(close) = rest.find('"') else { break };
+                let (quoted, after) = rest.split_at(close);
+                rest = after;
 
-                while let Some(open) = rest.find('"') {
-                    rest = &rest[open + 1..];
-                    let Some(close) = rest.find('"') else { break };
-                    let (quoted, after) = rest.split_at(close);
-                    rest = after;
-
-                    found.extend(quoted.split_whitespace());
-                }
+                found.extend(quoted.split_whitespace());
             }
         }
 

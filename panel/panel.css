@@ -4202,7 +4202,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 }
 
 /* Everything between the head and the foot, and the only part that moves. */
-.reading {
+.leafing {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -4220,10 +4220,10 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   color: var(--quiet);
 }
 
-.reading .lettering { margin: 1.875rem 0 0.125rem; }
+.leafing .lettering { margin: 1.875rem 0 0.125rem; }
 
 /* And not over the first one, which already has the tab strip above it. */
-.reading > .lettering:first-child { margin-top: 0; }
+.leafing > .lettering:first-child { margin-top: 0; }
 
 /* A name against a value, spelt out. Not `.facts`, which puts its value hard right
  * and sets it in figures: half of what goes in here is a path or an identifier, and
@@ -4311,7 +4311,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
  * what the file said about itself, and a file that reports no bitrate should leave
  * three across the panel rather than a gap where the fourth was. And a hairline
  * underneath, because unlike the scan's these have rows following them. */
-.reading .figures {
+.leafing .figures {
   grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
   gap: 0 0.875rem;
   margin-top: 0.75rem;
@@ -4319,7 +4319,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   border-bottom: 1px solid var(--line);
 }
 
-.reading .figures > div { padding: 0.8125rem 0; }
+.leafing .figures > div { padding: 0.8125rem 0; }
 
 /* One sentence on the left saying where what you are reading came from, and what can
  * be done with it on the right. */
@@ -4406,7 +4406,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 }
 
 /* Where the words came from and what can be done with them, over the words. */
-.whence {
+.told {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -4414,12 +4414,12 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   margin-bottom: 0.875rem;
 }
 
-.whence p {
+.told p {
   font-size: var(--aside);
   text-wrap: pretty;
 }
 
-.whence button {
+.told button {
   flex: none;
   padding: 0;
   border: none;
@@ -4432,7 +4432,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
   cursor: pointer;
 }
 
-.whence button:hover { color: var(--ink); }
+.told button:hover { color: var(--ink); }
 
 /* Timed words: the moment on the left, the line on the right, and the one at the
  * playhead lit. Bled by the same twelve pixels every other run of rows in this panel
@@ -4515,7 +4515,7 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
   .tabs { padding: 0 1.125rem; }
 
-  .reading { padding: 1.25rem 1.125rem 1.75rem; }
+  .leafing { padding: 1.25rem 1.125rem 1.75rem; }
 
   .drawer > footer { padding: 0.875rem 1.125rem; }
 
