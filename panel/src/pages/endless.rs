@@ -526,13 +526,31 @@ fn Unread(admin: bool, libraries: RwSignal<Vec<tocata::types::Library>>) -> impl
                 {move || {
                     let held = libraries.get();
 
-                    match held.len() {
-                        0 => t!("empty.no_libraries").to_string(),
-                        1 => {
+                    // Read and empty is not the same as never read, and it is the
+                    // commoner of the two: `TOCATA_LIBRARY_PATHS` registers a library and
+                    // the server scans on start, so a directory with nothing in it has
+                    // already been walked by the time anybody looks at this. Saying it
+                    // has never been read would send somebody to press a button that has
+                    // already been pressed, and leave them none the wiser.
+                    let read = held.iter().any(|one| one.last_scanned_at.is_some());
+
+                    match (held.len(), read) {
+                        (0, _) => t!("empty.no_libraries").to_string(),
+                        (1, false) => {
                             t!("empty.one_library", path = held[0].path.clone()).to_string()
                         }
-                        count => {
+                        (1, true) => {
+                            t!("empty.one_library_read", path = held[0].path.clone()).to_string()
+                        }
+                        (count, false) => {
                             t!("empty.many_libraries", count = super::thousands(count as i64))
+                                .to_string()
+                        }
+                        (count, true) => {
+                            t!(
+                                "empty.many_libraries_read",
+                                count = super::thousands(count as i64),
+                            )
                                 .to_string()
                         }
                     }
