@@ -1,1 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M15 8a5 5 0 0 1 0 8"/><path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5"/></svg>
+<!-- Tabler's volume, with the whole drawing moved 2 units right of where Tabler puts
+     it. Theirs inks from x=2 to x=18 — the cone reaches 3 and the outer wave 17, plus a
+     unit of stroke either side — whose middle is 10 against a canvas that centres on 12.
+     So it draws 2 units left of centre, which at the 18px this is shown at is 1.5px of
+     visible offset from the grip handle beside it in the queue, whose own dots ink from
+     6 to 18 and are exactly centred.
+
+     Centring the box does not fix it and cannot: what is off centre is the picture
+     inside the box and not the box. Same fault and same remedy as `play-solid.svg`. Do
+     not "restore" either of them from upstream. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><g transform="translate(2 0)"><path d="M15 8a5 5 0 0 1 0 8"/><path d="M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5"/></g></svg>
