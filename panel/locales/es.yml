@@ -272,7 +272,7 @@ empty:
   nothing_added_yet: Todavía no se ha añadido nada a este servidor. Quien lo lleva añade una biblioteca y la escanea, y aparece aquí.
   no_libraries: Aún no hay bibliotecas. Una biblioteca es un directorio del que leer música, y no se lee nada hasta que haya una.
   one_library: "Hay una biblioteca, %{path}, y nunca se ha leído. Un escaneo la recorre y pone aquí lo que encuentre."
-  many_libraries: "Hay %{count} bibliotecas y no se ha leído ninguna. Un escaneo las recorre y pone aquí lo que encuentre."
+  many_libraries: "Hay %{count} bibliotecas y no se han leído todas. Un escaneo recorre lo que falta y pone aquí lo que encuentre."
   one_library_read: "Hay una biblioteca, %{path}, y al leerla no se encontró nada. O no apunta donde está la música, o lo que hay ahí no es audio que Tocata sepa leer."
   many_libraries_read: "Hay %{count} bibliotecas y al leerlas no se encontró nada. O no apuntan donde está la música, o lo que hay en ellas no es audio que Tocata sepa leer."
   scan_now: Escanear ahora

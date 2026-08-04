@@ -274,7 +274,7 @@ empty:
   nothing_added_yet: Nothing has been added to this server yet. Whoever runs it adds a library and scans it, and it appears here.
   no_libraries: There are no libraries yet. A library is a directory to read music out of, and nothing is read until there is one.
   one_library: "There is one library, %{path}, and it has never been read. A scan walks it and puts what it finds here."
-  many_libraries: "There are %{count} libraries and none of them has been read. A scan walks them and puts what it finds here."
+  many_libraries: "There are %{count} libraries and not all of them have been read. A scan walks what is left and puts what it finds here."
   one_library_read: "There is one library, %{path}, and reading it found nothing. Either it does not point where the music is, or what is in there is not audio Tocata can read."
   many_libraries_read: "There are %{count} libraries and reading them found nothing. Either they do not point where the music is, or what is in them is not audio Tocata can read."
   scan_now: Scan now

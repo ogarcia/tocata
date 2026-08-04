@@ -140,6 +140,12 @@ impl<T: Send + Sync + 'static> Reel<T> {
             }
         });
 
+        // A scan changes what there is, so a listing refetches when one finishes rather
+        // than sitting on the answer from before it. Which matters most on the screen
+        // saying the collection is empty: pressing the scan it offers would otherwise
+        // fill the database and leave that sentence on screen.
+        after_a_scan(move || reel.fetch(true));
+
         reel.fetch(true);
         reel
     }
@@ -270,6 +276,36 @@ impl<T: Send + Sync + 'static> Reel<T> {
             }
         });
     }
+}
+
+/// Runs something each time a scan finishes.
+///
+/// Keyed on the finishing stamp changing rather than on the running flag going from true
+/// to false, and that is not a nicety. Ten files are scanned in well under a second, so a
+/// panel watching for the flag can easily never observe it true at all — which is exactly
+/// how the button offering the scan came to say "Scanning…" for ever on a small library,
+/// while the list behind it stayed empty. The stamp is written once per run and pushed by
+/// the same code that clears the flag, so it is seen whether or not anybody saw the
+/// middle.
+fn after_a_scan(and_then: impl Fn() + 'static) {
+    let Some(status) = use_context::<ReadSignal<Option<tocata::types::Status>>>() else {
+        return;
+    };
+
+    Effect::new(move |seen: Option<Option<String>>| {
+        let finished = status.get().and_then(|status| status.finished_at);
+
+        // The first run only writes down what it found. A panel connecting long after a
+        // scan is sent that scan's stamp straight away, and old news is not news.
+        if let Some(before) = seen
+            && before != finished
+            && finished.is_some()
+        {
+            and_then();
+        }
+
+        finished
+    });
 }
 
 /// Which of the four listings this is, for the sentences that have to name it.
@@ -503,14 +539,41 @@ pub fn Nothing(
 /// The first run: a server with libraries and nothing read out of them.
 #[component]
 fn Unread(admin: bool, libraries: RwSignal<Vec<tocata::types::Library>>) -> impl IntoView {
-    let scanning = RwSignal::new(false);
+    // Whether a scan is running, from the stream the whole panel already listens to
+    // rather than from a flag of this component's own. A flag set on the press and never
+    // cleared is exactly what this said before: "Scanning…" for ever, whatever the
+    // server was doing. Read from the stream it cannot say that — and it also says so
+    // when the scan was started from somewhere else.
+    let status = use_context::<ReadSignal<Option<tocata::types::Status>>>();
+    let running =
+        move || status.is_some_and(|status| status.get().is_some_and(|status| status.scanning));
+
+    // The gap between pressing and the stream saying so, which is a moment of network
+    // and would otherwise show as the label flicking back to an invitation.
+    let asked = RwSignal::new(false);
+
+    // Cleared once a scan is actually running, so what holds the label from then on is
+    // the stream; a scan that finishes takes the whole sentence away with it, because
+    // the listing refetches and stops being empty.
+    Effect::new(move |_| {
+        if running() {
+            asked.set(false);
+        }
+    });
 
     let scan = move |_| {
-        scanning.set(true);
+        asked.set(true);
+
         spawn_local(async move {
-            let _ = crate::api::start_scan(false).await;
+            // A refusal here is why this is not simply set and forgotten: the button has
+            // to come back, or the one action an empty collection offers is spent.
+            if crate::api::start_scan(false).await.is_err() {
+                asked.set(false);
+            }
         });
     };
+
+    let scanning = Signal::derive(move || asked.get() || running());
 
     view! {
         <h2>{t!("empty.nothing_yet")}</h2>
@@ -538,6 +601,10 @@ fn Unread(admin: bool, libraries: RwSignal<Vec<tocata::types::Library>>) -> impl
                     // has not been read yet — because that is the one somebody can do
                     // something about. "Reading them found nothing" is only true once
                     // there is nothing left to read.
+                    //
+                    // Which is also why the plural sentence says "not all of them have
+                    // been read" rather than "none of them has": with a mix, none would
+                    // be false of the one that was.
                     let read = held.iter().all(|one| one.last_scanned_at.is_some());
 
                     match (held.len(), read) {

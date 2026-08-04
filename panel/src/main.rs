@@ -129,6 +129,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     let live = events::open();
     let scan = live.scan;
 
+    // Also as a context, so that anything which cares whether a scan is running can
+    // read it without being handed it through every screen on the way. What cares is
+    // every collection listing: a scan changes what there is, so a list looking at the
+    // answer from before one finished is a list that is wrong.
+    provide_context(scan);
+
     view! {
         <Router>
             <layout::Shell identity on_out=forget scan>
