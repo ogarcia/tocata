@@ -131,6 +131,43 @@ a {
   text-decoration: none;
 }
 
+/* --- the shared words ---------------------------------------------------- */
+
+/* Some classes below are worn by several screens on purpose. Which ones is not a
+ * matter of taste, and it is not left to be inferred: the list is `SHARED` in
+ * `main.rs`, and a test holds the sheet to it.
+ *
+ *   A bare class rule — `.foo { … }` — is allowed only for a word on that list.
+ *   Everything else is styled through whatever owns it: `.shelf .actions`.
+ *
+ * The list exists because two names collided in one afternoon and nothing could tell.
+ * The Overview has said `class="reading"` for the processor figure since it was
+ * written, styled through `.gauge .reading` because that is the only place the word
+ * means a reading; a panel elsewhere took a bare `.reading` for its scrolling body,
+ * and the Overview grew a horizontal scrollbar. `.whence` went the same way, and
+ * `.acting` and `.named` had been leaking for far longer — the first of them putting
+ * `margin-top` on a play glyph pinned with `inset: 0`, which is why that glyph sat
+ * below the centre of its own box.
+ *
+ * Two tests were tried before this and both were wrong the same way. "A rule that lays
+ * things out belongs to one screen" flagged twenty-four names, nearly all deliberate:
+ * `.titled`, `.pill`, `.search` and `.checkbox` are one shape wherever they appear.
+ * "A scoped name does not get a bare rule later" flagged twenty more, because this
+ * sheet is ordered by screen rather than base-then-variant, so `.brand .icon` sits
+ * hundreds of lines above the bare `.icon` it refines. Nothing mechanical can tell
+ * shared from collided while the sharing is unwritten. So it is written.
+ *
+ * What it asks of anybody adding a class is one decision, once: is this a word the
+ * whole panel shares, or one screen's own? That decision was what nobody was making.
+ *
+ * Roughly, the words fall into three groups. How something reads wherever it is —
+ * `quiet`, `lead`, `part`, `note`, `hint`, `lettering`, `path`, `failure`. Furniture
+ * every screen has — `titled`, `nothing`, `finding`, `search`, `facts`, `figures`,
+ * `counts`, `count`, `named-figure`, `bled`, `two`, `rail`, `settings`, `saving`,
+ * `after`, `instead`, `option`, `options`. And things that are the same thing wherever
+ * they appear — `pill`, `link`, `checkbox`, `icon`, `art`, `avatar`, `badge`, `menu`,
+ * `menu-item`, `dropdown`, `veil`, `scrim`, and the `sheet` family. */
+
 /* --- the frame ----------------------------------------------------------- */
 
 /* Two columns and nothing across the top. Everything that is permanently there —
@@ -1837,8 +1874,16 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 /* Never wraps, for the same reason as the line above: switching a library off adds
  * a third action, and a third action that dropped onto a second line would push
- * every row under it down as it appeared. */
-.acting {
+ * every row under it down as it appeared.
+ *
+ * Kept to the shelf. It was bare, and the track listing has a `.acting` of its own —
+ * the play glyph that comes up over a row's number — so this was landing on that too.
+ * `display` and `gap` were overridden there, and `margin-top: 0.25rem` was not: on a
+ * span with `inset: 0` that pushes the top edge down and leaves the bottom, which put
+ * the glyph two pixels below the centre of its own box. The last of the off-centre
+ * play button, found by asking which names two screens share rather than by looking
+ * at it again. */
+.shelf .actions {
   display: flex;
   justify-content: flex-end;
   margin-top: 0.25rem;
@@ -1863,7 +1908,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   }
 
   .shelf .much, .shelf .doing { text-align: left; }
-  .acting { justify-content: flex-start; }
+  .shelf .actions { justify-content: flex-start; }
 }
 
 /* --- who there is -------------------------------------------------------- */
@@ -2598,7 +2643,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     height: 4rem;
   }
 
-  .sheet-player .named { margin-top: 1.875rem; }
+  .sheet-player .naming { margin-top: 1.875rem; }
 
   /* A heading rather than a line, and allowed two of them: a title is the one thing
    * on this screen worth wrapping for. */
@@ -2608,7 +2653,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
     text-wrap: pretty;
   }
 
-  .sheet-player .named p { font-size: var(--name); }
+  .sheet-player .naming p { font-size: var(--name); }
 
   .sheet-player .along { margin-top: 1.625rem; }
 
@@ -3889,13 +3934,17 @@ input.wrong, input.wrong:focus-visible { border-color: var(--alarm); }
 
 /* The link that names a row. Ink rather than the accent, because a row is not a
  * sentence with a link in it: what is coloured in this list is what says something —
- * who administers, whose row is yours — and every name would be coloured. */
-.named {
+ * who administers, whose row is yours — and every name would be coloured.
+ *
+ * Kept to the roster. It was bare, and the opened player has a `.named` of its own —
+ * the block holding a song's title and who made it — so a title was being set at
+ * weight 500 and underlining itself when the pointer crossed it. */
+.roster .named {
   color: var(--ink);
   font-weight: 500;
 }
 
-.named:hover { text-decoration: underline; }
+.roster .named:hover { text-decoration: underline; }
 
 /* Just the dots, and no wider than they are: it lives at the end of a row and
  * anything more would push the columns around. */

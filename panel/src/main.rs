@@ -299,28 +299,197 @@ mod tests {
     /// Every file that draws something. Read rather than listed, so a screen added
     /// tomorrow is checked without anybody remembering to add it here — which is the
     /// same reason the translations are read from the source.
-    const SOURCES: [&str; 20] = [
-        include_str!("main.rs"),
-        include_str!("icon.rs"),
-        include_str!("layout.rs"),
-        include_str!("drawer/mod.rs"),
-        include_str!("drawer/track.rs"),
-        include_str!("login.rs"),
-        include_str!("pages/mod.rs"),
-        include_str!("pages/home.rs"),
-        include_str!("pages/libraries.rs"),
-        include_str!("pages/accounts.rs"),
-        include_str!("pages/account.rs"),
-        include_str!("pages/settings.rs"),
-        include_str!("pages/maintenance.rs"),
-        include_str!("pages/tracks.rs"),
-        include_str!("pages/albums.rs"),
-        include_str!("pages/artists.rs"),
-        include_str!("pages/genres.rs"),
-        include_str!("pages/endless.rs"),
-        include_str!("player.rs"),
-        include_str!("queue.rs"),
+    /// Named as well as read, so a test that finds one word on two screens can say
+    /// which two.
+    const SOURCES: [(&str, &str); 20] = [
+        ("main.rs", include_str!("main.rs")),
+        ("icon.rs", include_str!("icon.rs")),
+        ("layout.rs", include_str!("layout.rs")),
+        ("drawer/mod.rs", include_str!("drawer/mod.rs")),
+        ("drawer/track.rs", include_str!("drawer/track.rs")),
+        ("login.rs", include_str!("login.rs")),
+        ("pages/mod.rs", include_str!("pages/mod.rs")),
+        ("pages/home.rs", include_str!("pages/home.rs")),
+        ("pages/libraries.rs", include_str!("pages/libraries.rs")),
+        ("pages/accounts.rs", include_str!("pages/accounts.rs")),
+        ("pages/account.rs", include_str!("pages/account.rs")),
+        ("pages/settings.rs", include_str!("pages/settings.rs")),
+        ("pages/maintenance.rs", include_str!("pages/maintenance.rs")),
+        ("pages/tracks.rs", include_str!("pages/tracks.rs")),
+        ("pages/albums.rs", include_str!("pages/albums.rs")),
+        ("pages/artists.rs", include_str!("pages/artists.rs")),
+        ("pages/genres.rs", include_str!("pages/genres.rs")),
+        ("pages/endless.rs", include_str!("pages/endless.rs")),
+        ("player.rs", include_str!("player.rs")),
+        ("queue.rs", include_str!("queue.rs")),
     ];
+
+    /// The words more than one screen wears on purpose.
+    ///
+    /// The written half of the note over "the shared words" in the sheet, and the thing
+    /// whose absence made two earlier attempts at a test impossible. Nothing mechanical
+    /// can tell a word two screens share deliberately from two screens that reached for
+    /// the same English word for different things — so the deliberate ones are listed,
+    /// and everything else must be one screen's alone.
+    ///
+    /// Adding to it is a decision, not a formality. A word belongs here when it is the
+    /// same thing on every screen that wears it: `quiet` is one grey, `pill` is one
+    /// button, `sheet` is the dialogue wherever it opens from. It does not belong here
+    /// when two screens happen to have picked the same word — `reading` was a figure on
+    /// the Overview and a scrolling body in a panel, `acting` was a row of buttons on a
+    /// library and the play glyph over a track number, `named` was a link in the roster
+    /// and the title block of the opened player. The way out of those is a different
+    /// word, never a line here.
+    const SHARED: [&str; 65] = [
+        // How something reads, wherever it is.
+        "quiet",
+        "lead",
+        "part",
+        "note",
+        "hint",
+        "lettering",
+        "path",
+        "failure",
+        "figure",
+        "what",
+        "by",
+        "who",
+        "why",
+        "wrong",
+        "mark",
+        // The state something is in, said the same way everywhere.
+        "off",
+        "away",
+        "chosen",
+        "sounding",
+        "doing",
+        "found",
+        "exact",
+        "narrow",
+        "instead",
+        // Furniture every screen has.
+        "titled",
+        "nothing",
+        "finding",
+        "search",
+        "facts",
+        "figures",
+        "counts",
+        "count",
+        "named-figure",
+        "bled",
+        "two",
+        "rail",
+        "settings",
+        "setting",
+        "saving",
+        "after",
+        "option",
+        "options",
+        "forms",
+        "pane",
+        // One thing wherever it appears.
+        "pill",
+        "solid",
+        "risky",
+        "undoing",
+        "link",
+        "checkbox",
+        "chevron",
+        "art",
+        "avatar",
+        "badge",
+        "menu",
+        "menu-item",
+        "dropdown",
+        "tap",
+        "veil",
+        "scrim",
+        "sheet",
+        "sheet-lead",
+        "sheet-body",
+        "sheet-content",
+        "sheet-foot",
+    ];
+
+    /// A class means one thing, and the ones that mean it everywhere are written down.
+    ///
+    /// The hole the rest of these tests cannot see. They compare the sheet against
+    /// itself — two rules for one name, a selector written twice — and this is about a
+    /// sheet perfectly consistent with itself and a screen broken anyway, because a word
+    /// was already taken.
+    ///
+    /// `.reading` was it. The Overview has said `class="reading"` for the processor
+    /// figure since it was written, styled through `.gauge .reading` because that is the
+    /// only place the word means a reading; a panel elsewhere took `.reading` for its
+    /// scrolling body and the Overview grew a horizontal scrollbar. `.acting` and
+    /// `.named` had been leaking for longer — the first putting `margin-top` on a play
+    /// glyph pinned with `inset: 0`, which is why that glyph sat below the centre of its
+    /// own box through three attempts at finding out why.
+    ///
+    /// Two cleverer tests were tried first and both were wrong. "A rule that lays things
+    /// out belongs to one screen" flagged twenty-four names, nearly all deliberate.
+    /// "A scoped name does not get a bare rule later" flagged twenty more, because this
+    /// sheet is ordered by screen rather than base-then-variant. Neither could work,
+    /// and the reason is the same: they were trying to infer intent that nobody had
+    /// written down.
+    ///
+    /// This asks one thing of a new class, once: is it a word the whole panel shares, or
+    /// this screen's own? Both answers are cheap. The dishonest third answer — adding a
+    /// word to [`SHARED`] to make the test quiet — hands the next person the collision
+    /// this exists to prevent.
+    #[test]
+    fn a_class_worn_by_two_screens_is_one_the_panel_shares() {
+        let styled = styled_classes();
+        let mut taken = Vec::new();
+
+        for class in styled {
+            if SHARED.contains(&class) {
+                continue;
+            }
+
+            let wearers: Vec<&str> = SOURCES
+                .iter()
+                .filter(|(_, source)| classes_in(source).contains(&class))
+                .map(|(name, _)| *name)
+                .collect();
+
+            if wearers.len() > 1 {
+                taken.push(format!(".{class} — {}", wearers.join(", ")));
+            }
+        }
+
+        assert!(
+            taken.is_empty(),
+            "one word, two screens, and no note anywhere saying that was meant:\n  {}\n\
+             Either it is the same thing in both places — then add it to SHARED, \
+             deliberately — or the second one needs a word of its own.",
+            taken.join("\n  ")
+        );
+
+        // And the list cannot rot into something that passes without meaning anything: a
+        // word nothing shares any more is a word the next person will reuse thinking it
+        // is free, which is exactly how this started.
+        let mut idle: Vec<&str> = SHARED
+            .iter()
+            .copied()
+            .filter(|word| {
+                SOURCES
+                    .iter()
+                    .filter(|(_, source)| classes_in(source).contains(word))
+                    .count()
+                    < 2
+            })
+            .collect();
+        idle.sort_unstable();
+
+        assert!(
+            idle.is_empty(),
+            "on the shared list and shared by nobody: {}.\nTake it off, so the next \
+             person reaching for the word finds it free or finds it taken, and not both.",
+            idle.join(", ")
+        );
+    }
 
     /// The stylesheet and the panel agree on which accent is the default.
     ///
@@ -575,24 +744,38 @@ mod tests {
     /// string: `class=if enabled { "state on" } else { "state" }` is two of them in
     /// one attribute, and a rule that only read `class="…"` would call both dead.
     fn classes_in_markup() -> Vec<&'static str> {
-        let mut found: Vec<&'static str> = SOURCES.into_iter().flat_map(classes_in).collect();
+        let mut found: Vec<&'static str> = SOURCES
+            .iter()
+            .flat_map(|(_, source)| classes_in(source))
+            .collect();
 
         found.sort_unstable();
         found.dedup();
         found
     }
 
-    /// The same, for one file.
+    /// The same, for one file, and only from its markup.
+    ///
+    /// Comments are dropped first, which they were not before and had to be: the note
+    /// over the shared-words test quotes `class="reading"` to explain what went wrong,
+    /// and a scanner that reads prose counted the Overview and this very comment as two
+    /// screens wearing the word. A test that its own explanation breaks is a test
+    /// nobody will keep.
     fn classes_in(source: &'static str) -> Vec<&'static str> {
-        /// Enough to cover the longest `class=` in the panel and not enough to reach
-        /// the next attribute.
+        /// Enough to cover the longest `class=` in the panel. It is bounded by the end
+        /// of the line as well, and this is the belt to that pair of braces.
         const WINDOW: usize = 160;
 
         let mut found = Vec::new();
         let mut at = 0;
 
         while let Some(next) = source[at..].find("class") {
-            at += next + "class".len();
+            let began = at + next;
+            at = began + "class".len();
+
+            if commented(source, began) {
+                continue;
+            }
 
             // `classes_in_markup`, `.class` in a comment, and anything else that
             // merely contains the word.
@@ -611,8 +794,13 @@ mod tests {
                 continue;
             }
 
-            let window = &source[at..source.len().min(at + WINDOW)];
-            let mut rest = window;
+            // To the end of the line and no further. It used to run on for a fixed
+            // number of characters, which crossed into whatever followed — and what
+            // follows a row of markup in this panel is usually a comment explaining
+            // it. One stray quotation mark in that prose puts every pair after it out
+            // of step, and then a word somebody wrote in a sentence is a class.
+            let line = source[at..].find('\n').unwrap_or(source.len() - at);
+            let mut rest = &source[at..at + line.min(WINDOW)];
 
             while let Some(open) = rest.find('"') {
                 rest = &rest[open + 1..];
@@ -627,6 +815,13 @@ mod tests {
         found.sort_unstable();
         found.dedup();
         found
+    }
+
+    /// Whether what is at `at` sits on a line that is a comment.
+    fn commented(source: &str, at: usize) -> bool {
+        let line = source[..at].rfind('\n').map_or(0, |break_at| break_at + 1);
+
+        source[line..at].trim_start().starts_with("//")
     }
 
     /// One rule of the stylesheet: what it selects, what it says, and whether it sits
@@ -789,7 +984,7 @@ mod tests {
     fn collect_keys() -> Vec<String> {
         let mut keys = Vec::new();
 
-        for source in SOURCES {
+        for (_, source) in SOURCES {
             let mut rest = source;
 
             while let Some(at) = rest.find("t!(") {

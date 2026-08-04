@@ -746,7 +746,7 @@ fn Sheet(open: RwSignal<bool>, queue: RwSignal<bool>) -> impl IntoView {
                         }
                     }}
 
-                    <div class="named">
+                    <div class="naming">
                         <h1>{title}</h1>
                         <p class="quiet">{who}</p>
                     </div>

@@ -496,7 +496,7 @@ fn Held(
                     {if enabled { t!("libraries.on") } else { t!("libraries.off") }}
                 </span>
 
-                <span class="acting">
+                <span class="actions">
                     // Always, switched on or off. Nothing about a library being set
                     // aside makes its name or its path any less editable, and a row
                     // that offers to turn it on but not to correct the path it is
