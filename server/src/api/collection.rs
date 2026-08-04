@@ -23,8 +23,9 @@
 use super::error::ApiError;
 use super::session::Panel;
 use crate::types::{
-    Album, AlbumDetail, AlbumTrack, Albums, Artist, Artists, ErrorBody, Genre, Genres, LyricLine,
-    LyricSource, Lyrics, Queue, Tags, Track, TrackDetail, Tracks,
+    Album, AlbumDetail, AlbumTrack, Albums, Artist, ArtistAlbum, ArtistDetail, Artists, ErrorBody,
+    Genre, Genres, LyricLine, LyricSource, Lyrics, PlayedTrack, Queue, Tags, Track, TrackDetail,
+    Tracks,
 };
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -62,6 +63,21 @@ macro_rules! a_tracks_row {
            LEFT JOIN albums al ON al.id = t.album_id
            LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
            LEFT JOIN artists ar ON ar.id = aa.artist_id"
+    };
+}
+
+/// How many of an artist's songs a panel lists as their most played.
+///
+/// Five, which is a handful somebody reads rather than a chart they scroll: the point
+/// of that section is what this artist amounts to in this house, and a longer list
+/// answers a question nobody asked.
+///
+/// A macro and not a constant because it is pasted into a statement by `concat!`,
+/// which takes literals and nothing else — the same reason the column lists here are
+/// macros.
+macro_rules! most_played {
+    () => {
+        "5"
     };
 }
 
@@ -826,6 +842,138 @@ pub async fn artists(
     }))
 }
 
+/// All about one artist
+///
+/// Their figures, their records, and what of theirs gets played — in one answer, like a
+/// record's.
+///
+/// "Theirs" means every track they are credited on, which is what the listing counts
+/// too, so the panel and the row that opened it cannot disagree. It takes in the
+/// records they only guest on, which is the honest reading of what somebody is asking
+/// when they open a name.
+#[utoipa::path(
+    get,
+    path = "/artists/{id}/detail",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which artist")),
+    responses(
+        (status = 200, description = "Everything known about them", body = ArtistDetail),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such artist, or not one you may see", body = ErrorBody),
+    )
+)]
+pub async fn artist(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<ArtistDetail>, ApiError> {
+    let who = panel.user.id;
+
+    let row: Option<ArtistRow2> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT a.public_id, a.name, a.artwork_id IS NOT NULL AS image,
+                (SELECT group_concat(DISTINCT g.name)
+                   FROM tracks t
+                   JOIN track_artists ta ON ta.track_id = t.id AND ta.artist_id = a.id
+                   JOIN track_genres tg ON tg.track_id = t.id
+                   JOIN genres g ON g.id = tg.genre_id
+                  WHERE t.library_id IN (SELECT id FROM visible_libraries)) AS genres,
+                (SELECT count(DISTINCT t.album_id) FROM tracks t
+                   JOIN track_artists ta ON ta.track_id = t.id
+                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                    AND t.album_id IS NOT NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS albums,
+                (SELECT count(*) FROM tracks t
+                   JOIN track_artists ta ON ta.track_id = t.id
+                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS tracks,
+                (SELECT sum(t.duration_ms) / 1000 FROM tracks t
+                   JOIN track_artists ta ON ta.track_id = t.id
+                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS duration,
+                -- Summed from the per-track counts and over everybody, which is the
+                -- only place it could come from: the artist stats table keeps a rating
+                -- and a star and no count.
+                (SELECT coalesce(sum(s.play_count), 0)
+                   FROM user_track_stats s
+                   JOIN tracks t ON t.id = s.track_id
+                   JOIN track_artists ta ON ta.track_id = t.id
+                  WHERE ta.artist_id = a.id
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS plays
+           FROM artists a
+          WHERE a.public_id = ? AND ",
+        artist_is_visible!("a.id")
+    ))
+    .bind(who)
+    .bind(&id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading everything about an artist"))?;
+
+    let row = row.ok_or(ApiError::NotFound)?;
+
+    // Their records, oldest first, which is how a discography reads.
+    let records: Vec<RecordOfTheirs> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT al.public_id, al.name, al.year, al.artwork_id IS NOT NULL AS cover,
+                (SELECT count(*) FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NULL) AS tracks,
+                (SELECT count(*) FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NOT NULL) AS missing,
+                (SELECT sum(t.duration_ms) / 1000 FROM tracks t
+                  WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration
+           FROM albums al
+          WHERE EXISTS (SELECT 1 FROM tracks t
+                          JOIN track_artists ta ON ta.track_id = t.id
+                          JOIN artists a ON a.id = ta.artist_id
+                         WHERE t.album_id = al.id AND a.public_id = ?
+                           AND t.library_id IN (SELECT id FROM visible_libraries))
+          ORDER BY al.year, al.name COLLATE NOCASE"
+    ))
+    .bind(who)
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "listing an artist's records"))?;
+
+    // What of theirs actually gets played, across everybody. Nothing that has never
+    // been played: a list of noughts is not a list of what gets played.
+    let played_most: Vec<PlayedRow> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT t.public_id, t.title, al.name AS album, t.duration_ms,
+                sum(s.play_count) AS plays
+           FROM user_track_stats s
+           JOIN tracks t ON t.id = s.track_id
+           JOIN track_artists ta ON ta.track_id = t.id
+           JOIN artists a ON a.id = ta.artist_id
+           LEFT JOIN albums al ON al.id = t.album_id
+          WHERE a.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)
+          GROUP BY t.id
+         HAVING plays > 0
+          ORDER BY plays DESC, t.title COLLATE NOCASE
+          LIMIT ",
+        most_played!()
+    ))
+    .bind(who)
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading what of an artist's gets played"))?;
+
+    Ok(Json(ArtistDetail {
+        id: row.public_id,
+        name: row.name,
+        genres: row.genres,
+        albums: row.albums,
+        tracks: row.tracks,
+        duration: row.duration,
+        plays: row.plays,
+        image: row.image,
+        records: records.into_iter().map(ArtistAlbum::from).collect(),
+        played_most: played_most.into_iter().map(PlayedTrack::from).collect(),
+    }))
+}
+
 /// The genres
 #[utoipa::path(
     get,
@@ -1265,6 +1413,66 @@ impl From<AlbumRow> for Album {
     }
 }
 
+/// An artist's own panel, as one row of figures. Its own struct for the same reason a
+/// record's is: the listing's row is read fifty at a time and this one is read once.
+#[derive(sqlx::FromRow)]
+struct ArtistRow2 {
+    public_id: String,
+    name: String,
+    genres: Option<String>,
+    albums: i64,
+    tracks: i64,
+    duration: Option<i64>,
+    plays: i64,
+    image: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct RecordOfTheirs {
+    public_id: String,
+    name: String,
+    year: Option<i64>,
+    tracks: i64,
+    missing: i64,
+    duration: Option<i64>,
+    cover: bool,
+}
+
+impl From<RecordOfTheirs> for ArtistAlbum {
+    fn from(row: RecordOfTheirs) -> Self {
+        Self {
+            id: row.public_id,
+            name: row.name,
+            year: row.year,
+            tracks: row.tracks,
+            missing: row.missing,
+            duration: row.duration,
+            cover: row.cover,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct PlayedRow {
+    public_id: String,
+    title: String,
+    album: Option<String>,
+    duration_ms: Option<i64>,
+    plays: i64,
+}
+
+impl From<PlayedRow> for PlayedTrack {
+    fn from(row: PlayedRow) -> Self {
+        Self {
+            id: row.public_id,
+            title: row.title,
+            album: row.album,
+            plays: row.plays,
+            duration: row.duration_ms.map(|ms| ms / 1000),
+        }
+    }
+}
+
 #[derive(sqlx::FromRow)]
 struct ArtistRow {
     public_id: String,
@@ -1672,6 +1880,66 @@ mod tests {
                 Err(ApiError::NotFound)
             ),
             "a record in a library she may not see is not one she may learn exists"
+        );
+    }
+
+    /// An artist's own panel, and the figure that has nowhere of its own to live.
+    #[tokio::test]
+    async fn an_artist_adds_up_their_plays_from_the_songs() {
+        let pool = a_collection().await;
+
+        // Two plays of one of her tracks and one of another, by two different accounts,
+        // because an artist's total is across everybody who listens here.
+        let hers = somebody(&pool, false).await;
+        let theirs = somebody_else(&pool).await;
+
+        for (account, track, plays) in [(&hers, 10, 2), (&theirs, 10, 1), (&hers, 11, 4)] {
+            sqlx::query(
+                "INSERT INTO user_track_stats (user_id, track_id, play_count)
+                 VALUES (?, ?, ?)",
+            )
+            .bind(account.user.id)
+            .bind(track)
+            .bind(plays)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let Json(read) = artist(
+            again(&hers),
+            State(pool.clone()),
+            UrlPath("ar1".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(read.name, "Triana");
+        assert_eq!(
+            read.plays, 7,
+            "summed over every account and every song of theirs, because the artist \
+             stats table keeps a rating and a star and no count"
+        );
+
+        // The figures agree with the listing's, which count what is still there. She is
+        // not walled off from anything, so that is all four of the fixture's tracks
+        // less the one whose file has gone.
+        assert_eq!(read.tracks, 3);
+        assert_eq!(read.albums, 2);
+
+        assert_eq!(
+            read.played_most.len(),
+            2,
+            "only what has been played: a list of noughts is not a list of what gets \
+             played"
+        );
+        assert_eq!(read.played_most[0].plays, 4, "the most played first");
+        assert_eq!(read.played_most[1].plays, 3);
+
+        assert_eq!(read.records.len(), 2, "both of the records she is on");
+        assert_eq!(
+            read.records[0].missing, 1,
+            "and one of them has a hole in it"
         );
     }
 

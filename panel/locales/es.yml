@@ -195,6 +195,31 @@ albums:
   none_found: Ningún disco coincide con lo que has escrito.
   playing: sonando
 
+# El panel de un artista. El único de los tres que no tiene nada propio en disco: un
+# artista no es un fichero ni un directorio, así que no hay ruta ni tamaño, y lo que
+# merece mostrarse en su lugar es lo que suponen aquí.
+artist:
+  albums: álbumes
+  tracks: pistas
+  length: duración
+  plays: escuchas
+  genre: Género
+  one_track_in: "1 pista en %{albums} álbumes"
+  many_tracks_in: "%{count} pistas en %{albums} álbumes"
+  played_most: Lo más escuchado
+  # De quién son esas escuchas, que merece decirse en un servidor donde escucha más
+  # gente.
+  across_everyone: Contadas entre todos los que escuchan aquí, no solo tú.
+  one_play: 1 escucha
+  many_plays: "%{count} escuchas"
+  records: Discos
+  one_missing: falta 1
+  many_missing: "faltan %{count}"
+  play_everything: Reproducir todo
+  # Qué quiere decir «suyos», y no es lo que decían los diseños: toda pista que les
+  # acredite, colaboraciones incluidas, que es lo mismo que cuenta el listado.
+  credited_on: Todos los discos en los que aparece acreditado.
+
 artists:
   search: Buscar artistas
   one: Un artista

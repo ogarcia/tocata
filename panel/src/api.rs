@@ -363,6 +363,12 @@ pub async fn album(id: &str) -> Result<tocata::types::AlbumDetail, Failure> {
     read(get(&format!("/albums/{id}/detail"))?).await
 }
 
+/// Everything the database holds about one artist: their figures, their records, and
+/// what of theirs gets played.
+pub async fn artist(id: &str) -> Result<tocata::types::ArtistDetail, Failure> {
+    read(get(&format!("/artists/{id}/detail"))?).await
+}
+
 /// Every tag in a track's file, as the file spells them.
 ///
 /// Read from disk on the server every time it is asked, which is why the panel asks
@@ -464,6 +470,12 @@ pub async fn genres(search: &str, offset: usize, limit: i64) -> Result<Genres, F
 /// hundred covers is two hundred `<img>` tags and no credentials in any of them.
 pub fn cover(album: &str) -> String {
     format!("{BASE}/albums/{album}/cover")
+}
+
+/// And where a picture of an artist is. Same arrangement as a cover, for the same
+/// reason: an `<img>` from this origin carries the cookie on its own.
+pub fn portrait(artist: &str) -> String {
+    format!("{BASE}/artists/{artist}/image")
 }
 
 /// The query a listing is asked with.

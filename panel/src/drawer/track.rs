@@ -90,8 +90,11 @@ pub fn Track(id: String) -> impl IntoView {
         <Frame>
             <Head
                 icon=Icon::Songs
-                cover=Signal::derive(move || {
-                    detail.with(|read| read.as_ref().and_then(|read| read.album_id.clone()))
+                picture=Signal::derive(move || {
+                    detail.with(|read| {
+                        read.as_ref()
+                            .and_then(|read| read.album_id.as_deref().map(api::cover))
+                    })
                 })
                 heading=Signal::derive(move || {
                     detail.with(|read| read.as_ref().map(|read| read.title.clone()))

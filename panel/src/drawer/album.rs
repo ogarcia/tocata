@@ -53,7 +53,7 @@ pub fn Album(id: String) -> impl IntoView {
         <Frame>
             <Head
                 icon=Icon::Albums
-                cover=Signal::derive(move || Some(id.get_value()))
+                picture=Signal::derive(move || Some(api::cover(&id.get_value())))
                 heading=Signal::derive(move || {
                     detail
                         .with(|read| read.as_ref().map(|read| read.name.clone()))

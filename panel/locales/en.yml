@@ -198,6 +198,30 @@ albums:
   none_found: No record here matches what you typed.
   playing: playing
 
+# One artist's own panel. The only one of the three with nothing of its own on disk: an
+# artist is not a file and not a directory, so there is no path and no size, and what
+# is worth showing instead is what they amount to here.
+artist:
+  albums: albums
+  tracks: tracks
+  length: length
+  plays: plays
+  genre: Genre
+  one_track_in: "1 track in %{albums} albums"
+  many_tracks_in: "%{count} tracks in %{albums} albums"
+  played_most: Played most
+  # Whose plays these are, which is worth saying on a server other people listen to.
+  across_everyone: Counted across everybody who listens here, not only you.
+  one_play: 1 play
+  many_plays: "%{count} plays"
+  records: Records
+  one_missing: 1 missing
+  many_missing: "%{count} missing"
+  play_everything: Play everything
+  # What "theirs" means, and it is not what the drawings said: every track that credits
+  # them, guest appearances included, which is what the listing counts as well.
+  credited_on: Every record they are credited on.
+
 artists:
   search: Search artists
   one: One artist

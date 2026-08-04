@@ -23,6 +23,7 @@
 //! the rule of these panels in one place: a row with nothing in it is not a row.
 
 pub mod album;
+pub mod artist;
 pub mod track;
 
 use crate::icon::{Glyph, Icon};
@@ -36,6 +37,8 @@ pub enum Open {
     Track(String),
     /// One record.
     Album(String),
+    /// One artist.
+    Artist(String),
 }
 
 /// The one signal that says. Held above the router so it survives nothing and
@@ -81,6 +84,7 @@ pub fn Drawers() -> impl IntoView {
                 .map(|what| match what {
                     Open::Track(id) => view! { <track::Track id /> }.into_any(),
                     Open::Album(id) => view! { <album::Album id /> }.into_any(),
+                    Open::Artist(id) => view! { <artist::Artist id /> }.into_any(),
                 })
         }}
     }
@@ -107,13 +111,18 @@ pub fn Head(
     /// that is a person.
     #[prop(optional)]
     round: bool,
-    /// The record whose cover stands for this thing, once it is known.
+    /// Where the picture of this thing is, once that is known.
     ///
-    /// A signal because it is not known when the panel opens: the identifier arrives
-    /// with everything else, a moment later. The glyph is what is there in the
-    /// meantime, and what stays where there is no cover to be had.
+    /// A URL and not an identifier, because the two panels that have one get theirs
+    /// from different places: a record's cover and an artist's portrait are different
+    /// endpoints, and the alternative was this component knowing which kind of thing it
+    /// was heading.
+    ///
+    /// A signal because it is not known when the panel opens — the identifier arrives
+    /// with everything else, a moment later. The glyph is what is there in the meantime,
+    /// and what stays where there is no picture to be had.
     #[prop(optional, into)]
-    cover: Signal<Option<String>>,
+    picture: Signal<Option<String>>,
     heading: Signal<String>,
     /// The line under it, which every one of these has and none of them needs: it is
     /// empty until what was asked for arrives.
@@ -128,12 +137,12 @@ pub fn Head(
         <header>
             <span class="emblem" class:round=round>
                 <Show
-                    when=move || cover.get().is_some() && !missing.get()
+                    when=move || picture.get().is_some() && !missing.get()
                     fallback=move || view! { <Glyph icon /> }
                 >
                     <img
                         class="art"
-                        src=move || crate::api::cover(&cover.get().unwrap_or_default())
+                        src=move || picture.get().unwrap_or_default()
                         alt=""
                         on:error=move |_| missing.set(true)
                     />

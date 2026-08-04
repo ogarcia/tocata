@@ -301,12 +301,13 @@ mod tests {
     /// same reason the translations are read from the source.
     /// Named as well as read, so a test that finds one word on two screens can say
     /// which two.
-    const SOURCES: [(&str, &str); 21] = [
+    const SOURCES: [(&str, &str); 22] = [
         ("main.rs", include_str!("main.rs")),
         ("icon.rs", include_str!("icon.rs")),
         ("layout.rs", include_str!("layout.rs")),
         ("drawer/mod.rs", include_str!("drawer/mod.rs")),
         ("drawer/album.rs", include_str!("drawer/album.rs")),
+        ("drawer/artist.rs", include_str!("drawer/artist.rs")),
         ("drawer/track.rs", include_str!("drawer/track.rs")),
         ("login.rs", include_str!("login.rs")),
         ("pages/mod.rs", include_str!("pages/mod.rs")),

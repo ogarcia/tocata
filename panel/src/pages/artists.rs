@@ -72,7 +72,9 @@ pub fn Artists(on_expired: Callback<()>) -> impl IntoView {
 
         <ul class="crowd">
             <For each=move || reel.rows.get() key=|artist| artist.id.clone() let:artist>
-                <li>
+                <li on:click=move |_| {
+                    crate::drawer::open(crate::drawer::Open::Artist(artist.id.clone()))
+                }>
                     <span class="what">{artist.name}</span>
                     // Both figures carry their word. The frame leaves it off the
                     // second, and with no heading over these columns a bare number

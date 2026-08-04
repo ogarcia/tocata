@@ -966,6 +966,62 @@ pub struct Artist {
     pub image: bool,
 }
 
+/// Everything an artist's own panel shows.
+///
+/// What is here rather than on [`Artist`] is what a list of nine hundred names must
+/// not pay for: their records, their most played songs, and how long all of it runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistDetail {
+    pub id: String,
+    pub name: String,
+    /// What they are filed under, over everything they are on.
+    pub genres: Option<String>,
+    pub albums: i64,
+    pub tracks: i64,
+    /// Seconds, over everything of theirs that is still there.
+    pub duration: Option<i64>,
+    /// How many times anything of theirs has been played, by everybody.
+    ///
+    /// Summed from the per-track counts, because there is nowhere else it could come
+    /// from: the artist stats table holds a rating and a star and no count. Which is
+    /// right — a play is a play of a song, and an artist's total is a question asked of
+    /// those rather than a number worth keeping in step with them.
+    pub plays: i64,
+    /// Whether a picture of them has been found. Same meaning as the listing's, which
+    /// is "found already" rather than "exists".
+    pub image: bool,
+    pub records: Vec<ArtistAlbum>,
+    /// Their most played songs, across everybody who listens here.
+    pub played_most: Vec<PlayedTrack>,
+}
+
+/// One of an artist's records, as their panel lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistAlbum {
+    pub id: String,
+    pub name: String,
+    pub year: Option<i64>,
+    pub tracks: i64,
+    /// How many of its files have gone, so a record with a hole in it says so where it
+    /// is listed rather than only once it is opened.
+    pub missing: i64,
+    pub duration: Option<i64>,
+    pub cover: bool,
+}
+
+/// One song and how often it has been played.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayedTrack {
+    pub id: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub plays: i64,
+    pub duration: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Genres {
