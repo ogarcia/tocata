@@ -783,3 +783,107 @@ async fn lookups(pool: &SqlitePool) -> i64 {
         .await
         .unwrap()
 }
+
+/// A file that will not open, and the two ways that used to go wrong.
+///
+/// Found on a real server: the tags of some files were edited, the scan that
+/// followed could not read them — their permissions had gone — and afterwards they
+/// sat in the listing with nothing on them. Giving the permissions back and scanning
+/// again changed nothing, because from outside the files had not changed.
+mod a_file_that_will_not_open {
+    use super::*;
+
+    /// Everything about the track, as a test wants to read it.
+    async fn told(pool: &SqlitePool) -> (String, Option<i64>, Option<i64>, Option<String>) {
+        sqlx::query_as("SELECT title, album_id, duration_ms, unreadable_since FROM tracks LIMIT 1")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// Takes away the permission to read a file, and gives it back.
+    fn readable(path: &Path, may: bool) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = if may { 0o644 } else { 0o000 };
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// The damage that was being done: a track scanned correctly, then scanned again
+    /// while unreadable, lost its title to its file name and everything else to null.
+    /// A scan was destroying the answer it could no longer see.
+    #[tokio::test]
+    async fn it_keeps_what_was_already_known_about_it() {
+        let root = temp_root("unreadable-keeps");
+        let path = root.join("Album/one.wav");
+        write_wav(&path);
+        tag(&path, &[("title", "Trains"), ("album", "In Absentia")]);
+
+        let pool = database().await;
+        let id = library(&pool, &root).await;
+        scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+        let (title, album, length, _) = told(&pool).await;
+        assert_eq!(title, "Trains");
+        assert!(album.is_some() && length.is_some());
+
+        readable(&path, false);
+        let second = scan(&pool, id, &root, Mode::Full).await.unwrap();
+        readable(&path, true);
+
+        assert_eq!(second.failed, 1, "it could not be read");
+
+        let (title, album_again, length_again, since) = told(&pool).await;
+        assert_eq!(title, "Trains", "not the file name");
+        assert_eq!(album_again, album, "still on its record");
+        assert_eq!(length_again, length);
+        assert!(since.is_some(), "and it says it could not be read");
+    }
+
+    /// The other half, and the one that made it permanent: size and modification
+    /// time are how the file looks from outside, and from outside nothing changed
+    /// when the permissions came back. A quick scan skipped it for ever.
+    #[tokio::test]
+    async fn it_is_read_again_by_the_next_quick_scan() {
+        let root = temp_root("unreadable-retried");
+        let path = root.join("Album/one.wav");
+        write_wav(&path);
+
+        let pool = database().await;
+        let id = library(&pool, &root).await;
+
+        readable(&path, false);
+        scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+        readable(&path, true);
+
+        let (_, _, _, since) = told(&pool).await;
+        assert!(since.is_some(), "the first scan could not read it");
+
+        // Nothing about the file has changed. Only the note on it says otherwise.
+        let again = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+        assert_eq!(again.unchanged, 0, "it was reopened rather than skipped");
+        assert_eq!(again.failed, 0, "and this time it could be read");
+
+        let (_, _, length, since) = told(&pool).await;
+        assert!(length.is_some(), "so its length is known now");
+        assert_eq!(since, None, "and the note is gone");
+    }
+
+    /// And the optimisation it must not cost: a file that was read fine and has not
+    /// changed is still not opened again. Losing this would mean rereading a whole
+    /// library on every quick scan.
+    #[tokio::test]
+    async fn a_file_that_was_read_fine_is_still_skipped() {
+        let root = temp_root("unreadable-not-everything");
+        let path = root.join("Album/one.wav");
+        write_wav(&path);
+
+        let pool = database().await;
+        let id = library(&pool, &root).await;
+        scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+        let again = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+        assert_eq!(again.unchanged, 1);
+    }
+}

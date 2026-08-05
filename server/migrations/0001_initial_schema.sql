@@ -190,6 +190,19 @@ CREATE TABLE tracks (
     rg_track_gain    REAL,
     rg_track_peak    REAL,
     missing_since    TEXT,
+    -- Since when this file's tags could not be read: a permission that was taken
+    -- away, a disk with a bad sector, a file half written by whatever was copying
+    -- it. Null means the last attempt worked, which is the ordinary case.
+    --
+    -- It is here because a quick scan decides what to reopen by size and
+    -- modification time, and a file that could not be read has neither of them
+    -- changed — so it would never be read again, and would sit there with whatever
+    -- little is known about it until somebody thought to ask for a full scan. This
+    -- column is what makes the next quick scan try it again.
+    --
+    -- Not the same as missing. A missing file is not there; this one is there and
+    -- will not open. Both can be true at once and neither implies the other.
+    unreadable_since TEXT,
     -- Which scan last saw this file, stamped on every pass whether or not the
     -- file changed. What a scan did not touch is what has gone away, which is
     -- one statement at the end instead of a set of paths held in memory.

@@ -106,6 +106,14 @@ type RecordedAlbum = (Option<String>, i64);
 /// the album its siblings already created.
 type AlbumsByName = HashMap<(String, String), Vec<RecordedAlbum>>;
 
+/// What a scan already knows about a file it is about to look at: how it looked from
+/// outside last time, and whether looking inside worked.
+struct Recorded {
+    modified: String,
+    size: i64,
+    unreadable: bool,
+}
+
 /// How many scanned entries wait in the channel. Reading tags is slower than
 /// inserting rows, so this only has to be deep enough that the writer never
 /// idles between files.
@@ -287,15 +295,25 @@ async fn scan_library(
     // Joined back onto the root on the way in: the rows are relative, and every
     // path the walker produces is absolute. Composing here rather than
     // relativising a million times in the loop below.
-    let known: HashMap<PathBuf, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT path, file_modified_at, file_size FROM tracks WHERE library_id = ?",
+    let known: HashMap<PathBuf, Recorded> = sqlx::query_as::<_, (String, String, i64, bool)>(
+        "SELECT path, file_modified_at, file_size, unreadable_since IS NOT NULL
+           FROM tracks WHERE library_id = ?",
     )
     .bind(library_id)
     .fetch_all(pool)
     .await
     .context("loading the tracks already recorded")?
     .into_iter()
-    .map(|(path, modified, size)| (root.join(path), (modified, size)))
+    .map(|(path, modified, size, unreadable)| {
+        (
+            root.join(path),
+            Recorded {
+                modified,
+                size,
+                unreadable,
+            },
+        )
+    })
     .collect();
 
     let (tx, mut rx) = mpsc::channel(CHANNEL_DEPTH);
@@ -317,10 +335,18 @@ async fn scan_library(
                     // tagger writing within the padding of an existing tag can
                     // leave the size untouched, and one asked to preserve
                     // timestamps leaves the other untouched.
+                    //
+                    // And never a file we could not read last time, whatever its size
+                    // and time say. Those two are how the file looked from outside,
+                    // and from outside nothing changed: the permissions came back, the
+                    // disk started answering, and the file is exactly as it was. It
+                    // would be skipped for ever and stay as bare as the failed scan
+                    // left it, which is what happened.
                     let unchanged = mode == Mode::Incremental
-                        && recorded.is_some_and(|(recorded_modified, recorded_size)| {
-                            *recorded_size == size as i64
-                                && recorded_modified == &epoch_to_iso8601(modified)
+                        && recorded.is_some_and(|recorded| {
+                            !recorded.unreadable
+                                && recorded.size == size as i64
+                                && recorded.modified == epoch_to_iso8601(modified)
                         });
 
                     if unchanged {
@@ -582,6 +608,52 @@ impl State {
             return Ok(());
         };
 
+        // A file that would not open keeps whatever was already known about it.
+        //
+        // Everything below this writes the tags it read, and with nothing read that
+        // means writing blanks: a track that was scanned correctly last week, and
+        // whose permissions were taken away since, had its title replaced by its
+        // file name and its album, length and numbering set to null. The scan was
+        // destroying the answer it could no longer see.
+        //
+        // What is written instead is what can be seen without opening the file — how
+        // big it is, when it changed — and the note that it could not be read, which
+        // is what brings the next quick scan back to it.
+        let unreadable = metadata.is_none();
+
+        if unreadable {
+            let kept = sqlx::query(
+                "UPDATE tracks
+                    SET file_size = ?, file_modified_at = ?, content_type = ?, suffix = ?,
+                        missing_since = NULL,
+                        unreadable_since = coalesce(unreadable_since, ?),
+                        last_seen_scan = ?, updated_at = ?
+                  WHERE library_id = ? AND path = ?",
+            )
+            .bind(size as i64)
+            .bind(epoch_to_iso8601(modified))
+            .bind(content_type(extension))
+            .bind(extension)
+            // The first scan that could not read it, kept through the ones after:
+            // "unreadable since Tuesday" is worth more than "unreadable just now".
+            .bind(&self.timestamp)
+            .bind(self.scan)
+            .bind(&self.timestamp)
+            .bind(self.library_id)
+            .bind(self.relative(path))
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("keeping what was known about {}", path.display()))?;
+
+            if kept.rows_affected() > 0 {
+                return Ok(());
+            }
+
+            // Nothing was known: it is a new file that will not open. It still gets a
+            // row — it is there, and a listing that left it out would be a listing
+            // that hides a problem — with its name for a title and the note on it.
+        }
+
         let metadata = metadata.map(|m| *m).unwrap_or_default();
 
         let album_id = match AlbumKey::of(&metadata) {
@@ -598,9 +670,9 @@ impl State {
                  track_number, disc_number, year, duration_ms, bit_rate,
                  bit_depth, sampling_rate, channel_count, bpm, comment,
                  mbid_recording, mbid_track, isrc, rg_track_gain, rg_track_peak,
-                 last_seen_scan, created_at, updated_at
+                 unreadable_since, last_seen_scan, created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (library_id, path) DO UPDATE SET
                  folder_id = excluded.folder_id,
                  album_id = excluded.album_id,
@@ -626,6 +698,8 @@ impl State {
                  rg_track_gain = excluded.rg_track_gain,
                  rg_track_peak = excluded.rg_track_peak,
                  missing_since = NULL,
+                 -- Read this time, so whatever was wrong with it before is over.
+                 unreadable_since = excluded.unreadable_since,
                  last_seen_scan = excluded.last_seen_scan,
                  updated_at = excluded.updated_at
              RETURNING id",
@@ -656,6 +730,9 @@ impl State {
         .bind(&metadata.isrc)
         .bind(metadata.rg_track_gain)
         .bind(metadata.rg_track_peak)
+        // Only reached with nothing read when the file is new: everything already
+        // known took the shorter road above.
+        .bind(unreadable.then(|| self.timestamp.clone()))
         .bind(self.scan)
         .bind(&self.timestamp)
         .bind(&self.timestamp)
