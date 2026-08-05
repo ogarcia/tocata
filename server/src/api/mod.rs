@@ -29,6 +29,7 @@ mod preferences;
 mod purge;
 mod resources;
 mod scan;
+mod scrobblers;
 mod session;
 mod sessions;
 mod settings;
@@ -88,6 +89,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "sessions", description = "The panel logins an account has open"),
         (name = "settings", description = "What the server knows about the collection"),
         (name = "preferences", description = "How the panel looks and speaks, per account"),
+        (name = "scrobblers", description = "Where an account's listens are passed on to"),
         (name = "stats", description = "What there is, in figures"),
         (name = "resources", description = "What the server is costing the machine"),
         (name = "purge", description = "What removing what a scan marked would cost"),
@@ -132,6 +134,12 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(sessions::close))
         .routes(routes!(settings::read, settings::change))
         .routes(routes!(preferences::change))
+        .routes(routes!(scrobblers::list))
+        .routes(routes!(
+            scrobblers::set,
+            scrobblers::switch,
+            scrobblers::remove
+        ))
         .routes(routes!(stats::stats))
         .routes(routes!(resources::read))
         .routes(routes!(purge::preview))

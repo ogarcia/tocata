@@ -72,5 +72,14 @@ pub async fn record_play(
         .execute(&mut *tx)
         .await?;
 
-    tx.commit().await
+    tx.commit().await?;
+
+    // After the commit, and deliberately: what belongs to this server is counted
+    // first, and passing it on is a second thing that must not be able to undo the
+    // first. It writes a row of its own and comes straight back — nothing is sent
+    // from here, because a phone waiting on a reply has no business waiting on
+    // somebody else's website.
+    crate::scrobble::queue(pool, user_id, track_id, played_at).await;
+
+    Ok(())
 }

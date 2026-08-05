@@ -39,6 +39,15 @@ pub enum ApiError {
     NotFound,
     /// 400 — the request itself does not make sense.
     Invalid(&'static str),
+    /// 400 — a scrobbling service was asked about the token it was given, and said
+    /// no.
+    ///
+    /// Its own failure rather than an `Invalid`, because the panel picks its words
+    /// from the code and these two want very different words: one means somebody
+    /// mistyped a field, this one means the field is fine and the far end does not
+    /// know that token. It is 400 and not 403 — nothing here refused anything, and
+    /// a 403 is what the panel reads as being about this server.
+    TokenRefused,
     /// 409 — the request makes sense but conflicts with what is already going on.
     Conflict(&'static str),
     /// 429 — too many failed logins from where this came from, so it has to wait.
@@ -58,6 +67,7 @@ impl ApiError {
             Self::WrongPassword => "wrongPassword",
             Self::NotFound => "notFound",
             Self::Invalid(_) => "invalidRequest",
+            Self::TokenRefused => "tokenRefused",
             Self::Conflict(_) => "conflict",
             Self::TooManyAttempts => "tooManyAttempts",
             Self::Internal => "internalError",
@@ -71,7 +81,7 @@ impl ApiError {
             Self::NotAuthenticated | Self::WrongCredentials => StatusCode::UNAUTHORIZED,
             Self::NotAuthorized | Self::WrongPassword => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
-            Self::Invalid(_) => StatusCode::BAD_REQUEST,
+            Self::Invalid(_) | Self::TokenRefused => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
@@ -86,6 +96,7 @@ impl ApiError {
             Self::WrongPassword => "That is not the current password",
             Self::NotFound => "No such thing",
             Self::Invalid(detail) | Self::Conflict(detail) => detail,
+            Self::TokenRefused => "The service would not accept that token",
             Self::TooManyAttempts => "Too many failed logins from here; wait a while",
             Self::Internal => "An internal error occurred",
         }
@@ -137,6 +148,7 @@ mod tests {
             ApiError::Conflict("x").code(),
             ApiError::NotFound.code(),
             ApiError::Invalid("x").code(),
+            ApiError::TokenRefused.code(),
             ApiError::TooManyAttempts.code(),
             ApiError::Internal.code(),
         ];

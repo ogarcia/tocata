@@ -641,3 +641,122 @@ CREATE TABLE job_runs (
 -- The panel asks for the last run of each job, and for the last few runs of
 -- anything, and both are this index read in one direction.
 CREATE INDEX job_runs_by_job ON job_runs (job, started_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Scrobbling
+-- ---------------------------------------------------------------------------
+
+-- Where somebody's listens go besides here.
+--
+-- One row per service per person, so that music can be sent to a hosted
+-- ListenBrainz and to something running at home at once: they are not two names
+-- for one destination, and somebody trying a self hosted scrobbler out has every
+-- reason to keep the other one filling up meanwhile.
+--
+-- Its own table rather than columns on users, for the reason panel_preferences is
+-- one: users is the account, and a token belonging to somebody else's website has
+-- no business widening the row that every authentication reads. Which service it
+-- is stays a name in the program rather than a table of its own, the way a job
+-- does — what a service is amounts to a URL and a dialect, and both are code.
+--
+-- Not in settings either. A collection has one set of ignored articles and one
+-- scan hour; listens belong to whoever listened, and two people sharing a server
+-- do not share a scrobbling account.
+CREATE TABLE scrobblers (
+    user_id     INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- Which service, as the name the API uses: 'listenbrainz', 'koito'. Not a
+    -- foreign key for the same reason job_runs.job is not one.
+    service     TEXT    NOT NULL,
+    -- The root of the instance, without the path the protocol adds: what somebody
+    -- typed, or the official host for a service that has one. Kept even when the
+    -- service has a fixed address, so that a service moving is a row to update
+    -- rather than a release to wait for.
+    url         TEXT    NOT NULL,
+    -- In clear, unavoidably: it is a bearer token and it has to be sent, so there
+    -- is nothing a hash could be checked against. Everything else secret in this
+    -- schema is hashed precisely because it never has to be replayed — a password
+    -- and an API key are checked, not presented — and the difference is worth
+    -- writing down here rather than looking like an oversight.
+    --
+    -- Which means a stolen database hands over these, and nothing else. It is one
+    -- more reason the panel never sends a token back out once it is stored.
+    token       TEXT    NOT NULL,
+    -- What the service says the account is called, from the check made when the
+    -- token was saved. Null when it could not be asked — a machine that was off,
+    -- or a service with nothing to ask — which is not the same as a token known
+    -- to be wrong: that one is refused and never gets a row.
+    remote_name TEXT,
+    -- Off keeps the queue and stops both the sending and the filling: what is
+    -- already waiting stays waiting, and nothing new is added. Removing the row is
+    -- the other thing, and it takes the queue with it.
+    enabled     INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL,
+    PRIMARY KEY (user_id, service)
+) WITHOUT ROWID;
+
+-- Listens waiting to be handed over.
+--
+-- A row per listen per service, because the same song can be accepted by one and
+-- refused by the other, and a single row with two half states would have to be
+-- read as two rows anyway.
+--
+-- **It holds the song and not a reference to it.** A queued listen names no
+-- track_id: what is written down is what the song was at the moment it was
+-- listened to. Otherwise a purge — or a library removed, or a file retagged —
+-- would rewrite or destroy what somebody heard yesterday and has not managed to
+-- send yet, and a listen that arrives at ListenBrainz as a different song is
+-- worse than one that never arrives.
+--
+-- Named columns rather than the JSON that will be sent, for the reason settings
+-- has columns: the queue is data about listening, not bytes of one protocol. It
+-- survives a fix to the wire format, it can be shown to somebody as "3 waiting,
+-- oldest from Tuesday", and the second protocol to come along reads the same
+-- rows.
+CREATE TABLE scrobble_queue (
+    id             INTEGER PRIMARY KEY,
+    user_id        INTEGER NOT NULL,
+    service        TEXT    NOT NULL,
+    -- When it was heard, as everything else here is written. The wire wants a
+    -- unix timestamp and gets one at the last moment; storing that instead would
+    -- make this the one date in the schema nobody can read.
+    played_at      TEXT    NOT NULL,
+    -- The two the far end insists on. A song with no artist at all is never
+    -- queued: there is nothing to submit, and inventing "Unknown Artist" would
+    -- put a listen in somebody's history against a band that does not exist.
+    title          TEXT    NOT NULL,
+    artist         TEXT    NOT NULL,
+    album          TEXT,
+    -- Everything that helps the far end match it to the right recording rather
+    -- than to a song of the same name. All optional, all as they were tagged.
+    mbid_recording TEXT,
+    mbid_release   TEXT,
+    mbid_artist    TEXT,
+    isrc           TEXT,
+    track_number   INTEGER,
+    duration_ms    INTEGER,
+    -- How many times it has been offered and not accepted. Kept so that the wait
+    -- can grow with it, and so that the panel can say something is stuck instead
+    -- of only that it is waiting.
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    -- Not before this. Set to now when it is queued, and pushed further out after
+    -- every failure; a service that is down for a day is asked a handful of times
+    -- rather than every minute of it.
+    next_try_at    TEXT    NOT NULL,
+    -- Why the last attempt failed, for somebody looking at why nothing is moving.
+    -- A wrong token and a machine that is off read very differently.
+    last_error     TEXT,
+    created_at     TEXT    NOT NULL,
+    -- Composite, so that removing a service takes its unsent listens with it: a
+    -- queue for a destination nobody is configured to reach is a queue nothing
+    -- will ever drain.
+    FOREIGN KEY (user_id, service) REFERENCES scrobblers (user_id, service)
+        ON DELETE CASCADE
+);
+
+-- The one question the sender asks: what is due. Ordered by when it is due and
+-- then by when it happened, so a backlog is handed over oldest first.
+CREATE INDEX scrobble_queue_due_idx ON scrobble_queue (next_try_at, played_at);
+
+-- And the one the panel asks: how much of mine is waiting.
+CREATE INDEX scrobble_queue_whose_idx ON scrobble_queue (user_id, service);

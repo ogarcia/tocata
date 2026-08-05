@@ -141,6 +141,86 @@ pub struct PreferenceChanges {
     pub accent: Option<Option<String>>,
 }
 
+/// Where somebody's listens are being sent, and how that is going.
+///
+/// No token, ever, in either direction of this shape. A token is written and never
+/// read back: what a screen needs to know is whether there is one, which the row
+/// existing already says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Scrobbler {
+    /// Which service, as the server names it.
+    #[schema(example = "listenbrainz")]
+    pub service: String,
+    /// And as a person names it, so a screen has something to print without
+    /// keeping its own list of proper nouns.
+    #[schema(example = "ListenBrainz")]
+    pub shown: String,
+    /// Where it is being sent, as it was given.
+    #[schema(example = "https://api.listenbrainz.org")]
+    pub url: String,
+    /// What the service said the account is called, if it was asked and answered.
+    #[schema(example = "ogarcia")]
+    pub remote_name: Option<String>,
+    pub enabled: bool,
+    /// Listens written down and not yet accepted. Nought is the ordinary answer.
+    pub waiting: i64,
+    /// When the oldest of them was heard, which is what makes "3 waiting" mean
+    /// something: three from this morning is a service being slow, three from last
+    /// week is a service that needs looking at.
+    pub oldest: Option<String>,
+    /// Why the last attempt did not work, if it did not.
+    pub last_error: Option<String>,
+}
+
+/// A service listens can be sent to, whether or not anybody is sending to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Offered {
+    #[schema(example = "koito")]
+    pub service: String,
+    #[schema(example = "Koito")]
+    pub shown: String,
+    /// The address, for the one service that has an address everybody uses.
+    /// Nothing means it runs on somebody's own machine and they have to say where.
+    #[schema(example = "https://api.listenbrainz.org")]
+    pub url: Option<String>,
+}
+
+/// What the listening screen is made of: what is set up, and what could be.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Scrobbling {
+    pub scrobblers: Vec<Scrobbler>,
+    /// Every service there is, in the order to offer them. Sent from here rather
+    /// than kept in the panel so that adding one is a line in the server.
+    pub offered: Vec<Offered>,
+}
+
+/// Whether to keep sending. The only thing about a destination that can be changed
+/// without giving the token again, because it is the only one that does not touch
+/// the network.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Switch {
+    pub enabled: bool,
+}
+
+/// Where to send listens, and what opens the account there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NewScrobbler {
+    /// Required for a service that runs on somebody's own machine, and ignored for
+    /// one that has an address of its own.
+    #[schema(example = "http://kitchen.lan:4110")]
+    pub url: Option<String>,
+    /// The token from the service's own settings. Stored and never sent back.
+    pub token: String,
+    /// Whether to start sending at once. Absent is yes: somebody who has just
+    /// typed a token in means to use it.
+    pub enabled: Option<bool>,
+}
+
 /// A session as the panel can talk about it, which is to say without the token.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

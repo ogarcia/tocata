@@ -8,7 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tocata::config::Config;
 use tocata::state::AppState;
-use tocata::{api, attempts, db, panel, resources, scanner, settings, subsonic, upkeep, user};
+use tocata::{
+    api, attempts, db, net, panel, resources, scanner, scrobble, settings, subsonic, upkeep, user,
+};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{oneshot, watch};
@@ -63,6 +65,7 @@ async fn main() -> Result<()> {
         attempts: Arc::new(attempts::Attempts::new()),
         config: config.clone(),
         meter: Arc::new(meter),
+        net: net::Net::new(),
         shutdown: is_stopping,
     };
 
@@ -87,6 +90,14 @@ async fn main() -> Result<()> {
     }
 
     tokio::spawn(upkeep::on_schedule(state.clone()));
+
+    // Nothing to cancel and nothing to wait for on the way out: it holds a
+    // connection only while a request of its own is in flight, and a listen it did
+    // not manage to hand over is still in the queue for the next start.
+    tokio::spawn(scrobble::sending::as_they_come(
+        state.net.clone(),
+        pool.clone(),
+    ));
 
     let mut interrupt =
         signal(SignalKind::interrupt()).context("installing the interrupt handler")?;

@@ -5,6 +5,7 @@
 
 use crate::attempts::Attempts;
 use crate::config::Config;
+use crate::net::Net;
 use crate::resources::Meter;
 use crate::scanner::Progress;
 use axum::extract::FromRef;
@@ -24,6 +25,10 @@ pub struct AppState {
     /// Who has been getting their password wrong lately. Shared because it is
     /// the whole point: a count kept per request would count to one for ever.
     pub attempts: Arc<Attempts>,
+    /// For reaching somebody else's server, which today means passing listens on.
+    /// Shared for the connection pool inside it: one kept per request would open
+    /// a fresh connection, and a fresh TLS handshake, for every song.
+    pub net: Net,
     /// Turns true once, when the server has been asked to stop. Handlers that
     /// hold a connection open for as long as the client wants it — the event
     /// stream — have to watch this, or every shutdown would wait out the whole
@@ -60,6 +65,12 @@ impl FromRef<AppState> for Arc<Meter> {
 impl FromRef<AppState> for Arc<Attempts> {
     fn from_ref(state: &AppState) -> Self {
         state.attempts.clone()
+    }
+}
+
+impl FromRef<AppState> for Net {
+    fn from_ref(state: &AppState) -> Self {
+        state.net.clone()
     }
 }
 

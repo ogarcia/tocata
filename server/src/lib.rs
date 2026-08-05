@@ -146,6 +146,8 @@ pub mod lyrics;
 #[cfg(feature = "server")]
 pub mod media;
 #[cfg(feature = "server")]
+pub mod net;
+#[cfg(feature = "server")]
 pub mod panel;
 #[cfg(feature = "server")]
 pub mod plays;
@@ -155,6 +157,8 @@ pub mod purge;
 pub mod resources;
 #[cfg(feature = "server")]
 pub mod scanner;
+#[cfg(feature = "server")]
+pub mod scrobble;
 #[cfg(feature = "server")]
 pub mod search;
 #[cfg(feature = "server")]

@@ -10,6 +10,7 @@ use super::auth::Authenticated;
 use super::error::ApiError;
 use super::response::{self, Empty, Repeated};
 use crate::db;
+use crate::net::Net;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -105,6 +106,7 @@ pub async fn set_rating(
 pub async fn scrobble(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
+    State(net): State<Net>,
     Repeated(query): Repeated<ScrobbleQuery>,
 ) -> Response {
     if query.id.is_empty() {
@@ -117,25 +119,41 @@ pub async fn scrobble(
     let submission = query.submission.unwrap_or(true);
 
     for (index, id) in query.id.iter().enumerate() {
-        let outcome = if submission {
+        if submission {
             let played_at = query
                 .time
                 .get(index)
                 .map(|millis| db::from_epoch_millis(*millis))
                 .unwrap_or_else(db::now);
 
-            crate::plays::record_play(&pool, auth.user.id, id, &played_at).await
+            // Which queues it for whoever this person scrobbles to, as part of
+            // counting it. Every play goes through there.
+            if let Err(e) = crate::plays::record_play(&pool, auth.user.id, id, &played_at).await {
+                return internal(e, auth.format, "scrobbling");
+            }
         } else {
             // An announcement is about now, whatever time came with it. A play can
             // be handed over late and keep the time it happened, but "now playing"
             // is a claim about the present, and it is the one the window that
             // forgets it is measured from: a client that named a time of its own
             // could otherwise arrange to be playing something for ever.
-            record_now_playing(&pool, auth.user.id, &auth.client, id, &db::now()).await
-        };
+            match record_now_playing(&pool, auth.user.id, &auth.client, id, &db::now()).await {
+                // Sent from a task of its own, unlike a play, which only ever
+                // writes a row here. This one does go out over the wire, and what
+                // the client is waiting for is an acknowledgement of its own
+                // announcement rather than a round trip through somebody else's
+                // server — which may be a machine that is off.
+                Ok(Some(track_id)) => {
+                    let (net, pool, user_id) = (net.clone(), pool.clone(), auth.user.id);
 
-        if let Err(e) = outcome {
-            return internal(e, auth.format, "scrobbling");
+                    tokio::spawn(async move {
+                        crate::scrobble::announce(&net, &pool, user_id, track_id).await;
+                    });
+                }
+                // Nothing to announce, which is what an unknown id comes to.
+                Ok(None) => {}
+                Err(e) => return internal(e, auth.format, "scrobbling"),
+            }
         }
     }
 
@@ -308,20 +326,24 @@ async fn write_rating(
 ///
 /// What is written here expires on its own once the song could no longer be
 /// playing, so an announcement nobody ever follows up on stops being one.
+///
+/// Answers with the track it wrote down, so that whoever called can pass the same
+/// announcement on to a scrobbling service. Nothing is sent from in here: this is
+/// a database write that a client is waiting on.
 async fn record_now_playing(
     pool: &SqlitePool,
     user_id: i64,
     client: &str,
     public_id: &str,
     started_at: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<Option<i64>, sqlx::Error> {
     let Some(track_id): Option<i64> =
         sqlx::query_scalar("SELECT id FROM tracks WHERE public_id = ?")
             .bind(public_id)
             .fetch_optional(pool)
             .await?
     else {
-        return Ok(());
+        return Ok(None);
     };
 
     // Keyed by user and client, so the same person listening on their phone and
@@ -360,7 +382,7 @@ async fn record_now_playing(
     .execute(pool)
     .await?;
 
-    Ok(())
+    Ok(Some(track_id))
 }
 
 /// Finds what an opaque id refers to, trying each table in turn.
