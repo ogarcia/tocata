@@ -128,16 +128,26 @@ LABEL org.opencontainers.image.title="Tocata" \
 COPY --from=binary --chmod=0755 /out/tocata /usr/local/bin/tocata
 
 # Never root. The id is 1000 because that is the first one a Linux desktop hands
-# out, so a bind mounted music directory usually belongs to it already; anything
-# else is what --user is for. Both mount points exist in the image so that a
-# container started without them still has somewhere to look.
+# out, so a bind mounted media directory usually belongs to it already; anything
+# else is what --user is for.
+#
+# /media rather than /music because what belongs in it is whatever this server can
+# play, and a recorded talk or an audiobook is not music. Both mount points exist
+# in the image so that a container started without them has somewhere to put them,
+# and only /data changes hands: nothing here ever writes to the collection, so
+# mounting /media read only is a thing that works rather than a thing that breaks.
 RUN addgroup -g 1000 tocata \
  && adduser -D -H -G tocata -u 1000 tocata \
- && mkdir -p /data /music \
+ && mkdir -p /data /media \
  && chown tocata:tocata /data
 
+# No TOCATA_LIBRARY_PATHS, though it still works and still runs on every start.
+# Naming /media here would look like a convenience while quietly deciding, for
+# everybody, that the whole mount is one collection — and somebody who keeps their
+# music beside their audiobooks wants two, with different people reaching each.
+# What collections there are is the first thing the panel asks for, and the answer
+# outlives a restart because it is a row rather than an environment variable.
 ENV TOCATA_DATA_DIR=/data \
-    TOCATA_LIBRARY_PATHS=/music \
     TOCATA_PORT=4224
 
 # No VOLUME for /data. It would look like protection for the database while
