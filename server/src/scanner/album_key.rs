@@ -76,6 +76,36 @@ impl AlbumKey {
 
         Some(Self::Tagged { artist, name, date })
     }
+
+    /// Who signs the record, which is not always who the tag says.
+    ///
+    /// An artist and no album artist is the ordinary shape of a hand-tagged
+    /// album, and reading it strictly leaves the record signed by nobody: a dash
+    /// where a listing says who made it, an empty album artist for the clients
+    /// that browse by it, and — since the listing sorts on that name — every such
+    /// record piled together at the top under no name at all.
+    ///
+    /// So the credit falls back exactly where the grouping above already fell
+    /// back, and that condition is what makes it safe rather than a guess: a
+    /// `Tagged` key with no album artist *was built from* the track artists, so
+    /// every track on that record carries the same set of them — a different set
+    /// is a different key and a different album. The credit cannot grow a name
+    /// per track, because there is only one set to grow from.
+    ///
+    /// A compilation gets nothing, and neither does a record grouped by its
+    /// release id. Those two group without regard to artist on purpose, so their
+    /// tracks may well be by different people, and there the fallback would
+    /// credit the record to whoever happened to be on it.
+    pub fn credited<'m>(&self, metadata: &'m Metadata) -> &'m [String] {
+        if !metadata.album_artists.is_empty() {
+            return &metadata.album_artists;
+        }
+
+        match self {
+            Self::Tagged { .. } => &metadata.artists,
+            Self::Compilation { .. } | Self::Release(_) => &[],
+        }
+    }
 }
 
 /// True for anything that should be grouped without regard to artist.
@@ -216,6 +246,51 @@ mod tests {
 
         loose.album = Some("   ".into());
         assert_eq!(AlbumKey::of(&loose), None);
+    }
+
+    #[test]
+    fn a_record_with_no_album_artist_is_credited_to_its_artists() {
+        let hand_tagged = metadata("Greatest Hits", &["Queen"], &[]);
+        let key = AlbumKey::of(&hand_tagged).unwrap();
+
+        assert_eq!(
+            key.credited(&hand_tagged),
+            ["Queen".to_string()],
+            "the one name the file does carry signs the record"
+        );
+    }
+
+    #[test]
+    fn a_tagged_album_artist_is_the_credit() {
+        let both = metadata("Watch the Throne", &["Jay-Z"], &["Jay-Z", "Kanye West"]);
+        let key = AlbumKey::of(&both).unwrap();
+
+        assert_eq!(
+            key.credited(&both),
+            ["Jay-Z".to_string(), "Kanye West".to_string()],
+            "tagged as it was tagged, and in the order it was tagged"
+        );
+    }
+
+    /// The two keys that group without regard to artist get no credit at all: the
+    /// tracks on them may be by anybody, so the first one through the scanner
+    /// would end up signing a record it does not own.
+    #[test]
+    fn a_compilation_is_credited_to_nobody() {
+        let mut collected = metadata("Hits 96", &["Björk"], &[]);
+        collected.is_compilation = true;
+        let key = AlbumKey::of(&collected).unwrap();
+
+        assert!(key.credited(&collected).is_empty());
+    }
+
+    #[test]
+    fn a_record_grouped_by_its_release_id_is_credited_to_nobody() {
+        let mut released = metadata("Hits 96", &["Björk"], &[]);
+        released.mbid_release = Some("abc-123".into());
+        let key = AlbumKey::of(&released).unwrap();
+
+        assert!(key.credited(&released).is_empty());
     }
 
     #[test]

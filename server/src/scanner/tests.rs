@@ -496,6 +496,57 @@ async fn two_tagged_years_remain_two_albums() {
     assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 2);
 }
 
+/// The shape most hand-tagged music arrives in: an artist on every track and no
+/// album artist anywhere. The record used to come out signed by nobody, which a
+/// listing has nothing to print for and sorts under no name at all.
+#[tokio::test]
+async fn an_album_with_no_album_artist_is_credited_to_its_artist() {
+    let root = temp_root("no-album-artist");
+    let one = root.join("Album/01.wav");
+    let two = root.join("Album/02.wav");
+    write_wav(&one);
+    write_wav(&two);
+
+    for path in [&one, &two] {
+        tag(
+            path,
+            &[
+                ("album", "Selected Ambient Works"),
+                ("artist", "Aphex Twin"),
+            ],
+        );
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    let credited: Vec<String> = sqlx::query_scalar(
+        "SELECT ar.name FROM album_artists aa
+           JOIN artists ar ON ar.id = aa.artist_id
+          WHERE aa.role = 'albumartist'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    // One row and not two: both tracks credit the same name, and the record is
+    // signed once however many tracks arrive saying so.
+    assert_eq!(
+        credited,
+        ["Aphex Twin".to_string()],
+        "the name on the files signs the record"
+    );
+
+    // And it can be found by that name, which is the other half of a credit.
+    let found = count(
+        &pool,
+        "SELECT count(*) FROM albums_fts WHERE albums_fts MATCH 'Aphex'",
+    )
+    .await;
+    assert_eq!(found, 1, "the record answers to who made it");
+}
+
 #[tokio::test]
 async fn an_interrupted_scan_writes_nothing() {
     let root = temp_root("interrupted");

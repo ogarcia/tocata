@@ -656,8 +656,15 @@ impl State {
 
         let metadata = metadata.map(|m| *m).unwrap_or_default();
 
-        let album_id = match AlbumKey::of(&metadata) {
-            Some(key) => Some(self.album_id(tx, key, &metadata).await?),
+        // The key is kept beside the record it found rather than consumed: it
+        // decides which record this is, and it also decides who that record is
+        // credited to — see `AlbumKey::credited`. Kept as one value because there
+        // is no such thing as a record without a key or a key without a record.
+        let album = match AlbumKey::of(&metadata) {
+            Some(key) => {
+                let id = self.album_id(tx, &key, &metadata).await?;
+                Some((id, key))
+            }
             None => None,
         };
 
@@ -707,7 +714,7 @@ impl State {
         .bind(db::public_id()?)
         .bind(self.library_id)
         .bind(folder_id)
-        .bind(album_id)
+        .bind(album.as_ref().map(|(id, _)| *id))
         .bind(self.relative(path))
         .bind(size as i64)
         .bind(epoch_to_iso8601(modified))
@@ -743,8 +750,8 @@ impl State {
         self.link_track(tx, track_id, &metadata).await?;
         self.index_track(tx, track_id, &title, &metadata).await?;
 
-        if let Some(album_id) = album_id {
-            self.link_album(tx, album_id, &metadata).await?;
+        if let Some((album_id, key)) = &album {
+            self.link_album(tx, *album_id, key, &metadata).await?;
         }
 
         Ok(())
@@ -992,9 +999,10 @@ impl State {
         &mut self,
         tx: &mut Transaction<'_, Sqlite>,
         album_id: i64,
+        key: &AlbumKey,
         metadata: &Metadata,
     ) -> Result<()> {
-        for (position, name) in metadata.album_artists.iter().enumerate() {
+        for (position, name) in key.credited(metadata).iter().enumerate() {
             let artist_id = self.artist_id(tx, name).await?;
             sqlx::query(
                 "INSERT INTO album_artists (album_id, artist_id, role, position)
@@ -1105,10 +1113,10 @@ impl State {
     async fn album_id(
         &mut self,
         tx: &mut Transaction<'_, Sqlite>,
-        key: AlbumKey,
+        key: &AlbumKey,
         metadata: &Metadata,
     ) -> Result<i64> {
-        if let Some(id) = self.albums.get(&key) {
+        if let Some(id) = self.albums.get(key) {
             let id = *id;
             return Ok(id);
         }
@@ -1193,7 +1201,10 @@ impl State {
         sqlx::query("INSERT INTO albums_fts (rowid, name, artists) VALUES (?, ?, ?)")
             .bind(id)
             .bind(&name)
-            .bind(metadata.album_artists.join(" "))
+            // Whoever the record is credited to, which for an album with no album
+            // artist tagged is its track artists — otherwise searching an album by
+            // the one name written on it would not find it.
+            .bind(key.credited(metadata).join(" "))
             .execute(&mut **tx)
             .await
             .context("indexing an album")?;
@@ -1205,7 +1216,7 @@ impl State {
                 .push((date.map(str::to_string), id));
         }
 
-        self.albums.insert(key, id);
+        self.albums.insert(key.clone(), id);
         Ok(id)
     }
 }
