@@ -674,3 +674,34 @@ common:
   loading: Loading…
   not_yet: Not built yet
   nothing_here: This section has a place in the panel and nothing in it yet.
+
+# Where listens are passed on to, inside the profile's "Listening" block. Its own
+# vocabulary rather than `keys`, though both ask for a secret: a key is one we give
+# out and this is one somebody was given elsewhere.
+listens:
+  destinations: "Where they go"
+  lead: "Besides counting them here, Tocata can pass what you listen to on to a scrobbling service. You can send to more than one."
+  none: "You are not sending your listens anywhere."
+  add: "Add"
+  actions: "Actions"
+  at: "Send to %{name}"
+  sheet_lead: "The token is in your account's settings on the service. It is stored here and never shown again."
+  service: "Service"
+  address: "Address"
+  address_hint: "The root of your instance, with nothing after it."
+  insecure: "Not encrypted: the token will travel in clear over the network."
+  token: "Token"
+  token_hint: "We check it with the service before storing it."
+  checking: "Checking…"
+  refused: "The service says that token is no good."
+  unchecked: "Stored, but the token could not be checked: the service is not answering. Listens will go as soon as it does."
+  as: "as %{name}"
+  paused: "paused"
+  pause: "Pause"
+  resume: "Resume"
+  change_token: "Change the token"
+  remove: "Remove"
+  # The line under the name when something is waiting. Two keys because rust-i18n
+  # interpolates and does not pluralise.
+  waiting_one: "1 listen waiting, since %{when}"
+  waiting_many: "%{count} listens waiting, since %{when}"

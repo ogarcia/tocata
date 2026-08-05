@@ -3078,6 +3078,12 @@ button:disabled { opacity: 0.6; cursor: default; }
  * class saying "the later one". */
 .saving + .part { margin-top: 2.75rem; }
 
+/* Where the listens go, under the switch that governs them. The same air as between
+ * any two blocks of a screen, and a word of its own rather than `form + .parted`,
+ * which would reach every form on the panel that happens to be followed by a heading
+ * with an action on its line. */
+.whither { margin-top: 2.75rem; }
+
 /* The form and the rail beside it, and neither of them a column of a grid: the two
  * ask for widths and the row gives what it can. Below about nine hundred pixels of
  * content the rail cannot have its 260 and wraps under the form on its own, which is

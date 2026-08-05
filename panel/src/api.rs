@@ -301,6 +301,40 @@ pub async fn close_sessions(username: &str) -> Result<Closed, Failure> {
     read(delete(&format!("/users/{username}/sessions"))?).await
 }
 
+/// Where your listens go, and every service they could go to. Not per username
+/// like the calls above it: there is no administering somebody else's scrobbling,
+/// so this one is always about whoever is asking.
+pub async fn scrobblers() -> Result<tocata::types::Scrobbling, Failure> {
+    read(get("/scrobblers")?).await
+}
+
+/// Sets one up, or replaces what was there. The server asks the service whether
+/// the token is any good before storing it, so this is the call that can come back
+/// `tokenRefused`.
+pub async fn set_scrobbler(
+    service: &str,
+    new: tocata::types::NewScrobbler,
+) -> Result<tocata::types::Scrobbler, Failure> {
+    read(put(&format!("/scrobblers/{service}"), &new)?).await
+}
+
+/// Starts or stops sending, keeping the token and whatever is waiting.
+pub async fn switch_scrobbler(
+    service: &str,
+    enabled: bool,
+) -> Result<tocata::types::Scrobbler, Failure> {
+    read(patch(
+        &format!("/scrobblers/{service}"),
+        &tocata::types::Switch { enabled },
+    )?)
+    .await
+}
+
+/// Forgets it, and drops what was waiting for it.
+pub async fn remove_scrobbler(service: &str) -> Result<(), Failure> {
+    plain(delete(&format!("/scrobblers/{service}"))?).await
+}
+
 /// Every maintenance job, what each would do right now, and what has been run
 /// lately. One call, because the screen wants all of it at once.
 pub async fn jobs() -> Result<tocata::types::Maintenance, Failure> {

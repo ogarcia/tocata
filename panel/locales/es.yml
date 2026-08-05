@@ -670,3 +670,34 @@ common:
   loading: Cargando…
   not_yet: Todavía sin construir
   nothing_here: Esta sección tiene su sitio en el panel y nada dentro todavía.
+
+# Dónde se pasan las escuchas, dentro del bloque «Escuchas» del perfil. Vocabulario
+# propio y no compartido con `keys`, aunque las dos pantallas pidan un secreto: una
+# clave la damos nosotros y este token nos lo dan, y quien lo pega viene de otra web.
+listens:
+  destinations: "Dónde se envían"
+  lead: "Además de contarlas aquí, Tocata puede pasar lo que escuchas a un servicio de scrobbling. Puedes enviarlas a más de uno."
+  none: "No estás enviando tus escuchas a ningún sitio."
+  add: "Añadir"
+  actions: "Acciones"
+  at: "Enviar a %{name}"
+  sheet_lead: "El token lo encuentras en los ajustes de tu cuenta del servicio. Se guarda aquí y no se vuelve a mostrar."
+  service: "Servicio"
+  address: "Dirección"
+  address_hint: "La raíz de tu instancia, sin nada detrás."
+  insecure: "Sin cifrar: el token viajará en claro por la red."
+  token: "Token"
+  token_hint: "Lo comprobamos con el servicio antes de guardarlo."
+  checking: "Comprobando…"
+  refused: "El servicio dice que ese token no vale."
+  unchecked: "Guardado, pero no se ha podido comprobar el token: el servicio no responde. Se enviará en cuanto vuelva."
+  as: "como %{name}"
+  paused: "en pausa"
+  pause: "Pausar"
+  resume: "Reanudar"
+  change_token: "Cambiar el token"
+  remove: "Quitar"
+  # La línea bajo el nombre cuando hay algo esperando. Dos claves porque rust-i18n
+  # interpola pero no pluraliza.
+  waiting_one: "1 escucha esperando, desde %{when}"
+  waiting_many: "%{count} escuchas esperando, desde %{when}"

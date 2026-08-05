@@ -128,7 +128,7 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
                         // does.
                         <div class="forms">
                             <Yourself account=account.clone() save />
-                            <Listening account=account.clone() save />
+                            <Listening account=account.clone() save on_expired />
                         </div>
 
                         <Rail account on_expired />
@@ -429,11 +429,19 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
 
 /// What the server does with what you play.
 ///
-/// Its own pane because nothing in it is worth guarding, and because it is where
-/// scrobbling to a service will go when there is one: the switch and the service it
-/// hands plays to belong together, and neither is a credential.
+/// Its own pane because nothing in it is worth guarding: a token for a music website
+/// is not a credential to this server, and getting one wrong costs a wrong
+/// destination rather than an account.
+///
+/// The switch and the destinations are one block on purpose. The switch is the older
+/// half — OpenSubsonic has always carried it — and on its own it was a promise
+/// nothing kept: it now means "pass my listens on", and what is under it is where to.
 #[component]
-fn Listening(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
+fn Listening(
+    account: Account,
+    save: Callback<AccountChanges>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
     let (scrobbling, set_scrobbling) = signal(account.scrobbling);
 
     let submit = move |event: web_sys::SubmitEvent| {
@@ -472,6 +480,492 @@ fn Listening(account: Account, save: Callback<AccountChanges>) -> impl IntoView 
                 <button type="submit" class="pill solid">{t!("common.save")}</button>
             </div>
         </form>
+
+        // Under the switch and outside its form: these save themselves as they are
+        // pressed, and one Save for both would mean a token being sent because
+        // somebody ticked a box.
+        <Destinations on_expired />
+    }
+}
+
+/// Where the listens are passed on to, and what is waiting to go.
+///
+/// The catalogue of services comes from the server rather than from here, so a
+/// service added there appears here without this file knowing its name. What this
+/// knows is the shape: a name, an address for the ones that run on your own machine,
+/// and a token.
+#[component]
+fn Destinations(on_expired: Callback<()>) -> impl IntoView {
+    let (sending, set_sending) = signal(Option::<tocata::types::Scrobbling>::None);
+    let (failure, set_failure) = signal(Option::<String>::None);
+    let (unchecked, set_unchecked) = signal(false);
+    let (busy, set_busy) = signal(false);
+    // What the sheet is configuring, or nothing when it is shut.
+    let asking = RwSignal::new(Option::<Asked>::None);
+
+    let load = move || {
+        spawn_local(async move {
+            match api::scrobblers().await {
+                Ok(found) => set_sending.set(Some(found)),
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => set_failure.set(Some(said(&why))),
+            }
+        });
+    };
+
+    load();
+
+    let act = Callback::new(move |(what, service): (Doing, String)| {
+        set_busy.set(true);
+        set_failure.set(None);
+        set_unchecked.set(false);
+
+        spawn_local(async move {
+            let outcome = match what {
+                Doing::Pause => api::switch_scrobbler(&service, false).await.map(|_| ()),
+                Doing::Resume => api::switch_scrobbler(&service, true).await.map(|_| ()),
+                Doing::Remove => api::remove_scrobbler(&service).await,
+            };
+
+            match outcome {
+                Ok(()) => load(),
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => set_failure.set(Some(said(&why))),
+            }
+            set_busy.set(false);
+        });
+    });
+
+    // What could still be added: everything not already set up. With all of them set
+    // up there is nothing to add, and the button says so by not being there.
+    let spare = move || {
+        sending.get().map(|sending| {
+            sending
+                .offered
+                .into_iter()
+                .filter(|offer| {
+                    !sending
+                        .scrobblers
+                        .iter()
+                        .any(|one| one.service == offer.service)
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+
+    view! {
+        <div class="parted whither">
+            <h3 class="part">{t!("listens.destinations")}</h3>
+            {move || {
+                spare()
+                    .filter(|spare| !spare.is_empty())
+                    .map(|spare| {
+                        // Opens on the first one still free; the sheet has the list, so
+                        // choosing another is one field rather than another menu here.
+                        let first = spare[0].clone();
+                        view! {
+                            <button
+                                class="offer"
+                                on:click=move |_| {
+                                    asking.set(Some(Asked::adding(&first)));
+                                }
+                            >
+                                <Glyph icon=Icon::Add />
+                                {t!("listens.add")}
+                            </button>
+                        }
+                    })
+            }}
+        </div>
+        <p class="hint quiet">{t!("listens.lead")}</p>
+
+        {move || match sending.get() {
+            None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
+            Some(sending) if sending.scrobblers.is_empty() => {
+                view! { <p class="nothing">{t!("listens.none")}</p> }.into_any()
+            }
+            Some(sending) => {
+                view! {
+                    <ul class="ways">
+                        {sending
+                            .scrobblers
+                            .into_iter()
+                            .map(|one| view! { <Destination one act busy asking /> })
+                            .collect_view()}
+                    </ul>
+                }
+                    .into_any()
+            }
+        }}
+
+        {move || {
+            unchecked.get().then(|| view! { <p class="note">{t!("listens.unchecked")}</p> })
+        }}
+        {move || failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })}
+
+        <NewDestinationSheet
+            asking
+            spare=Signal::derive(move || spare().unwrap_or_default())
+            catalogue=Signal::derive(move || {
+                sending.get().map(|sending| sending.offered).unwrap_or_default()
+            })
+            on_saved=Callback::new(move |named: bool| {
+                set_unchecked.set(!named);
+                load();
+            })
+            on_expired
+        />
+    }
+}
+
+/// What can be done to a destination from its own row.
+#[derive(Clone, Copy)]
+enum Doing {
+    Pause,
+    Resume,
+    Remove,
+}
+
+/// What the sheet was opened to do.
+///
+/// Two cases that look alike and are not: adding one, where the service is still to
+/// be chosen from what is left, and changing the token of one that exists, where it
+/// is settled and its address is already known. The same call underneath — the server
+/// takes a destination and replaces whatever was there — and two different things to
+/// have in front of you.
+#[derive(Clone)]
+struct Asked {
+    service: String,
+    /// The address to start with, which is only ever what a self hosted destination
+    /// already had. Empty for anything being added.
+    url: String,
+    /// Whether this destination is already set up, which is what decides between
+    /// choosing a service and being told which one.
+    existing: bool,
+}
+
+impl Asked {
+    fn adding(offer: &tocata::types::Offered) -> Self {
+        Self {
+            service: offer.service.clone(),
+            url: String::new(),
+            existing: false,
+        }
+    }
+
+    fn changing(one: &tocata::types::Scrobbler) -> Self {
+        Self {
+            service: one.service.clone(),
+            url: one.url.clone(),
+            existing: true,
+        }
+    }
+}
+
+/// One destination: what it is, how it is going, and the three things that can be
+/// done to it.
+///
+/// The same shape as a key's row, because it is the same kind of thing: a name with
+/// one line under it and its actions behind the dots. No glyph, which is what keeps
+/// this list from looking like that one.
+#[component]
+fn Destination(
+    one: tocata::types::Scrobbler,
+    act: Callback<(Doing, String)>,
+    busy: ReadSignal<bool>,
+    asking: RwSignal<Option<Asked>>,
+) -> impl IntoView {
+    let enabled = one.enabled;
+    let service = StoredValue::new(one.service.clone());
+    // Held rather than captured: the menu item's handler is called more than once,
+    // and a closure that moved this out of scope would only be good for one press.
+    let again = StoredValue::new(Asked::changing(&one));
+
+    // The line under the name, joined out of what is worth knowing: which account it
+    // is over there, where it is, and what is waiting. Whichever of the three there
+    // is — a hosted service at its one address adds nothing by saying so.
+    let line = {
+        let mut said = Vec::new();
+
+        // Not a tag beside the name: `.tag` is the ink of something wrong, and being
+        // signed in as somebody is the opposite of that.
+        if let Some(name) = one.remote_name.as_deref() {
+            said.push(t!("listens.as", name = name).to_string());
+        }
+
+        // Always, hosted or not. It is where somebody's listening is going, and the
+        // rule that would hide it for the one service with a fixed address is a rule
+        // that has to know which service that is.
+        said.push(one.url.clone());
+
+        match (one.waiting, one.oldest.as_deref()) {
+            (0, _) => {}
+            (1, Some(oldest)) => {
+                said.push(t!("listens.waiting_one", when = when(oldest)).to_string())
+            }
+            (waiting, Some(oldest)) => said
+                .push(t!("listens.waiting_many", count = waiting, when = when(oldest)).to_string()),
+            // A count with nothing to date it by cannot happen — every queued listen
+            // carries the moment it was heard — so this says the count and nothing
+            // about when, rather than inventing a date to say it with.
+            (waiting, None) => said.push(waiting.to_string()),
+        }
+
+        said.join(" · ")
+    };
+
+    // Only when something is actually stuck. A destination that is merely behind is
+    // going to catch up on its own, and the reason it gave last time would read as a
+    // problem where there is none.
+    let stuck = (!enabled || one.waiting > 0)
+        .then_some(one.last_error)
+        .flatten();
+
+    view! {
+        <li class:off=move || !enabled>
+            <span class="what">
+                {one.shown}
+                {(!enabled).then(|| view! { <span class="tag">{t!("listens.paused")}</span> })}
+            </span>
+
+            <span class="doing">
+                <Dots title=t!("listens.actions").to_string() disabled=busy>
+                    <button class="menu-item" on:click=move |_| asking.set(Some(again.get_value()))>
+                        <Glyph icon=Icon::Rotate />
+                        {t!("listens.change_token")}
+                    </button>
+                    <button
+                        class="menu-item"
+                        on:click=move |_| {
+                            act.run((
+                                if enabled { Doing::Pause } else { Doing::Resume },
+                                service.get_value(),
+                            ))
+                        }
+                    >
+                        <Glyph icon=if enabled { Icon::Pause } else { Icon::Play } />
+                        {if enabled { t!("listens.pause") } else { t!("listens.resume") }}
+                    </button>
+                    <button
+                        class="menu-item"
+                        on:click=move |_| act.run((Doing::Remove, service.get_value()))
+                    >
+                        <Glyph icon=Icon::Remove />
+                        {t!("listens.remove")}
+                    </button>
+                </Dots>
+            </span>
+
+            <span class="said">{line}</span>
+            {stuck.map(|why| view! { <span class="said wrong">{why}</span> })}
+        </li>
+    }
+}
+
+/// Asks for an address and a token, and hands them over to be checked.
+///
+/// A sheet rather than a row of boxes in the column, for the reason issuing a key is
+/// one: what is being typed is a secret, from somewhere else, and it wants the whole
+/// width and the reader's whole attention for the one moment it is in front of them.
+#[component]
+fn NewDestinationSheet(
+    asking: RwSignal<Option<Asked>>,
+    spare: Signal<Vec<tocata::types::Offered>>,
+    catalogue: Signal<Vec<tocata::types::Offered>>,
+    on_saved: Callback<bool>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
+    let dialog: NodeRef<Dialog> = NodeRef::new();
+    // Which service this is about. Held apart from `asking` because it is the one
+    // thing in here somebody can change while it is open.
+    let chosen = RwSignal::new(String::new());
+    let (address, set_address) = signal(String::new());
+    let (token, set_token) = signal(String::new());
+    let (failure, set_failure) = signal(Option::<String>::None);
+    let (waiting, set_waiting) = signal(false);
+
+    // Opening fills the boxes from whatever it was opened on, so changing a token
+    // does not mean typing the address again — and closing empties them, because a
+    // token left in a field is a token still on the screen.
+    Effect::new(move |_| {
+        let Some(element) = dialog.get() else { return };
+
+        match asking.get() {
+            Some(asked) => {
+                set_failure.set(None);
+                set_token.set(String::new());
+                chosen.set(asked.service);
+                set_address.set(asked.url);
+                let _ = element.show_modal();
+            }
+            None => element.close(),
+        }
+    });
+
+    let shut = move || {
+        asking.set(None);
+        set_token.set(String::new());
+        set_address.set(String::new());
+    };
+
+    // What the catalogue says about the service in hand, which is where the answer to
+    // "does this one have an address of its own" lives. Not in the row: a row carries
+    // the address this instance is at, and the two look identical from here.
+    let offer = move || {
+        let service = chosen.get();
+
+        catalogue
+            .get()
+            .into_iter()
+            .find(|offer| offer.service == service)
+    };
+
+    // A service with an address everybody uses takes no address here: there is one
+    // ListenBrainz, and a box that could point it elsewhere would make the name mean
+    // nothing.
+    let fixed = move || offer().is_some_and(|offer| offer.url.is_some());
+
+    let named = move || offer().map(|offer| offer.shown).unwrap_or_default();
+
+    // Only while adding. Once a destination exists, its service is what it is, and a
+    // list to change it to would be a way of quietly setting up a different one.
+    let choosing = move || asking.get().is_some_and(|asked| !asked.existing);
+
+    // Said where the address is typed rather than refused: a scrobbler on your own
+    // network is reached over plain HTTP as often as not, and this is the one place
+    // somebody can weigh that up.
+    let insecure = move || address.get().trim().starts_with("http://");
+
+    let submit = move |event: web_sys::SubmitEvent| {
+        event.prevent_default();
+
+        let service = chosen.get();
+        if service.is_empty() {
+            return;
+        }
+
+        set_waiting.set(true);
+        set_failure.set(None);
+
+        let asked = tocata::types::NewScrobbler {
+            url: (!fixed()).then(|| address.get().trim().to_string()),
+            token: token.get().trim().to_string(),
+            enabled: Some(true),
+        };
+
+        spawn_local(async move {
+            match api::set_scrobbler(&service, asked).await {
+                // Whether the service vouched for the token decides what the screen
+                // says next: a name means it was checked, and nothing means it could
+                // not be asked.
+                Ok(saved) => {
+                    on_saved.run(saved.remote_name.is_some());
+                    shut();
+                }
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => set_failure.set(Some(match &why {
+                    Failure::Refused(code) if code == "tokenRefused" => {
+                        t!("listens.refused").to_string()
+                    }
+                    other => said(other),
+                })),
+            }
+            set_waiting.set(false);
+        });
+    };
+
+    view! {
+        <dialog node_ref=dialog class="sheet" on:close=move |_| shut()>
+            <form on:submit=submit>
+                <div class="sheet-body">
+                    <h2>{move || t!("listens.at", name = named()).to_string()}</h2>
+                    <p class="sheet-lead">{t!("listens.sheet_lead")}</p>
+
+                    <div class="sheet-content">
+                        // Only when adding, and only what is not set up already: the
+                        // sheet opened on one of them, and this is how to pick
+                        // another without going back for a second menu.
+                        <Show when=choosing>
+                            <label>
+                                <span>{t!("listens.service")}</span>
+                                <select
+                                    prop:value=move || chosen.get()
+                                    on:change:target=move |e| {
+                                        chosen.set(e.target().value());
+                                        // Each instance is at its own address, so what
+                                        // was typed for one says nothing about the next.
+                                        set_address.set(String::new());
+                                    }
+                                >
+                                    <For
+                                        each=move || spare.get()
+                                        key=|offer| offer.service.clone()
+                                        let:offer
+                                    >
+                                        <option value=offer.service>{offer.shown}</option>
+                                    </For>
+                                </select>
+                            </label>
+                        </Show>
+
+                        <Show when=move || !fixed()>
+                            <label>
+                                <span>{t!("listens.address")}</span>
+                                <input
+                                    placeholder="http://localhost:4110"
+                                    prop:value=address
+                                    on:input:target=move |e| set_address.set(e.target().value())
+                                />
+                                <span class="hint">
+                                    {move || {
+                                        if insecure() {
+                                            t!("listens.insecure")
+                                        } else {
+                                            t!("listens.address_hint")
+                                        }
+                                    }}
+                                </span>
+                            </label>
+                        </Show>
+
+                        <label>
+                            <span>{t!("listens.token")}</span>
+                            // A password field: it is a secret, and it is being typed
+                            // on a screen somebody may not be alone in front of.
+                            <input
+                                type="password"
+                                autocomplete="off"
+                                autofocus
+                                prop:value=token
+                                on:input:target=move |e| set_token.set(e.target().value())
+                            />
+                            <span class="hint">{t!("listens.token_hint")}</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="sheet-foot">
+                    {move || {
+                        failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
+                    }}
+                    <button type="button" class="pill" disabled=waiting on:click=move |_| shut()>
+                        {t!("common.cancel")}
+                    </button>
+                    <button
+                        type="submit"
+                        class="pill solid"
+                        disabled=move || {
+                            waiting.get() || token.get().trim().is_empty()
+                                || (!fixed() && address.get().trim().is_empty())
+                        }
+                    >
+                        {move || {
+                            if waiting.get() { t!("listens.checking") } else { t!("common.save") }
+                        }}
+                    </button>
+                </div>
+            </form>
+        </dialog>
     }
 }
 
