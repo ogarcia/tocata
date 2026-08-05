@@ -235,9 +235,10 @@ pub async fn create(
 /// the one that asked. API keys are left alone, since revoking one of those is
 /// its own deliberate act.
 ///
-/// Changing your own name, address or password needs `currentPassword` as well: a
-/// live session is not proof that the person sitting there is the owner, and those
-/// three are what would lock the owner out. An administrator changing somebody
+/// Changing anything about who you are — the account's name, the name you are shown
+/// under, your address, your password — needs `currentPassword` as well: a live
+/// session is not proof that the person sitting there is the owner, and a profile left
+/// open is a profile anybody walking past can edit. An administrator changing somebody
 /// else's account is not asked for it — they do not have it.
 #[utoipa::path(
     patch,
@@ -333,15 +334,25 @@ pub async fn change(
         return Err(ApiError::Invalid("Nothing to change was given"));
     }
 
-    // What somebody would have to undo by asking an administrator: the name they
-    // log in with, the address a lost password would be recovered through, and the
-    // password itself. Everything else about an account is a preference, and a
-    // preference set by mistake is set back by hand.
+    // Everything on the profile screen, which is a wider rule than the one that used
+    // to be here — it asked only about what could lock somebody out of their own
+    // account, and left the name they are shown under outside.
+    //
+    // That was too narrow. A profile left open is a profile anybody walking past can
+    // edit, and being renamed in front of everybody else is not a small thing to come
+    // back to, even if the account still opens. Óscar put it plainly: nobody finds it
+    // funny to leave their profile open and be renamed.
+    //
+    // So what is asked for is the whole of what this screen changes about who somebody
+    // is: the name they log in with, the name they are called by, the address a lost
+    // password would come back through, and the password itself. What is left over is
+    // preferences, which are set back by hand and cost nothing to get wrong.
     //
     // Only on your own account. An administrator does not have somebody else's
     // password, and the account they could lock out is not the one they are sitting
     // in front of — theirs is protected by this same rule when they change it.
-    let sensitive = new_name.is_some() || hash.is_some() || changes.email.is_some();
+    let sensitive =
+        new_name.is_some() || shown_as.is_some() || hash.is_some() || changes.email.is_some();
 
     if sensitive && touching_self {
         let given = changes
@@ -349,7 +360,7 @@ pub async fn change(
             .as_deref()
             .filter(|given| !given.is_empty())
             .ok_or(ApiError::Invalid(
-                "Changing your own name, address or password needs the current password",
+                "Changing your own name, display name, address or password needs the current password",
             ))?;
 
         // The password and only the password. An API key stands in for one when a
@@ -1114,6 +1125,10 @@ mod tests {
                 email: Some("ana@example.org".to_string()),
                 ..nothing()
             },
+            AccountChanges {
+                display_name: Some("Ana María".to_string()),
+                ..nothing()
+            },
         ] {
             let refused = change(
                 panel_of(ids[0], user_id, "ana", false),
@@ -1146,7 +1161,7 @@ mod tests {
             Path("ana".to_string()),
             Json(AccountChanges {
                 display_name: Some("Ana María".to_string()),
-                ..nothing()
+                ..proving()
             }),
         )
         .await
@@ -1156,25 +1171,49 @@ mod tests {
         assert_eq!(account.username, "ana", "and the account is still ana");
     }
 
-    /// Nothing about it locks anybody out, so nothing about it is asked to prove
-    /// itself. Which is the whole difference from the three fields above it.
+    /// And it proves itself like everything else on that screen.
+    ///
+    /// It cannot lock anybody out, which was the first reason to leave it alone, and
+    /// that reason was too narrow: a profile left open is a profile anybody walking
+    /// past can edit, and being renamed in front of everybody else is not a small
+    /// thing to come back to.
     #[tokio::test]
-    async fn choosing_what_to_be_called_proves_nothing() {
+    async fn choosing_what_to_be_called_needs_the_current_password() {
         let (pool, user_id, ids) = logged_in_thrice(false).await;
 
-        let asked = change(
+        let refused = change(
             panel_of(ids[0], user_id, "ana", false),
             State(pool.clone()),
             Path("ana".to_string()),
             Json(AccountChanges {
                 display_name: Some("Ana".to_string()),
-                // No current password at all.
+                // None given.
                 ..nothing()
             }),
         )
         .await;
 
-        assert!(asked.is_ok(), "it needs no password: {asked:?}");
+        assert!(
+            matches!(refused, Err(ApiError::Invalid(_))),
+            "it has to be proved: {refused:?}"
+        );
+
+        let wrong = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                display_name: Some("Ana".to_string()),
+                current_password: Some("not it".to_string()),
+                ..nothing()
+            }),
+        )
+        .await;
+
+        assert_eq!(wrong.err(), Some(ApiError::WrongPassword));
+
+        let untouched = load(&pool, "ana").await.unwrap();
+        assert_eq!(untouched.display_name, None, "and nothing was written");
     }
 
     /// And it can be given back. An empty one is a request — call me by my account's
@@ -1186,7 +1225,7 @@ mod tests {
 
         let called = |name: &str| AccountChanges {
             display_name: Some(name.to_string()),
-            ..nothing()
+            ..proving()
         };
 
         let mine = || panel_of(ids[0], user_id, "ana", false);

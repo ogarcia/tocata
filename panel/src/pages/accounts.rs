@@ -59,7 +59,10 @@ pub fn Accounts(who: Identity, on_expired: Callback<()>) -> impl IntoView {
             match api::accounts().await {
                 Ok(list) => set_accounts.set(Some(list)),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
+                // Not "the server did not answer", which is what this said to every
+                // refusal: an administrator whose rights were taken away by another
+                // one, with this screen open, was told the server was down.
+                Err(why) => set_failure.set(Some(said(&why))),
             }
         });
     };
@@ -955,7 +958,7 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
             match api::account(&looking).await {
                 Ok(found) => set_account.set(Some(found)),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
-                Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
+                Err(why) => set_failure.set(Some(said(&why))),
             }
         });
     };

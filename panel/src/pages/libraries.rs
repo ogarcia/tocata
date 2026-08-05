@@ -58,7 +58,10 @@ pub fn Libraries(on_expired: Callback<()>) -> impl IntoView {
         match api::libraries().await {
             Ok(list) => set_libraries.set(Some(list)),
             Err(Failure::Unauthenticated) => on_expired.run(()),
-            Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
+            // Through the same reader as everything else here. It said "the server
+            // did not answer" to any refusal, which of a 403 is untrue twice over:
+            // the server answered, and what it said was no.
+            Err(why) => set_failure.set(Some(said(&why))),
         }
     });
 

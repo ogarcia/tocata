@@ -537,7 +537,6 @@ profile:
   username: Usuario
   username_theirs: "Lo cambia un administrador"
   display_name: "Nombre para mostrar"
-  display_name_why: "Cómo quieres que te llamemos. Vacío, te llamamos por tu usuario"
   you: "Tú"
   # Las cuatro cifras de lo que tienes aquí. Escritas otra vez y no compartidas
   # con `accounts`: allí son las pérdidas de una cuenta ajena, aquí son tuyas.
@@ -674,6 +673,8 @@ common:
   cancel: Cancelar
   keep: Dejarla estar
   loading: Cargando…
+  not_for_you: "Esto es administración"
+  not_for_you_why: "Esta sección la usa quien administra el servidor. Si crees que deberías verla, pídeselo."
   not_yet: Todavía sin construir
   nothing_here: Esta sección tiene su sitio en el panel y nada dentro todavía.
 

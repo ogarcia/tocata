@@ -51,6 +51,31 @@ pub fn Unbuilt(heading: String) -> impl IntoView {
     }
 }
 
+/// A section that exists and is not yours to look at.
+///
+/// Reached one way only: by typing the address. The menu does not offer these to
+/// anybody who cannot use them, and the server refuses them whatever the panel draws.
+///
+/// It said "that username and password do not go together" before this existed, on
+/// all five administration screens — a message about credentials, on a screen reached
+/// with a session that is perfectly valid. Nothing was wrong with who anybody was.
+/// Being told to doubt your password because you opened the wrong address is the same
+/// mistake the login form was making, in a different place.
+///
+/// Shaped like [`Unbuilt`] because it is the same kind of moment: a screen that is not
+/// going to appear, said plainly, with the panel still around it.
+#[component]
+pub fn NotForYou() -> impl IntoView {
+    view! {
+        <header class="titled">
+            <div>
+                <h1>{t!("common.not_for_you")}</h1>
+                <p class="quiet lead">{t!("common.not_for_you_why")}</p>
+            </div>
+        </header>
+    }
+}
+
 /// The three dots at the end of a row, and the menu they open.
 ///
 /// Two screens have rows with more than one thing to do about them, and this is the

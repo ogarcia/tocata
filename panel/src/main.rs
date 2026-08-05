@@ -223,7 +223,9 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
 
                     // The administration sections. The menu does not offer these
                     // to anybody else and the server refuses them regardless, so
-                    // what is left to handle here is a URL typed by hand.
+                    // what is left to handle here is a URL typed by hand — and what
+                    // to say to whoever typed it, which for a while was that their
+                    // username and password did not go together.
                     <Route
                         path=path!("/libraries")
                         view=move || {
@@ -231,7 +233,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                                 view! { <pages::libraries::Libraries on_expired=forget /> }
                                     .into_any()
                             } else {
-                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                view! { <pages::NotForYou /> }.into_any()
                             }
                         }
                     />
@@ -249,7 +251,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                                     }
                                         .into_any()
                                 } else {
-                                    view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                    view! { <pages::NotForYou /> }.into_any()
                                 }
                             }
                         }
@@ -268,7 +270,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                                     }
                                         .into_any()
                                 } else {
-                                    view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                    view! { <pages::NotForYou /> }.into_any()
                                 }
                             }
                         }
@@ -279,7 +281,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                             if admin {
                                 view! { <pages::settings::Settings on_expired=forget /> }.into_any()
                             } else {
-                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                view! { <pages::NotForYou /> }.into_any()
                             }
                         }
                     />
@@ -290,7 +292,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                                 view! { <pages::maintenance::Maintenance on_expired=forget /> }
                                     .into_any()
                             } else {
-                                view! { <p class="failure">{t!("login.failed")}</p> }.into_any()
+                                view! { <pages::NotForYou /> }.into_any()
                             }
                         }
                     />

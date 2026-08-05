@@ -393,10 +393,7 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
                 // Under the name of the account and above everything else, because it
                 // is the answer to the field above it: that one is what an
                 // administrator files you under and this is what you are called.
-                <Setting
-                    label=t!("profile.display_name").to_string()
-                    why=t!("profile.display_name_why").to_string()
-                >
+                <Setting label=t!("profile.display_name").to_string()>
                     <input
                         prop:value=shown_as
                         on:input:target=move |e| set_shown_as.set(e.target().value())

@@ -418,7 +418,8 @@ pub struct AccountChanges {
     /// is `displayName`.
     #[schema(example = "oscar")]
     pub username: Option<String>,
-    /// What to be called. Anybody may set their own.
+    /// What to be called. Anybody may set their own, and setting it asks for
+    /// `currentPassword` like everything else on the profile.
     ///
     /// An empty string clears it, which is how somebody goes back to being called by
     /// the account's own name — so absent means "leave it alone" and empty means
@@ -430,8 +431,8 @@ pub struct AccountChanges {
     /// Only an administrator may set this, and none may clear their own.
     pub admin: Option<bool>,
     pub scrobbling: Option<bool>,
-    /// The password as it is now, which changing your own name, address or
-    /// password requires and nothing else does.
+    /// The password as it is now, which changing anything about who you are requires:
+    /// the account's name, the name you are shown under, your address, your password.
     ///
     /// What it is for is the browser somebody left open, not the session: the
     /// session already proved itself, and that is exactly the problem — it proved

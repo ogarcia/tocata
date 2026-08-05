@@ -540,7 +540,6 @@ profile:
   username: Username
   username_theirs: "An administrator changes this"
   display_name: "Name to show"
-  display_name_why: "What you would rather be called. Empty, and we use your username"
   you: "You"
   # The four figures of what you have here. Written again rather than shared with
   # `accounts`, where they are what deleting somebody else would cost.
@@ -678,6 +677,8 @@ common:
   cancel: Cancel
   keep: Keep it
   loading: Loading…
+  not_for_you: "This is administration"
+  not_for_you_why: "This section is for whoever administers the server. If you think it should be yours, ask them."
   not_yet: Not built yet
   nothing_here: This section has a place in the panel and nothing in it yet.
 
