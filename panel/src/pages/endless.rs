@@ -53,7 +53,45 @@ const SETTLE: Duration = Duration::from_millis(250);
 /// but the distance at which fetching should start, and what makes it the right
 /// distance is how fast a scroll travels rather than how large the reader's text
 /// is. Roughly a screenful, so the rows are there before the foot of the list is.
-const AHEAD: &str = "600px";
+///
+/// One number, read two ways — as a margin for the observer and as a distance to
+/// measure against by hand — because the two have to agree about where "nearly
+/// reached" is.
+const AHEAD: f64 = 600.0;
+
+/// The same distance as the observer wants it written.
+fn ahead() -> String {
+    format!("{AHEAD}px")
+}
+
+/// Whether the foot of the list is close enough to the bottom of the window to be
+/// worth filling past.
+///
+/// The same question the observer answers, asked by hand, because the observer only
+/// answers it when the answer changes. Measured against the window and not against
+/// whatever box is doing the scrolling, for the same reason the observer is used at
+/// all: which box that is differs by screen.
+fn within_reach(node: &web_sys::Element) -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+
+    let height = window
+        .inner_height()
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or_default();
+
+    reached(node.get_bounding_client_rect().top(), height)
+}
+
+/// The arithmetic of the above, apart from the browser so that it can be checked.
+///
+/// `top` is where the foot of the list sits relative to the top of the window, which
+/// is negative once it has been scrolled past.
+fn reached(top: f64, window_height: f64) -> bool {
+    top <= window_height + AHEAD
+}
 
 /// One window of a listing: how many there are in total, and the rows themselves.
 pub type Window<T> = Pin<Box<dyn Future<Output = Result<(i64, Vec<T>), Failure>>>>;
@@ -168,9 +206,9 @@ impl<T: Send + Sync + 'static> Reel<T> {
 
     /// The next window, if there is one and nothing is already on its way.
     ///
-    /// Called by the foot coming into view, which happens again every time the rows
-    /// above it grow — so a window too short to be filled by one request keeps
-    /// asking until it is.
+    /// Called by the foot of the list being within reach, which is asked both when it
+    /// comes into view and again after every window arrives — see [`Foot`] for why
+    /// the second is not the same question as the first.
     pub fn more(&self) {
         if !self.fetching.get_untracked() && !self.all_of_it() {
             self.fetch(false);
@@ -700,7 +738,7 @@ pub fn Foot(
         });
 
         let options = web_sys::IntersectionObserverInit::new();
-        options.set_root_margin(AHEAD);
+        options.set_root_margin(&ahead());
 
         let Ok(observer) = web_sys::IntersectionObserver::new_with_options(
             reached.as_ref().unchecked_ref(),
@@ -723,6 +761,33 @@ pub fn Foot(
             let (observer, reached) = held.take();
             observer.disconnect();
             drop(reached);
+        });
+    });
+
+    // And asked again after every window lands, which is not the same question the
+    // observer answers.
+    //
+    // An observer reports a *change*: something came into view, something left. The
+    // foot of a list that never left the screen is never reported again — and a list
+    // whose window does not fill the screen leaves it there for good. That was the
+    // artists screen: rows of one line in two columns, so a hundred names fitted on a
+    // large display, the page did not overflow, there was no scrolling to be done, and
+    // the listing stopped at a hundred of eight hundred with no way to ask for more.
+    //
+    // Songs and albums never showed it. Fifty rows of either overflow any screen, so
+    // the foot always went out of view and scrolling always brought it back.
+    //
+    // After the paint rather than during it: what is being asked is where the foot
+    // ended up, and during the effect the rows that push it down are not laid out yet.
+    Effect::new(move |_| {
+        // The dependency, and the point: this runs again each time the list grows.
+        let _ = shown.get();
+        let Some(node) = edge.get() else { return };
+
+        request_animation_frame(move || {
+            if within_reach(&node) {
+                on_reach.run(());
+            }
         });
     });
 
@@ -766,5 +831,53 @@ pub fn Foot(
                 </span>
             </Show>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AHEAD, ahead, reached};
+
+    /// The case the artists screen ran into: a hundred names of one line each, in two
+    /// columns, on a display tall enough to hold them. The page does not overflow, so
+    /// there is no scrolling to be done and the observer has nothing left to report —
+    /// and the foot is still sitting there in plain view, above the fold.
+    #[test]
+    fn a_foot_that_fits_on_the_screen_is_within_reach() {
+        assert!(
+            reached(900.0, 1440.0),
+            "a hundred artists on a tall display"
+        );
+        assert!(reached(1440.0, 1440.0), "exactly at the bottom edge");
+    }
+
+    /// And the ordinary case, which is why the distance exists: not on screen yet, but
+    /// close enough that the rows should be on their way.
+    #[test]
+    fn a_foot_just_below_the_fold_is_within_reach_too() {
+        assert!(reached(1500.0, 1440.0));
+        assert!(reached(1440.0 + AHEAD, 1440.0), "at the far edge of it");
+    }
+
+    /// A long list still to be read through. Asking for more here would fetch the
+    /// whole collection on the way down.
+    #[test]
+    fn a_foot_far_below_is_not() {
+        assert!(!reached(1440.0 + AHEAD + 1.0, 1440.0));
+        assert!(!reached(12_000.0, 1440.0), "fifty songs to scroll through");
+    }
+
+    /// Scrolled past, which reads as a negative offset.
+    #[test]
+    fn a_foot_already_gone_by_is_reached() {
+        assert!(reached(-2000.0, 1440.0));
+    }
+
+    /// The observer's margin and the measurement have to mean the same distance: one
+    /// number, written two ways.
+    #[test]
+    fn the_margin_says_the_distance_it_measures() {
+        assert_eq!(ahead(), format!("{AHEAD}px"));
+        assert_eq!(ahead(), "600px");
     }
 }
