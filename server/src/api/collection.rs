@@ -1072,6 +1072,63 @@ pub async fn played(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// What the panel announces itself as when it says something is playing.
+///
+/// A client's name, in the same column every OpenSubsonic client writes its own
+/// into, because that is what it is: a player belonging to one account. It means the
+/// panel shows up in `getNowPlaying` beside the phones, which is right — somebody
+/// listening in the panel is somebody listening.
+const PANEL_AS_A_PLAYER: &str = "Tocata panel";
+
+/// Say a song has started
+///
+/// The other half of counting a play, and a different claim: this one is about the
+/// present. It puts the song in what is playing now — where every other client's
+/// does — and tells whoever this account scrobbles to that it has started.
+///
+/// Nothing is counted here. A song that starts and is skipped after ten seconds was
+/// announced and never played, which is exactly the difference the two calls keep.
+///
+/// Answers before the announcement has been delivered anywhere. What is being waited
+/// on is this server writing a row, not somebody else's website taking a request that
+/// no reply here depends on.
+#[utoipa::path(
+    post,
+    path = "/tracks/{id}/playing",
+    tag = "collection",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 204, description = "Noted, and passed on if there is anywhere to pass it"),
+        (status = 401, description = "No valid session", body = ErrorBody),
+    )
+)]
+pub async fn playing(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    State(net): State<crate::net::Net>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    let started = crate::plays::record_now_playing(
+        &pool,
+        panel.user.id,
+        PANEL_AS_A_PLAYER,
+        &id,
+        &crate::db::now(),
+    )
+    .await
+    .map_err(|e| ApiError::internal(e, "noting what is playing"))?;
+
+    if let Some(track_id) = started {
+        let user_id = panel.user.id;
+
+        tokio::spawn(async move {
+            crate::scrobble::announce(&net, &pool, user_id, track_id).await;
+        });
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Which listing is being counted.
 enum Countable {
     Tracks,

@@ -149,6 +149,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(collection::tags))
         .routes(routes!(collection::lyrics))
         .routes(routes!(collection::queue))
+        .routes(routes!(collection::playing))
         .routes(routes!(collection::albums))
         .routes(routes!(collection::album))
         .routes(routes!(collection::artists))

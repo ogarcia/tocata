@@ -492,6 +492,19 @@ pub async fn count_play(id: &str) -> Result<(), Failure> {
     .await
 }
 
+/// Says a track has started, which is the other half of [`count_play`] and a
+/// different claim: it puts the panel in what is playing now, and gets the same
+/// announcement passed on to wherever this account scrobbles.
+pub async fn announce_play(id: &str) -> Result<(), Failure> {
+    plain(
+        Request::post(&url(&format!("/tracks/{id}/playing")))
+            .credentials(RequestCredentials::SameOrigin)
+            .build()
+            .map_err(|_| Failure::Unreachable)?,
+    )
+    .await
+}
+
 /// A window of the collection's genres, narrowed the same way.
 pub async fn genres(search: &str, offset: usize, limit: i64) -> Result<Genres, Failure> {
     read(get(&format!("/genres?{}", window(search, offset, limit)))?).await

@@ -148,6 +148,21 @@ impl Player {
 
         let Some(id) = player.current() else { return };
 
+        // That a song has started, which is a different claim from having heard it and
+        // goes out at a different moment: this one now, and the play once it is mostly
+        // over. It puts the panel in what is playing now beside every other client,
+        // and tells whoever this account scrobbles to.
+        //
+        // Nothing is done with the answer. A song that starts is a fact about this
+        // browser, not a request that can be refused, and the music does not wait on
+        // it.
+        {
+            let id = id.clone();
+            spawn_local(async move {
+                let _ = api::announce_play(&id).await;
+            });
+        }
+
         spawn_local(async move {
             // A title is not worth interrupting the music for. If this fails the
             // sidebar stays quiet about what it is playing and goes on playing it.
