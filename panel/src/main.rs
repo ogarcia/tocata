@@ -135,6 +135,17 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     // answer from before one finished is a list that is wrong.
     provide_context(scan);
 
+    // What to call whoever is logged in, held apart from the identity that arrived
+    // with the session so that changing it takes effect where it is read.
+    //
+    // A context rather than a signal threaded down, and above all not a new identity:
+    // the identity is what `Inside` was built from, so replacing it would rebuild the
+    // whole panel and stop the music on the way past. Only the greeting and the
+    // account menu read this, so only they repaint.
+    provide_context(layout::CalledMe(RwSignal::new(
+        identity.display_name.clone(),
+    )));
+
     view! {
         <Router>
             <layout::Shell identity on_out=forget scan>

@@ -34,7 +34,11 @@ pub fn Home(
     on_expired: Callback<()>,
 ) -> impl IntoView {
     let figures = LocalResource::new(api::stats);
-    let name = identity.username.clone();
+    // What they asked to be called, and their account's name only if they have not:
+    // the greeting is the one line on the panel that addresses somebody. Read from
+    // the same place the account menu reads it, so choosing a name shows in both at
+    // once and without a reload.
+    let name = crate::layout::called_me(&identity.username);
 
     view! {
         <header class="titled">
@@ -43,7 +47,7 @@ pub fn Home(
                 // column on the left, where it is also marked as the one you are
                 // on, and a screen whose title repeats its own menu entry spends
                 // its largest line saying where you already know you are.
-                <h1>{t!("home.greeting", name = name)}</h1>
+                <h1>{move || t!("home.greeting", name = name.get()).to_string()}</h1>
                 <p class="quiet lead">
                     <Lead scan />
                 </p>

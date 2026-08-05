@@ -106,6 +106,20 @@ fn token_from_cookies(headers: &HeaderMap) -> Option<String> {
         .map(|(_, token)| token.to_string())
 }
 
+/// What this person would rather be called, if they have said.
+///
+/// Read here rather than carried on `User`, which is what every authentication
+/// builds: a name for a greeting is of no interest to the twenty other things that
+/// resolve a session, and this is asked twice in the life of a panel — on a login and
+/// on a reload.
+async fn shown_as(pool: &SqlitePool, user_id: i64) -> Result<Option<String>, ApiError> {
+    sqlx::query_scalar("SELECT display_name FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "reading what to call somebody"))
+}
+
 impl Identity {
     /// The preferences travel with the identity because the panel needs them to
     /// draw itself, so both ways in fetch them: a reload lands on `current` and a
@@ -114,6 +128,7 @@ impl Identity {
     async fn of(pool: &SqlitePool, user: &User, expires_at: String) -> Result<Self, ApiError> {
         Ok(Self {
             username: user.username.clone(),
+            display_name: shown_as(pool, user.id).await?,
             admin: user.is_admin,
             expires_at,
             preferences: preferences::load(pool, user.id).await?,

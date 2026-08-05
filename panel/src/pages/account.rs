@@ -93,6 +93,16 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
             match api::change_account(&me.get_value(), changes).await {
                 Ok(fresh) => {
                     me.set_value(fresh.username.clone());
+
+                    // The greeting and the account menu read this, and they are two
+                    // of the three things on screen that say your name: without it,
+                    // choosing one would appear to do nothing until a reload.
+                    if let Some(crate::layout::CalledMe(called)) =
+                        use_context::<crate::layout::CalledMe>()
+                    {
+                        called.set(fresh.display_name.clone());
+                    }
+
                     set_note.set(Some(t!("common.saved").to_string()));
                     set_account.set(Some(fresh));
                 }
@@ -297,6 +307,7 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
     let held = StoredValue::new(account.username.clone());
 
     let (username, set_username) = signal(account.username.clone());
+    let (shown_as, set_shown_as) = signal(account.display_name.clone().unwrap_or_default());
     let (email, set_email) = signal(account.email.clone().unwrap_or_default());
     let (password, set_password) = signal(String::new());
     let (again, set_again) = signal(String::new());
@@ -324,6 +335,10 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
             // refusal one typo away from being what somebody sees when they change
             // their address.
             username: admin.then(|| username.get().trim().to_string()),
+            // Always sent, empty included: an empty one is the request to go back to
+            // being called by the account's name, which is not the same as not
+            // having asked for anything.
+            display_name: Some(shown_as.get().trim().to_string()),
             email: Some(email.get().trim().to_string()),
             password: (!password.is_empty()).then_some(password),
             current_password: Some(current.get()),
@@ -374,6 +389,19 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
                         />
                     </Setting>
                 </Show>
+
+                // Under the name of the account and above everything else, because it
+                // is the answer to the field above it: that one is what an
+                // administrator files you under and this is what you are called.
+                <Setting
+                    label=t!("profile.display_name").to_string()
+                    why=t!("profile.display_name_why").to_string()
+                >
+                    <input
+                        prop:value=shown_as
+                        on:input:target=move |e| set_shown_as.set(e.target().value())
+                    />
+                </Setting>
 
                 <Setting label=t!("profile.email").to_string()>
                     <input

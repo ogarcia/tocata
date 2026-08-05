@@ -1168,8 +1168,12 @@ fn Theirs(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
             email: Some(email.get().trim().to_string()),
             password: (!password.is_empty()).then_some(password),
             admin: Some(admin.get()),
-            // Theirs to decide, and this screen never shows it: what somebody does
-            // with their own plays is not administration.
+            // Theirs to decide, and this screen never shows either: what somebody
+            // does with their own plays is not administration, and neither is what
+            // they would rather be called. The name above is the one an
+            // administrator files them under — that one is this screen's business,
+            // and it is the whole reason the other exists.
+            display_name: None,
             scrobbling: None,
             // Nothing to prove. The server asks for the current password only when
             // the account being changed is the one asking.

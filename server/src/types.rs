@@ -74,6 +74,11 @@ fn yes() -> bool {
 pub struct Identity {
     #[schema(example = "admin")]
     pub username: String,
+    /// What to call this person, if they have said. Carried with the identity because
+    /// the greeting and the account menu are drawn from it before anything else is
+    /// fetched.
+    #[schema(example = "Óscar")]
+    pub display_name: Option<String>,
     /// Whether this account administers the server, which is what decides how
     /// much of the panel is worth drawing.
     pub admin: bool,
@@ -329,6 +334,10 @@ pub struct LibraryChanges {
 pub struct Account {
     #[schema(example = "admin")]
     pub username: String,
+    /// What this person would rather be called, or nothing to be called by the name
+    /// of the account. Never an empty string.
+    #[schema(example = "Óscar")]
+    pub display_name: Option<String>,
     pub email: Option<String>,
     /// Whether this account administers the server.
     pub admin: bool,
@@ -402,8 +411,20 @@ pub struct NewAccount {
 #[serde(rename_all = "camelCase")]
 pub struct AccountChanges {
     /// A new name for the account. Nothing else has to move with it.
+    ///
+    /// Administrators only, of anybody's account including their own: this is the
+    /// name every OpenSubsonic client logs in with, so a listener who changed it
+    /// would stop their own players without being told. What a listener sets instead
+    /// is `displayName`.
     #[schema(example = "oscar")]
     pub username: Option<String>,
+    /// What to be called. Anybody may set their own.
+    ///
+    /// An empty string clears it, which is how somebody goes back to being called by
+    /// the account's own name — so absent means "leave it alone" and empty means
+    /// "stop calling me that", and the two are not the same request.
+    #[schema(example = "Óscar")]
+    pub display_name: Option<String>,
     pub password: Option<String>,
     pub email: Option<String>,
     /// Only an administrator may set this, and none may clear their own.

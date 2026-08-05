@@ -872,20 +872,51 @@ fn Pair(label: String, figure: Signal<String>) -> impl IntoView {
 /// away before the click could land on anything in it. So it closes the way the
 /// folded sections do — a sheet behind it catches anything aimed elsewhere — and
 /// every entry closes it on the way out, since choosing one is finishing with it.
+/// What to call whoever is logged in, or nothing to call them by their account's
+/// name.
+///
+/// A type of its own rather than a bare `RwSignal<Option<String>>`, because a context
+/// is looked up by type: a second optional string provided anywhere else in the panel
+/// would silently become this one.
+#[derive(Clone, Copy)]
+pub struct CalledMe(pub RwSignal<Option<String>>);
+
+/// The name to address somebody by: what they chose, and their account's name until
+/// they choose.
+///
+/// Reads the context where there is one and falls back to the account's name, so the
+/// two places that address anybody — the greeting and the account menu — cannot
+/// disagree about which name that is.
+pub fn called_me(username: &str) -> Signal<String> {
+    let account = username.to_string();
+    let chosen = use_context::<CalledMe>();
+
+    Signal::derive(move || {
+        chosen
+            .and_then(|CalledMe(chosen)| chosen.get())
+            .unwrap_or_else(|| account.clone())
+    })
+}
+
 #[component]
 fn WhoAmI(identity: Identity, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl IntoView {
     let (open, set_open) = signal(false);
 
+    // What they asked to be called, falling back to the name of the account, and read
+    // from the signal so that choosing one on the profile screen shows here without a
+    // reload. Both the letter and the name come from the same string, so the initial
+    // of somebody called Óscar is not the initial of an account called ogarcia.
+    let name = called_me(&identity.username);
+
     // The first letter, and only ever one: a name is text in a language we do
     // not know, so a character is taken rather than a byte sliced off.
-    let initial = identity
-        .username
-        .chars()
-        .next()
-        .map(|first| first.to_uppercase().to_string())
-        .unwrap_or_default();
-
-    let name = identity.username.clone();
+    let initial = Signal::derive(move || {
+        name.get()
+            .chars()
+            .next()
+            .map(|first| first.to_uppercase().to_string())
+            .unwrap_or_default()
+    });
     let admin = identity.admin;
 
     let away = move |_| {

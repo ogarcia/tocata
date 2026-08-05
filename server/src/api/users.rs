@@ -32,6 +32,7 @@ use sqlx::SqlitePool;
 type AccountRow = (
     String,
     Option<String>,
+    Option<String>,
     bool,
     bool,
     String,
@@ -47,6 +48,7 @@ impl From<AccountRow> for Account {
     fn from(
         (
             username,
+            display_name,
             email,
             admin,
             scrobbling,
@@ -61,6 +63,7 @@ impl From<AccountRow> for Account {
     ) -> Self {
         Self {
             username,
+            display_name,
             email,
             admin,
             scrobbling,
@@ -90,7 +93,8 @@ impl From<AccountRow> for Account {
 /// the two, so every session would have counted as live.
 macro_rules! account_columns {
     () => {
-        "SELECT u.username, u.email, u.is_admin, u.scrobbling_enabled, u.password_set_at,
+        "SELECT u.username, u.display_name, u.email, u.is_admin, u.scrobbling_enabled,
+                u.password_set_at,
                 u.last_seen_at,
                 (SELECT count(*) FROM sessions s
                   WHERE s.user_id = u.id AND s.expires_at > ?),
@@ -310,8 +314,18 @@ pub async fn change(
         _ => None,
     };
 
+    // What to be called, or nothing to go back to being called by the account's
+    // name. Emptying the field is a request rather than an omission, so it travels as
+    // an empty string and arrives here as the mention of a value that is `None`.
+    let shown_as = changes
+        .display_name
+        .as_deref()
+        .map(|given| given.trim())
+        .map(|given| (!given.is_empty()).then(|| given.to_string()));
+
     if new_name.is_none()
         && hash.is_none()
+        && shown_as.is_none()
         && changes.email.is_none()
         && changes.admin.is_none()
         && changes.scrobbling.is_none()
@@ -364,6 +378,11 @@ pub async fn change(
                 -- moves for a change of address just as readily, which is why it
                 -- cannot answer when the password was last changed.
                 password_set_at = CASE WHEN ? IS NULL THEN password_set_at ELSE ? END,
+                -- Not a coalesce, unlike its neighbours: null here is a value
+                -- somebody asked for, meaning stop calling me that, and a coalesce
+                -- cannot tell it from the field having been left out. So the
+                -- mention travels as its own bind.
+                display_name = CASE WHEN ? THEN ? ELSE display_name END,
                 email = coalesce(?, email),
                 is_admin = coalesce(?, is_admin),
                 scrobbling_enabled = coalesce(?, scrobbling_enabled),
@@ -374,6 +393,8 @@ pub async fn change(
     .bind(&hash)
     .bind(&hash)
     .bind(&now)
+    .bind(shown_as.is_some())
+    .bind(shown_as.clone().flatten())
     .bind(&changes.email)
     .bind(changes.admin.map(i64::from))
     .bind(changes.scrobbling.map(i64::from))
@@ -851,6 +872,7 @@ mod tests {
     fn nothing() -> AccountChanges {
         AccountChanges {
             username: None,
+            display_name: None,
             password: None,
             email: None,
             admin: None,
@@ -1109,6 +1131,110 @@ mod tests {
 
         let untouched = load(&pool, "ana").await.expect("still called ana");
         assert_eq!(untouched.email, None);
+    }
+
+    /// What somebody would rather be called is theirs, whoever they are, and it is
+    /// the answer to renaming being administration: the name an administrator files
+    /// you under and the name you are greeted by are two different things.
+    #[tokio::test]
+    async fn a_listener_may_choose_what_to_be_called() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let Json(account) = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                display_name: Some("Ana María".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("theirs to set");
+
+        assert_eq!(account.display_name.as_deref(), Some("Ana María"));
+        assert_eq!(account.username, "ana", "and the account is still ana");
+    }
+
+    /// Nothing about it locks anybody out, so nothing about it is asked to prove
+    /// itself. Which is the whole difference from the three fields above it.
+    #[tokio::test]
+    async fn choosing_what_to_be_called_proves_nothing() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let asked = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                display_name: Some("Ana".to_string()),
+                // No current password at all.
+                ..nothing()
+            }),
+        )
+        .await;
+
+        assert!(asked.is_ok(), "it needs no password: {asked:?}");
+    }
+
+    /// And it can be given back. An empty one is a request — call me by my account's
+    /// name again — which is why it is not the same as leaving the field out, and why
+    /// a coalesce could not express it.
+    #[tokio::test]
+    async fn emptying_it_goes_back_to_the_account_name() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let called = |name: &str| AccountChanges {
+            display_name: Some(name.to_string()),
+            ..nothing()
+        };
+
+        let mine = || panel_of(ids[0], user_id, "ana", false);
+
+        let Json(_) = change(
+            mine(),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(called("Ana María")),
+        )
+        .await
+        .unwrap();
+
+        let Json(cleared) = change(
+            mine(),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(called("   ")),
+        )
+        .await
+        .expect("emptying it is allowed");
+
+        assert_eq!(cleared.display_name, None, "back to being called ana");
+
+        // And leaving the field out leaves it alone, which is the other half of the
+        // same distinction.
+        let Json(_) = change(
+            mine(),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(called("Ana María")),
+        )
+        .await
+        .unwrap();
+
+        let Json(untouched) = change(
+            mine(),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                scrobbling: Some(false),
+                ..nothing()
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(untouched.display_name.as_deref(), Some("Ana María"));
     }
 
     /// Renaming is administration, and a listener has no way to it.

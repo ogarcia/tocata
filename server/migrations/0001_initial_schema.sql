@@ -322,6 +322,19 @@ CREATE TABLE users (
     -- update, where saying nothing would mean a date that moves with the address.
     password_set_at    TEXT    NOT NULL
                        DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    -- What this person would rather be called, or null to be called by the name
+    -- above. Nothing authenticates with it and nothing looks anybody up by it: it is
+    -- read where somebody is being addressed or shown, and nowhere else.
+    --
+    -- It exists because `username` stopped being theirs to change: renaming an
+    -- account is administration, since the name is what every OpenSubsonic client
+    -- logs in with. So the name an administrator files you under and the name you
+    -- are greeted by are two different things, and this is the second one.
+    --
+    -- Null rather than a copy of the username, and never an empty string: emptying
+    -- the field means going back to being called by the account's name, and two ways
+    -- of saying that would be two things to check everywhere it is read.
+    display_name       TEXT    CHECK (display_name IS NULL OR display_name <> ''),
     email              TEXT,
     -- Roughly when a request last arrived on this account, by any door: the panel,
     -- a password over /rest, or an API key. Null means never — an account that was
