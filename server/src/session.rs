@@ -17,6 +17,7 @@ use crate::user::User;
 use anyhow::{Context, Result};
 use chrono::Duration;
 use sqlx::SqlitePool;
+use tracing::warn;
 
 /// How stale `last_seen_at` is allowed to get before it is written again.
 ///
@@ -90,19 +91,28 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> Result<Option<Session>> 
     };
 
     // Only once it has gone stale, which is what the resolution is for.
+    //
+    // And a failure to write it is not a failure of the session, which is what the
+    // `?` here used to make it: this returns `None` on error, `None` means no valid
+    // session, and the panel reads that as being logged out. So a database that could
+    // not take this note — a scan holding the write lock is how it happens — would
+    // throw somebody out of a session that was perfectly good, on every request.
     if last_seen_at < db::from_now(-Duration::minutes(LAST_SEEN_RESOLUTION_MINUTES)) {
-        sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
+        let noted = sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
             .bind(db::now())
             .bind(id)
             .execute(pool)
-            .await
-            .context("recording session use")?;
+            .await;
+
+        if let Err(e) = noted {
+            warn!("could not record that a session was used: {e}");
+        }
     }
 
     // The account as well as the session. This one says which browser was here;
     // the account's own says whether anybody is using it at all, which is what
     // survives the session being swept.
-    crate::user::seen(pool, user_id).await?;
+    crate::user::seen(pool, user_id).await;
 
     Ok(Some(Session {
         id,

@@ -9,7 +9,17 @@ use std::path::Path;
 use std::time::Duration;
 
 /// How long a writer waits for the lock before giving up.
-const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+///
+/// Fifteen seconds, up from five, and the five was chosen before anybody had run a
+/// scan of eleven thousand files: the scan held one transaction for its whole length
+/// and every other write in the server timed out against it. That is fixed where it
+/// belongs — the scan commits in batches now — and this is the net under it.
+///
+/// A long timeout costs nothing when nothing is contended, and what it buys is the
+/// difference between a request that takes a moment and a request that fails. SQLite
+/// hands the lock to whoever asks rather than to whoever has waited longest, so a
+/// write that is unlucky several times running needs room to be unlucky in.
+pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Begins a transaction that is going to write.
 ///

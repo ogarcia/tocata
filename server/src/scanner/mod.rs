@@ -34,6 +34,51 @@ mod overlap_tests {
         assert!(!overlaps(Path::new("/srv/music"), Path::new("/mnt/vinyl")));
     }
 }
+
+/// When a scan lets go of the write lock, which is the whole of what keeps the rest
+/// of the server working while one is running.
+#[cfg(test)]
+mod letting_go_tests {
+    use super::{AT_A_TIME, HOLDING, time_to_let_go};
+    use std::time::Duration;
+
+    /// The case this exists for. A library of large files spends its time reading
+    /// tags, so the loop sits on the channel with a barely started transaction and
+    /// the lock in its hand — and a count of rows would let it sit there for the
+    /// length of the scan. That is the shape of the failure: eleven thousand files,
+    /// and every login, cover and play in the server timing out against it.
+    #[test]
+    fn a_transaction_held_too_long_goes_however_little_is_in_it() {
+        assert!(time_to_let_go(1, HOLDING));
+        assert!(time_to_let_go(0, HOLDING + Duration::from_millis(1)));
+    }
+
+    /// And the other way: files arriving as fast as they can be written must not
+    /// grow one transaction without bound either.
+    #[test]
+    fn a_full_transaction_goes_however_recently_it_was_opened() {
+        assert!(time_to_let_go(AT_A_TIME, Duration::ZERO));
+    }
+
+    /// In between it keeps going, because a commit is an fsync and one per file
+    /// would make a scan pay for this several thousand times over.
+    #[test]
+    fn a_young_and_half_full_transaction_carries_on() {
+        assert!(!time_to_let_go(AT_A_TIME / 2, HOLDING / 2));
+        assert!(!time_to_let_go(0, Duration::ZERO));
+    }
+
+    /// The limits are what they claim to be. Both are read by whoever tunes this,
+    /// and a HOLDING anywhere near the busy timeout would defeat the point.
+    #[test]
+    fn the_limits_leave_room_under_the_busy_timeout() {
+        assert!(
+            HOLDING * 4 < crate::db::BUSY_TIMEOUT,
+            "a scan may hold the lock for {HOLDING:?} against a timeout of {:?}",
+            crate::db::BUSY_TIMEOUT
+        );
+    }
+}
 mod walker;
 
 use crate::db;
@@ -65,6 +110,40 @@ type AlbumsByName = HashMap<(String, String), Vec<RecordedAlbum>>;
 /// inserting rows, so this only has to be deep enough that the writer never
 /// idles between files.
 const CHANNEL_DEPTH: usize = 256;
+
+/// How many rows one transaction of a scan holds before it is committed.
+///
+/// SQLite has one writer, so for as long as a scan holds a transaction open,
+/// nothing else in the server can write: no login recorded, no cover cached, no
+/// play counted. A scan is minutes and everything else is milliseconds, which is
+/// why the scan is the one that gives way.
+///
+/// A thousand because a commit is an fsync and the point is to be interruptible
+/// rather than to be small: eleven thousand files come to a dozen commits, which
+/// costs nothing measurable and leaves eleven gaps for everybody else to write in.
+const AT_A_TIME: usize = 1_000;
+
+/// And how long it may hold that transaction open whatever it has written, which
+/// is the limit that actually binds. See where it is used.
+const HOLDING: Duration = Duration::from_millis(500);
+
+/// How long the scan keeps its hands off the database between transactions.
+///
+/// Ten milliseconds against five hundred: two per cent of a scan, and the whole of
+/// what makes the lock reachable by anybody else. Without it, committing more often
+/// only meant asking for the lock more often.
+const STANDING_BACK: Duration = Duration::from_millis(10);
+
+/// Whether the scan should commit what it has and let go of the write lock.
+///
+/// Either limit is enough on its own, and they are there for different reasons: the
+/// count keeps a transaction from growing without bound when files are arriving as
+/// fast as they can be written, and the elapsed time is what bounds the wait for
+/// everybody else — because this loop spends most of a scan waiting on the reader,
+/// and it waits holding the lock.
+fn time_to_let_go(written: usize, held: Duration) -> bool {
+    written >= AT_A_TIME || held >= HOLDING
+}
 
 /// Fraction of a library that has to vanish before the sweep refuses to run.
 ///
@@ -278,14 +357,29 @@ async fn scan_library(
     let mut tx_db = db::writing(pool)
         .await
         .context("starting the scan transaction")?;
+    let mut written = 0usize;
+    let mut held = Instant::now();
 
     while let Some(scanned) = rx.recv().await {
-        // Leaving without committing is the point. A scan stopped half way
-        // through would sweep everything it had not reached yet into missing, so
-        // the transaction is dropped instead: the database goes back to what it
-        // was, and the next start scans again.
+        // What has been committed stays committed, and that is the change: this
+        // used to be one transaction for the whole library.
+        //
+        // A scan of eleven thousand files held the write lock for as long as it
+        // ran, and SQLite has one writer — so every other write in the server
+        // waited on it and then failed: a login could not be recorded, a cover
+        // could not be cached, and the panel reported the first as a wrong
+        // password. Readers were never the problem, since the journal is WAL.
+        //
+        // What that single transaction bought was a scan being all or nothing.
+        // That mattered for one reason — a scan stopped half way through must not
+        // sweep everything it had not reached yet into missing — and the sweep is
+        // one statement at the end. So the sweep is what has to be all or nothing,
+        // and it still is: it runs after the walk finishes and never after an
+        // interrupted one. What a stopped scan leaves behind is rows for the files
+        // it did get to, which the next scan reads again and stamps with its own
+        // number.
         if progress.should_stop() {
-            info!("scan interrupted; what it had written is discarded");
+            info!("scan interrupted; nothing was swept and what it read is kept");
             return Ok(None);
         }
 
@@ -324,6 +418,35 @@ async fn scan_library(
                 outcome.tracks += 1;
                 progress.observed(Item::Track { readable }, &path);
             }
+        }
+
+        written += 1;
+
+        // Two limits rather than one, and the second is the one that does the work.
+        // A count alone would bound nothing: this loop spends most of its life
+        // waiting on the channel for the reader to open the next file, and it was
+        // waiting with the write lock in its hand — so on a library of big files it
+        // would sit on a half full transaction for minutes without writing a row.
+        if time_to_let_go(written, held.elapsed()) {
+            tx_db
+                .commit()
+                .await
+                .context("committing part of the scan")?;
+
+            // And then stand back, which is not the same as committing.
+            //
+            // Committing alone left a request still waiting 2.2 seconds for the
+            // lock, because SQLite hands it to whoever asks and not to whoever has
+            // waited: this loop commits and asks again in the same breath, so it can
+            // win the lock over and over while somebody else's single write times
+            // out beside it. The gap is what makes the waiting end.
+            tokio::time::sleep(STANDING_BACK).await;
+
+            tx_db = db::writing(pool)
+                .await
+                .context("carrying on with the scan")?;
+            written = 0;
+            held = Instant::now();
         }
     }
 

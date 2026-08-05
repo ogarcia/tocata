@@ -48,12 +48,23 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
                 Err(why) => {
                     // Wrong credentials arrive as a 401 like an expired session
                     // does, and here it can only mean the first.
+                    //
+                    // A server that broke is not a password that is wrong, and this
+                    // used to say it was: on a first run scanning eleven thousand
+                    // files the login came back 500 — the scan had the write lock and
+                    // the session could not be recorded — and this screen answered
+                    // that the username and password did not go together. Somebody
+                    // spent that scan doubting a password that was right.
+                    //
+                    // Which is why the catch-all is gone. What is left in it is 401,
+                    // and 401 here does mean the credentials.
                     let said = match &why {
                         Failure::Unreachable => t!("login.unreachable"),
                         Failure::Refused(code) if code == "tooManyAttempts" => {
                             t!("login.too_many")
                         }
-                        _ => t!("login.failed"),
+                        Failure::Refused(_) => t!("login.server_wrong"),
+                        Failure::Unauthenticated => t!("login.failed"),
                     };
                     set_failure.set(Some(said.to_string()));
                     set_waiting.set(false);

@@ -34,6 +34,9 @@ login:
   submit: Entrar
   working: Un momento…
   failed: Ese usuario y esa contraseña no van juntos
+  # Un servidor que falla no es una contraseña equivocada. Sin decir por qué falla:
+  # aquí todavía no ha entrado nadie.
+  server_wrong: "El servidor no ha podido con la petición. Vuelve a probar en un momento."
   too_many: "Demasiados intentos fallidos desde aquí. Espera un poco antes de volver a probar."
   unreachable: El servidor no respondió
 

@@ -38,6 +38,9 @@ login:
   submit: Log in
   working: Working…
   failed: That username and password do not go together
+  # A server that broke is not a password that is wrong. Without saying what broke:
+  # nobody has got in yet.
+  server_wrong: "The server could not deal with the request. Try again in a moment."
   too_many: "Too many failed attempts from here. Wait a little before trying again."
   unreachable: The server did not answer
 

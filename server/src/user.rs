@@ -48,7 +48,7 @@ pub async fn authenticate_password(
     match row {
         Some((id, username, is_admin, hash)) => {
             if auth::verify_password(password, &hash) {
-                seen(pool, id).await?;
+                seen(pool, id).await;
 
                 Ok(Some(User {
                     id,
@@ -110,41 +110,80 @@ const SEEN_RESOLUTION_MINUTES: i64 = 5;
 
 /// Notes that an account was just used, by whichever door the request came in.
 ///
-/// Every authenticated request passes through here, so the guard is in the
-/// statement rather than around it: the row only changes when the note has gone
-/// stale, and an update that matches nothing writes no page.
-///
 /// What it answers is the question an administrator has about an account they are
 /// thinking of removing — is anybody still using this? Neither the sessions nor the
 /// keys can answer it: a session expires and is swept, and a key that was never
 /// used says nothing about the password beside it.
-pub async fn seen(pool: &SqlitePool, user_id: i64) -> Result<()> {
-    sqlx::query(
+///
+/// **It asks before it writes**, and that is the whole shape of this function. The
+/// guard used to be inside the `UPDATE` — the row only changes when the note has
+/// gone stale, so an update matching nothing writes no page — and the reasoning was
+/// half right: it writes no page, and it takes the write lock all the same. SQLite
+/// has one writer, so every authenticated request was queueing for it behind
+/// whatever else was writing, for a column that is deliberately kept to the nearest
+/// five minutes.
+///
+/// It showed up on a server scanning eleven thousand files: this statement, three
+/// seconds, on a request that wanted nothing written. Reading first costs a query
+/// that never waits — readers do not block in WAL — and leaves one write per account
+/// per five minutes where there had been one per request.
+///
+/// **And it cannot fail the thing it is noting.** This is a courtesy write on the end
+/// of an authentication that has already succeeded, and it used to be waited on with
+/// a `?`: on that same server a password that was right came back as a failure, and
+/// the panel called it a wrong password. Somebody was told to doubt their own
+/// password because a date could not be written. So a failure here is logged and
+/// nothing else.
+pub async fn seen(pool: &SqlitePool, user_id: i64) {
+    let stale = crate::db::from_now(-chrono::Duration::minutes(SEEN_RESOLUTION_MINUTES));
+
+    // A reader, which in WAL never waits for whoever is writing.
+    let fresh: Result<Option<i64>, _> =
+        sqlx::query_scalar("SELECT 1 FROM users WHERE id = ? AND last_seen_at >= ?")
+            .bind(user_id)
+            .bind(&stale)
+            .fetch_optional(pool)
+            .await;
+
+    match fresh {
+        // Recent enough, which is the answer almost every time this is called.
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(e) => return warn!("could not read when an account was last seen: {e}"),
+    }
+
+    let written = sqlx::query(
         "UPDATE users SET last_seen_at = ?
           WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)",
     )
     .bind(now())
     .bind(user_id)
-    .bind(crate::db::from_now(-chrono::Duration::minutes(
-        SEEN_RESOLUTION_MINUTES,
-    )))
+    // Kept in the statement as well as in the question above. Two requests can read
+    // "stale" at once, and this is what makes the second one's write a no-op rather
+    // than a second write of the same instant.
+    .bind(&stale)
     .execute(pool)
-    .await
-    .context("recording that an account was seen")?;
+    .await;
 
-    Ok(())
+    if let Err(e) = written {
+        warn!("could not record that an account was seen: {e}");
+    }
 }
 
 /// Notes that a key just let a request through, for the panel to show.
-async fn record_api_key_use(pool: &SqlitePool, key_id: i64) -> Result<()> {
-    sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+///
+/// A courtesy write like [`seen`], and it does not fail the request either: the key
+/// authenticated, and whether we managed to write down that it did is our problem.
+async fn record_api_key_use(pool: &SqlitePool, key_id: i64) {
+    let noted = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
         .bind(now())
         .bind(key_id)
         .execute(pool)
-        .await
-        .context("recording API key use")?;
+        .await;
 
-    Ok(())
+    if let Err(e) = noted {
+        warn!("could not record that an API key was used: {e}");
+    }
 }
 
 /// Resolves an API key to its owner and records the use.
@@ -153,8 +192,8 @@ pub async fn authenticate_api_key(pool: &SqlitePool, key: &str) -> Result<Option
         return Ok(None);
     };
 
-    record_api_key_use(pool, key_id).await?;
-    seen(pool, user.id).await?;
+    record_api_key_use(pool, key_id).await;
+    seen(pool, user.id).await;
 
     Ok(Some(user))
 }
@@ -186,8 +225,8 @@ pub async fn authenticate_password_or_api_key(
         return Ok(None);
     }
 
-    record_api_key_use(pool, key_id).await?;
-    seen(pool, user.id).await?;
+    record_api_key_use(pool, key_id).await;
+    seen(pool, user.id).await;
 
     Ok(Some(user))
 }
@@ -439,8 +478,9 @@ mod tests {
         );
     }
 
-    /// The guard is in the statement, and it is what keeps a column nobody reads
-    /// twice a day from costing a write per request.
+    /// Guarded twice — asked before writing, and again inside the statement — and it
+    /// is what keeps a column nobody reads twice a day from costing a write per
+    /// request. The write it saves is a write that queues for the lock.
     #[tokio::test]
     async fn an_account_seen_a_moment_ago_is_not_written_again() {
         let pool = two_users_with_keys().await;
@@ -455,7 +495,7 @@ mod tests {
             .unwrap();
 
         let before = last_seen(&pool, "ana").await;
-        seen(&pool, id).await.unwrap();
+        seen(&pool, id).await;
         assert_eq!(last_seen(&pool, "ana").await, before, "left alone");
 
         // And once it has gone stale it moves.
@@ -465,10 +505,95 @@ mod tests {
             .await
             .unwrap();
 
-        seen(&pool, id).await.unwrap();
+        seen(&pool, id).await;
         assert_ne!(
             last_seen(&pool, "ana").await.as_deref(),
             Some("2020-01-01T00:00:00Z")
+        );
+    }
+
+    /// The failure a real server ran into, as small as it can be made.
+    ///
+    /// A database that will not take a write is what a scan of eleven thousand files
+    /// looked like from the outside: it held the write lock, and everything else got
+    /// its five seconds and a refusal. The password was right, and the panel said the
+    /// username and password did not go together.
+    ///
+    /// Both notes on the way through are made unwritable here — the account's and the
+    /// session's, each aged past its resolution so that it will be attempted — and
+    /// neither may cost anybody their way in.
+    #[tokio::test]
+    async fn a_database_that_takes_no_writes_still_lets_the_right_password_in() {
+        let root = crate::fixtures::temp_root("auth-under-a-locked-database");
+        let path = root.join("tocata.db");
+
+        let pool = crate::db::connect(&path).await.unwrap();
+
+        let hash = auth::hash_password("ana's password").unwrap();
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, last_seen_at, created_at, updated_at)
+             VALUES ('ana', ?, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z',
+                     '2020-01-01T00:00:00Z') RETURNING id",
+        )
+        .bind(&hash)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let (token, _) = crate::session::create(&pool, id, crate::session::A_MONTH)
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE sessions SET last_seen_at = '2020-01-01T00:00:00Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // The same file, opened by a connection that refuses to write anything. What
+        // a locked database does to a statement, without the timing.
+        let shut = SqlitePool::connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(&path)
+                .pragma("query_only", "ON"),
+        )
+        .await
+        .unwrap();
+
+        // Proof that it is really refusing, so that a test that stopped refusing
+        // could not quietly go on passing.
+        assert!(
+            sqlx::query("UPDATE users SET last_seen_at = 'now' WHERE id = ?")
+                .bind(id)
+                .execute(&shut)
+                .await
+                .is_err(),
+            "this database is supposed to refuse writes"
+        );
+
+        let who = authenticate_password(&shut, "ana", "ana's password")
+            .await
+            .expect("a courtesy note must not fail an authentication");
+        assert_eq!(
+            who.map(|user| user.username).as_deref(),
+            Some("ana"),
+            "the password was right"
+        );
+
+        let session = crate::session::resolve(&shut, &token)
+            .await
+            .expect("nor may it fail a session lookup");
+        assert!(
+            session.is_some(),
+            "the session was good; losing it here logs somebody out of the panel"
+        );
+
+        // And a wrong password is still wrong, which is the half that must not be
+        // loosened by any of this.
+        assert!(
+            authenticate_password(&shut, "ana", "not it")
+                .await
+                .unwrap()
+                .is_none()
         );
     }
 
