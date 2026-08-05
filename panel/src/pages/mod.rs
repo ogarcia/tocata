@@ -62,18 +62,13 @@ pub fn Unbuilt(heading: String) -> impl IntoView {
 /// Being told to doubt your password because you opened the wrong address is the same
 /// mistake the login form was making, in a different place.
 ///
-/// Shaped like [`Unbuilt`] because it is the same kind of moment: a screen that is not
-/// going to appear, said plainly, with the panel still around it.
+/// Said the way the collection screens say a listing could not be fetched, rather
+/// than as a screen of its own: this is a refusal and not a section, and the panel
+/// already has one shape for telling somebody that what they asked for is not coming.
+/// A heading and a lead would have dressed it as a place worth being.
 #[component]
 pub fn NotForYou() -> impl IntoView {
-    view! {
-        <header class="titled">
-            <div>
-                <h1>{t!("common.not_for_you")}</h1>
-                <p class="quiet lead">{t!("common.not_for_you_why")}</p>
-            </div>
-        </header>
-    }
+    view! { <p class="failure" role="alert">{t!("common.not_for_you")}</p> }
 }
 
 /// The three dots at the end of a row, and the menu they open.

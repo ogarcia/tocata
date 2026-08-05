@@ -673,8 +673,7 @@ common:
   cancel: Cancelar
   keep: Dejarla estar
   loading: Cargando…
-  not_for_you: "Esto es administración"
-  not_for_you_why: "Esta sección la usa quien administra el servidor. Si crees que deberías verla, pídeselo."
+  not_for_you: "Esta sección es solo para quien administra el servidor."
   not_yet: Todavía sin construir
   nothing_here: Esta sección tiene su sitio en el panel y nada dentro todavía.
 

@@ -677,8 +677,7 @@ common:
   cancel: Cancel
   keep: Keep it
   loading: Loading…
-  not_for_you: "This is administration"
-  not_for_you_why: "This section is for whoever administers the server. If you think it should be yours, ask them."
+  not_for_you: "This section is only for whoever administers the server."
   not_yet: Not built yet
   nothing_here: This section has a place in the panel and nothing in it yet.
 
