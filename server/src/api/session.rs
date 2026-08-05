@@ -166,7 +166,7 @@ pub async fn log_in(
     }
 
     let authenticated =
-        user::authenticate_password(&pool, &credentials.username, &credentials.password)
+        user::authenticate_panel(&pool, &credentials.username, &credentials.password)
             .await
             .map_err(|e| ApiError::internal(e, "authenticating a panel login"))?;
 

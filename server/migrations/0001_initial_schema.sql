@@ -335,7 +335,14 @@ CREATE TABLE users (
     -- the field means going back to being called by the account's name, and two ways
     -- of saying that would be two things to check everywhere it is read.
     display_name       TEXT    CHECK (display_name IS NULL OR display_name <> ''),
-    email              TEXT,
+    -- Optional, and a way in: somebody may log into the panel with this instead of
+    -- with the name above, which is the whole reason it is worth keeping. `/rest`
+    -- takes the username and only the username, because the protocol says so.
+    --
+    -- Never an empty string, for the same reason `display_name` is not: with two ways
+    -- to say "no address" the index below would find every account without one to be
+    -- the same account.
+    email              TEXT    CHECK (email IS NULL OR email <> ''),
     -- Roughly when a request last arrived on this account, by any door: the panel,
     -- a password over /rest, or an API key. Null means never — an account that was
     -- created and has not been used since, which is the thing an administrator is
@@ -350,6 +357,19 @@ CREATE TABLE users (
     created_at         TEXT    NOT NULL,
     updated_at         TEXT    NOT NULL
 );
+
+-- One account per address, since an address is a way into the panel and an
+-- identifier that answers for two accounts cannot let anybody in.
+--
+-- Folded, because nobody types their own address the same way twice and every mail
+-- system in use has long since stopped caring: OGarcia@Example.org and
+-- ogarcia@example.org are one address here, as they are everywhere else.
+--
+-- Partial, so that having no address is not a thing two accounts can collide over.
+-- Which is also why the column refuses the empty string: without that, every account
+-- somebody left the field blank on would be the same account as far as this is
+-- concerned.
+CREATE UNIQUE INDEX users_email_idx ON users (lower(email)) WHERE email IS NOT NULL;
 
 -- What somebody chose about how the panel looks and speaks. Kept with the
 -- account rather than in the browser so that logging in somewhere else brings it

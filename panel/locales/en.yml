@@ -29,7 +29,7 @@ login:
   heading: "Log in"
   lead: "With the account the server was set up with, or one an administrator made for you."
   claim: "Your records, where you left them."
-  username: Username
+  username: "Username or email"
   password: Password
   show: "Show"
   hide: "Hide"

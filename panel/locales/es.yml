@@ -25,7 +25,7 @@ login:
   heading: "Entrar"
   lead: "Con la cuenta con la que se configuró el servidor, o con una que un administrador haya creado para ti."
   claim: "Tus discos, justo donde lo dejaste."
-  username: Usuario
+  username: "Usuario o correo"
   password: Contraseña
   show: "Mostrar"
   hide: "Ocultar"

@@ -104,6 +104,10 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
                     // name and the autocomplete, which are still here.
                     <label>
                         <span>{t!("login.username")}</span>
+                        // Either the account's name or the address on it, which the
+                        // server tries in that order. `username` is still the right
+                        // autocomplete: it is what a password manager fills a login
+                        // field with, whichever of the two it has stored.
                         <input
                             name="username"
                             autocomplete="username"

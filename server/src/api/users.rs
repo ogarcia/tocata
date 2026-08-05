@@ -107,6 +107,45 @@ macro_rules! account_columns {
     };
 }
 
+/// An address as it is worth storing: trimmed, and nothing at all where somebody left
+/// the field empty.
+///
+/// The outer option is whether it was mentioned and the inner one is what it now is,
+/// because those are two different requests: a form that does not carry the field
+/// leaves the address alone, and one that carries it empty is somebody clearing it.
+/// Stored empty it would be a second way of saying "no address", and the index that
+/// keeps addresses unique would find every account without one to be the same account.
+fn address(given: Option<&str>) -> Option<Option<String>> {
+    given
+        .map(str::trim)
+        .map(|given| (!given.is_empty()).then(|| given.to_string()))
+}
+
+/// Whether another account already carries this address.
+///
+/// Asked before writing so that the answer is a plain conflict rather than whatever
+/// the database says about an index. The index is still there and still decides: two
+/// of these arriving at once would both be told the address is free, and the second
+/// write is the one that fails.
+async fn address_taken(
+    pool: &SqlitePool,
+    email: &str,
+    except: Option<&str>,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM users
+          WHERE email IS NOT NULL AND lower(email) = lower(?)
+            AND (? IS NULL OR username <> ?)",
+    )
+    .bind(email)
+    .bind(except)
+    .bind(except)
+    .fetch_optional(pool)
+    .await
+    .map(|found| found.is_some())
+    .map_err(|e| ApiError::internal(e, "checking whether an address is taken"))
+}
+
 /// Anybody may look at their own account; only an administrator at somebody
 /// else's.
 fn self_or_admin(panel: &Panel, username: &str) -> Result<(), ApiError> {
@@ -194,6 +233,16 @@ pub async fn create(
         return Err(ApiError::Invalid("The password cannot be empty"));
     }
 
+    // Empty is no address rather than an empty one, and an address is a way into the
+    // panel, so it cannot already belong to somebody else.
+    let email = address(new.email.as_deref()).flatten();
+
+    if let Some(email) = email.as_deref()
+        && address_taken(&pool, email, None).await?
+    {
+        return Err(ApiError::Conflict("An account with that address exists"));
+    }
+
     let hash = auth::hash_password(&new.password)
         .map_err(|e| ApiError::internal(e, "hashing a new account's password"))?;
 
@@ -204,7 +253,7 @@ pub async fn create(
     )
     .bind(username)
     .bind(&hash)
-    .bind(&new.email)
+    .bind(&email)
     .bind(i64::from(new.admin))
     .bind(&timestamp)
     .bind(&timestamp)
@@ -213,8 +262,16 @@ pub async fn create(
 
     match written {
         Ok(_) => {}
+        // Which of the two unique things it was. Both are checked before writing, so
+        // getting here means two requests arrived at once and this one lost — worth
+        // saying accurately all the same, since the answer somebody acts on is which
+        // field to change.
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-            return Err(ApiError::Conflict("An account with that name exists"));
+            return Err(ApiError::Conflict(if e.message().contains("email") {
+                "An account with that address exists"
+            } else {
+                "An account with that name exists"
+            }));
         }
         Err(e) => return Err(ApiError::internal(e, "creating an account")),
     }
@@ -318,6 +375,14 @@ pub async fn change(
     // What to be called, or nothing to go back to being called by the account's
     // name. Emptying the field is a request rather than an omission, so it travels as
     // an empty string and arrives here as the mention of a value that is `None`.
+    let email = address(changes.email.as_deref());
+
+    if let Some(Some(wanted)) = email.as_ref()
+        && address_taken(&pool, wanted, Some(&username)).await?
+    {
+        return Err(ApiError::Conflict("An account with that address exists"));
+    }
+
     let shown_as = changes
         .display_name
         .as_deref()
@@ -327,7 +392,7 @@ pub async fn change(
     if new_name.is_none()
         && hash.is_none()
         && shown_as.is_none()
-        && changes.email.is_none()
+        && email.is_none()
         && changes.admin.is_none()
         && changes.scrobbling.is_none()
     {
@@ -394,7 +459,10 @@ pub async fn change(
                 -- cannot tell it from the field having been left out. So the
                 -- mention travels as its own bind.
                 display_name = CASE WHEN ? THEN ? ELSE display_name END,
-                email = coalesce(?, email),
+                -- The same shape as display_name above, and for the same reason:
+                -- clearing an address is a request a coalesce cannot tell from the
+                -- field not having been sent. It could not be cleared at all before.
+                email = CASE WHEN ? THEN ? ELSE email END,
                 is_admin = coalesce(?, is_admin),
                 scrobbling_enabled = coalesce(?, scrobbling_enabled),
                 updated_at = ?
@@ -406,7 +474,8 @@ pub async fn change(
     .bind(&now)
     .bind(shown_as.is_some())
     .bind(shown_as.clone().flatten())
-    .bind(&changes.email)
+    .bind(email.is_some())
+    .bind(email.clone().flatten())
     .bind(changes.admin.map(i64::from))
     .bind(changes.scrobbling.map(i64::from))
     .bind(&now)
@@ -417,8 +486,16 @@ pub async fn change(
     match changed {
         Ok(result) if result.rows_affected() == 0 => return Err(ApiError::NotFound),
         Ok(_) => {}
+        // Which of the two unique things it was. Both are checked before writing, so
+        // getting here means two requests arrived at once and this one lost — worth
+        // saying accurately all the same, since the answer somebody acts on is which
+        // field to change.
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-            return Err(ApiError::Conflict("An account with that name exists"));
+            return Err(ApiError::Conflict(if e.message().contains("email") {
+                "An account with that address exists"
+            } else {
+                "An account with that name exists"
+            }));
         }
         Err(e) => return Err(ApiError::internal(e, "changing an account")),
     }

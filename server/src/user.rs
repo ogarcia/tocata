@@ -32,6 +32,68 @@ pub struct User {
 
 /// Checks a username and password. `None` means no such user or a wrong
 /// password, deliberately indistinguishable to the caller.
+/// Checks a password against an account named by whatever somebody typed into the
+/// panel's login form: the account's name, or the address on it.
+///
+/// **The panel only.** `/rest` authenticates by username and nothing else, because
+/// that is what the protocol says a client sends, and a server that quietly accepted
+/// something else there would be a server whose behaviour no client can predict.
+///
+/// The name is tried first. If an account is called `a@b.com` and another one carries
+/// that as its address, the name wins — a username is what an account *is*, and an
+/// address is a second way of pointing at one.
+///
+/// It is a way in and not a name to be greeted by, so nothing about it is shown or
+/// echoed: a wrong address and a wrong name come back the same way, which is what
+/// keeps this from answering whether an address has an account behind it.
+pub async fn authenticate_panel(
+    pool: &SqlitePool,
+    who: &str,
+    password: &str,
+) -> Result<Option<User>> {
+    if let Some(user) = authenticate_password(pool, who, password).await? {
+        return Ok(Some(user));
+    }
+
+    // Only if the name matched nothing at all. A name that exists and a password that
+    // does not go with it is a failure, and going on to try the address would let
+    // somebody's wrong password be checked against a second account.
+    if named(pool, who).await?.is_some() {
+        return Ok(None);
+    }
+
+    let Some(username) = with_address(pool, who).await? else {
+        // Nothing to check against, and the same time spent as if there had been.
+        auth::verify_password(password, &ABSENT_USER_HASH);
+        return Ok(None);
+    };
+
+    authenticate_password(pool, &username, password).await
+}
+
+/// Whether an account goes by this name, without checking anything about it.
+async fn named(pool: &SqlitePool, username: &str) -> Result<Option<i64>> {
+    sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
+        .bind(username)
+        .fetch_optional(pool)
+        .await
+        .context("looking up an account by name")
+}
+
+/// The account carrying this address, if one does.
+///
+/// Folded to compare, the way the index that keeps them unique is folded: nobody
+/// types their own address the same way twice.
+async fn with_address(pool: &SqlitePool, email: &str) -> Result<Option<String>> {
+    sqlx::query_scalar(
+        "SELECT username FROM users WHERE email IS NOT NULL AND lower(email) = lower(?)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await
+    .context("looking up an account by address")
+}
+
 pub async fn authenticate_password(
     pool: &SqlitePool,
     username: &str,
@@ -458,6 +520,138 @@ mod tests {
         let _ = authenticate_api_key(&pool, "ana's key").await.unwrap();
 
         assert!(last_used(&pool, "ana's key").await.is_none());
+    }
+
+    /// Logging into the panel by address, which is a second way of pointing at an
+    /// account rather than a second name for one.
+    mod by_address {
+        use super::*;
+
+        /// Two accounts, one of them with an address on it.
+        async fn with_addresses() -> SqlitePool {
+            let pool = two_users_with_keys().await;
+
+            sqlx::query("UPDATE users SET email = 'Ana@Example.ORG' WHERE username = 'ana'")
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            pool
+        }
+
+        #[tokio::test]
+        async fn the_address_lets_the_owner_in() {
+            let pool = with_addresses().await;
+
+            let who = authenticate_panel(&pool, "Ana@Example.ORG", "ana's password")
+                .await
+                .unwrap();
+
+            assert_eq!(who.map(|user| user.username).as_deref(), Some("ana"));
+        }
+
+        /// Nobody types their own address the same way twice, and no mail system in
+        /// use has cared for decades.
+        #[tokio::test]
+        async fn it_does_not_matter_how_it_is_capitalised() {
+            let pool = with_addresses().await;
+
+            for typed in ["ana@example.org", "ANA@EXAMPLE.ORG", "aNa@ExAmPlE.oRg"] {
+                let who = authenticate_panel(&pool, typed, "ana's password")
+                    .await
+                    .unwrap();
+
+                assert!(who.is_some(), "{typed} should have let ana in");
+            }
+        }
+
+        /// The address is a way in and not a password: the wrong one is still refused.
+        #[tokio::test]
+        async fn the_address_does_not_excuse_the_password() {
+            let pool = with_addresses().await;
+
+            assert!(
+                authenticate_panel(&pool, "ana@example.org", "bob's password")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        #[tokio::test]
+        async fn an_address_nobody_carries_lets_nobody_in() {
+            let pool = with_addresses().await;
+
+            assert!(
+                authenticate_panel(&pool, "nobody@example.org", "ana's password")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        /// The name wins, and this is the case that says why it has to.
+        ///
+        /// An account called `ana@example.org` and another one carrying that as its
+        /// address are two accounts one string points at. Trying the name first
+        /// settles it the same way every time — and trying the address as well when
+        /// the name matched would mean checking somebody's wrong password against a
+        /// second account, which is how one account's password ends up opening
+        /// another.
+        #[tokio::test]
+        async fn a_name_that_looks_like_an_address_is_still_a_name() {
+            let pool = with_addresses().await;
+
+            let at = now();
+            sqlx::query(
+                "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+                 VALUES ('ana@example.org', ?, 0, ?, ?)",
+            )
+            .bind(auth::hash_password("the other one").unwrap())
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let by_name = authenticate_panel(&pool, "ana@example.org", "the other one")
+                .await
+                .unwrap();
+            assert_eq!(
+                by_name.map(|user| user.username).as_deref(),
+                Some("ana@example.org"),
+                "the account called that is the one that answers"
+            );
+
+            // And ana's own password does not open it, even though her address is
+            // that string: the name matched, so the address was never tried.
+            assert!(
+                authenticate_panel(&pool, "ana@example.org", "ana's password")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        /// `/rest` takes a username and nothing else, because that is what the
+        /// protocol says a client sends.
+        #[tokio::test]
+        async fn opensubsonic_does_not_take_an_address() {
+            let pool = with_addresses().await;
+
+            assert!(
+                authenticate_password(&pool, "ana@example.org", "ana's password")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                authenticate_password_or_api_key(&pool, "ana@example.org", "ana's password")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
     }
 
     /// What an administrator is looking at when they wonder whether an account is
