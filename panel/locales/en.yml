@@ -538,6 +538,7 @@ profile:
   scrobbling_why: "Passes what you play to the service configured on the server."
   unchanged: Leave empty to keep it
   username: Username
+  username_theirs: "An administrator changes this"
   you: "You"
   # The four figures of what you have here. Written again rather than shared with
   # `accounts`, where they are what deleting somebody else would cost.

@@ -291,6 +291,11 @@ fn Lately(#[prop(into)] label: Signal<String>, children: Children) -> impl IntoV
 /// is an account whose password nobody knows, including its owner.
 #[component]
 fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
+    let admin = account.admin;
+    // Held rather than read from the signal: what a listener sees is the name they
+    // have, and the signal exists for the field only an administrator gets.
+    let held = StoredValue::new(account.username.clone());
+
     let (username, set_username) = signal(account.username.clone());
     let (email, set_email) = signal(account.email.clone().unwrap_or_default());
     let (password, set_password) = signal(String::new());
@@ -313,7 +318,12 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
         }
 
         save.run(AccountChanges {
-            username: Some(username.get().trim().to_string()),
+            // Left out entirely unless it is yours to change, rather than sent
+            // unchanged: the server refuses a rename from anybody but an
+            // administrator, and sending the name back on every save would leave that
+            // refusal one typo away from being what somebody sees when they change
+            // their address.
+            username: admin.then(|| username.get().trim().to_string()),
             email: Some(email.get().trim().to_string()),
             password: (!password.is_empty()).then_some(password),
             current_password: Some(current.get()),
@@ -329,20 +339,41 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
         set_current.set(String::new());
     };
 
-    let admin = account.admin;
-
     view! {
         <h2 class="part">{t!("profile.you")}</h2>
 
         <form on:submit=submit>
             <div class="settings">
-                <Setting label=t!("profile.username").to_string()>
-                    <input
-                        required
-                        prop:value=username
-                        on:input:target=move |e| set_username.set(e.target().value())
-                    />
-                </Setting>
+                // A field for an administrator and plain text for everybody else,
+                // which is the same choice the role below makes and for the same
+                // reason: a disabled box is a control that says it could be used.
+                //
+                // Renaming is administration. Your name is how an administrator knows
+                // who you are, and it is what every OpenSubsonic client logs in with —
+                // so changing it yourself would stop every player you own, quietly,
+                // and put the way back under a name somebody else might have taken by
+                // then.
+                <Show
+                    when=move || admin
+                    fallback=move || {
+                        view! {
+                            <Setting
+                                label=t!("profile.username").to_string()
+                                why=t!("profile.username_theirs").to_string()
+                            >
+                                <span class="flat">{held.get_value()}</span>
+                            </Setting>
+                        }
+                    }
+                >
+                    <Setting label=t!("profile.username").to_string()>
+                        <input
+                            required
+                            prop:value=username
+                            on:input:target=move |e| set_username.set(e.target().value())
+                        />
+                    </Setting>
+                </Show>
 
                 <Setting label=t!("profile.email").to_string()>
                     <input

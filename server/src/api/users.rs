@@ -220,8 +220,12 @@ pub async fn create(
 
 /// Change an account
 ///
-/// Your own, or anybody's if you administer the server. Renaming is a rename:
-/// sessions, keys and everything the account owns follow it.
+/// Your own, or anybody's if you administer the server.
+///
+/// Renaming is for administrators only — of anybody's account, including their own —
+/// and it is a rename rather than a new account: sessions, keys and everything the
+/// account owns follow it. What a listener may change about themselves is their
+/// address, their password and their preferences.
 ///
 /// Changing the password closes the account's other panel sessions, keeping only
 /// the one that asked. API keys are left alone, since revoking one of those is
@@ -241,7 +245,7 @@ pub async fn create(
         (status = 200, description = "The account as it now is", body = Account),
         (status = 400, description = "Nothing worth changing was asked for", body = ErrorBody),
         (status = 401, description = "No valid session", body = ErrorBody),
-        (status = 403, description = "Somebody else's account, a right you do not have, or the wrong current password", body = ErrorBody),
+        (status = 403, description = "Somebody else's account, a rename or a right you may not grant yourself, or the wrong current password", body = ErrorBody),
         (status = 404, description = "No such account", body = ErrorBody),
         (status = 409, description = "The new name is taken", body = ErrorBody),
     )
@@ -275,6 +279,28 @@ pub async fn change(
         .as_deref()
         .map(str::trim)
         .filter(|name| !name.is_empty());
+
+    // Renaming is administration, wherever it is done from and whoever's account it
+    // is. A name is how an administrator knows who somebody is, and it is what every
+    // OpenSubsonic client authenticates with — so a listener who renamed themselves
+    // stopped every player they own from logging in, without being told and without
+    // being able to put it back the way it was under a name somebody else may have
+    // taken meanwhile.
+    //
+    // An administrator renaming themselves is fine, and so is an administrator
+    // renaming anybody else. What is refused is a listener renaming a listener, which
+    // in practice is themselves: they cannot reach anybody else's account at all.
+    //
+    // Only when it is really a change. The panel sends the whole form on every save,
+    // so a listener changing their address sends their own name along with it, and
+    // refusing "rename yourself to what you are already called" would be refusing a
+    // change of address for the sake of a rename nobody asked for.
+    if let Some(wanted) = new_name
+        && wanted != username
+        && !panel.user.is_admin
+    {
+        return Err(ApiError::NotAuthorized);
+    }
 
     let hash = match changes.password.as_deref() {
         Some(password) if !password.is_empty() => Some(
@@ -874,12 +900,16 @@ mod tests {
 
     /// The account is renamed and given a new password in the same call, so the
     /// sessions have to be found by something the rename did not move.
+    ///
+    /// An administrator, because renaming is theirs alone — and their own account,
+    /// which is the case that has both halves: a rename and a password change that
+    /// closes the other sessions.
     #[tokio::test]
     async fn a_rename_alongside_it_does_not_lose_the_sessions() {
-        let (pool, user_id, ids) = logged_in_thrice(false).await;
+        let (pool, user_id, ids) = logged_in_thrice(true).await;
 
         let Json(account) = change(
-            panel_of(ids[0], user_id, "ana", false),
+            panel_of(ids[0], user_id, "ana", true),
             State(pool.clone()),
             Path("ana".to_string()),
             Json(AccountChanges {
@@ -996,7 +1026,7 @@ mod tests {
     /// somebody corrected their email address.
     #[tokio::test]
     async fn the_password_date_moves_only_with_the_password() {
-        let (pool, user_id, _) = logged_in_thrice(false).await;
+        let (pool, user_id, _) = logged_in_thrice(true).await;
 
         let set_at = |pool: SqlitePool| async move {
             sqlx::query_scalar::<_, String>("SELECT password_set_at FROM users WHERE id = ?")
@@ -1010,9 +1040,10 @@ mod tests {
         assert!(!when_made.is_empty(), "set when the account was made");
 
         // Something that is not the password, and a name change at that: the most
-        // identity-like thing there is short of the password itself.
+        // identity-like thing there is short of the password itself. By an
+        // administrator, since a rename is not a listener's to make.
         let Json(_) = change(
-            panel_of(1, user_id, "ana", false),
+            panel_of(1, user_id, "ana", true),
             State(pool.clone()),
             Path("ana".to_string()),
             Json(AccountChanges {
@@ -1030,7 +1061,7 @@ mod tests {
         );
 
         let Json(_) = change(
-            panel_of(1, user_id, "anna", false),
+            panel_of(1, user_id, "anna", true),
             State(pool.clone()),
             Path("anna".to_string()),
             Json(AccountChanges {
@@ -1058,10 +1089,6 @@ mod tests {
                 ..nothing()
             },
             AccountChanges {
-                username: Some("anna".to_string()),
-                ..nothing()
-            },
-            AccountChanges {
                 email: Some("ana@example.org".to_string()),
                 ..nothing()
             },
@@ -1082,6 +1109,111 @@ mod tests {
 
         let untouched = load(&pool, "ana").await.expect("still called ana");
         assert_eq!(untouched.email, None);
+    }
+
+    /// Renaming is administration, and a listener has no way to it.
+    ///
+    /// Their name is how an administrator knows who they are, and it is what every
+    /// OpenSubsonic client logs in with: a listener who renamed themselves — which
+    /// they could, with their own password — stopped every player they own from
+    /// logging in, silently, and could not necessarily put it back, since the name
+    /// they had may have been taken meanwhile.
+    #[tokio::test]
+    async fn a_listener_cannot_rename_themselves() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let refused = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                username: Some("anna".to_string()),
+                // With the current password, which is what made this reachable: it is
+                // not the confirmation that was missing, it is the right to do it.
+                current_password: Some("before".to_string()),
+                ..nothing()
+            }),
+        )
+        .await;
+
+        assert_eq!(refused.err(), Some(ApiError::NotAuthorized));
+        assert!(load(&pool, "ana").await.is_ok(), "still called ana");
+        assert!(load(&pool, "anna").await.is_err(), "and not called anna");
+    }
+
+    /// And what they may still do, which is the reason the refusal is about the change
+    /// and not about the field: the panel sends the whole form on every save, so a
+    /// listener changing their address sends their own name along with it. Refusing
+    /// that would be refusing a change of address over a rename nobody asked for.
+    #[tokio::test]
+    async fn a_listener_sending_the_name_they_already_have_is_not_renaming() {
+        let (pool, user_id, ids) = logged_in_thrice(false).await;
+
+        let Json(account) = change(
+            panel_of(ids[0], user_id, "ana", false),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                username: Some("ana".to_string()),
+                email: Some("ana@example.org".to_string()),
+                current_password: Some("before".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("their own name is not a rename");
+
+        assert_eq!(account.username, "ana");
+        assert_eq!(account.email.as_deref(), Some("ana@example.org"));
+    }
+
+    /// An administrator renames whoever they like, their own account included. That
+    /// half was never in doubt and is what the refusal above is measured against.
+    #[tokio::test]
+    async fn an_administrator_renames_anybody_including_themselves() {
+        let (pool, user_id, ids) = logged_in_thrice(true).await;
+
+        let Json(renamed) = change(
+            panel_of(ids[0], user_id, "ana", true),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(AccountChanges {
+                username: Some("anna".to_string()),
+                current_password: Some("before".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("an administrator may rename themselves");
+
+        assert_eq!(renamed.username, "anna");
+
+        // And somebody else, who is not asked for a password because the
+        // administrator does not have theirs.
+        let at = db::now();
+        sqlx::query(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('bea', 'x', 0, ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let Json(other) = change(
+            panel_of(ids[0], user_id, "anna", true),
+            State(pool.clone()),
+            Path("bea".to_string()),
+            Json(AccountChanges {
+                username: Some("beatriz".to_string()),
+                ..nothing()
+            }),
+        )
+        .await
+        .expect("and anybody else");
+
+        assert_eq!(other.username, "beatriz");
     }
 
     /// A typo is a typo. It must not read as the session having gone, which is what

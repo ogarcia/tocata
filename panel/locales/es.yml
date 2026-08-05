@@ -535,6 +535,7 @@ profile:
   scrobbling_why: "Pasa lo que reproduces al servicio configurado en el servidor."
   unchanged: Vacío para dejarla como está
   username: Usuario
+  username_theirs: "Lo cambia un administrador"
   you: "Tú"
   # Las cuatro cifras de lo que tienes aquí. Escritas otra vez y no compartidas
   # con `accounts`: allí son las pérdidas de una cuenta ajena, aquí son tuyas.
