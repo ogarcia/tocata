@@ -17,6 +17,31 @@ use std::path::Path;
 /// artist name is a worse one.
 const ARTIST_SEPARATORS: [char; 2] = [';', '\0'];
 
+/// Names paired with the identifiers that belong to them, and nothing paired when
+/// they cannot be.
+///
+/// A file writes the two as parallel lists and nothing in it says which id belongs
+/// to which name — only that the orders match, which is a convention rather than a
+/// rule. So the pairing is by position, and only when the counts agree.
+///
+/// When they do not, every name goes unidentified. That is the whole point: the
+/// alternative is guessing, and a wrong MusicBrainz id is worse than none. It is
+/// what would happen to the common case of a credit that could not be split —
+/// "Tiziano Ferro feat. Anahí & Dulce María" is one name against three ids, and
+/// giving it the first would mark a person who does not exist with the identity of
+/// one who does, then fetch their photograph for it.
+pub fn identified<'m>(
+    names: &'m [String],
+    mbids: &'m [String],
+) -> impl Iterator<Item = (&'m str, Option<&'m str>)> {
+    let paired = names.len() == mbids.len();
+
+    names
+        .iter()
+        .enumerate()
+        .map(move |(at, name)| (name.as_str(), paired.then(|| mbids[at].as_str())))
+}
+
 /// Everything read out of one audio file.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Metadata {
@@ -24,6 +49,22 @@ pub struct Metadata {
     pub sort_title: Option<String>,
     pub artists: Vec<String>,
     pub album_artists: Vec<String>,
+    /// The credit as the file writes it, whole: "Tiziano Ferro feat. Anahí & Dulce
+    /// María".
+    ///
+    /// Kept beside the names rather than instead of them, because it is a different
+    /// thing. The names are who is on the track — three people, each with a page
+    /// somewhere and a MusicBrainz id of their own — and this is how the record
+    /// credits them, which no list of names can be joined back into: "feat." and
+    /// "&" are the tagger's words about who did what.
+    pub artist_credit: Option<String>,
+    /// MusicBrainz ids for `artists`, in the same order, or empty.
+    ///
+    /// Empty rather than partly filled: see `identified`, which is where the two
+    /// lists are lined up or given up on.
+    pub mbid_artists: Vec<String>,
+    /// And the same for `album_artists`.
+    pub mbid_album_artists: Vec<String>,
     pub album: Option<String>,
     pub sort_album: Option<String>,
     pub genres: Vec<String>,
@@ -286,9 +327,24 @@ fn read_tag(tag: &Tag, metadata: &mut Metadata) {
     metadata.track_number = tag.track().map(i64::from);
     metadata.disc_number = tag.disk().map(i64::from);
 
-    metadata.artists = split_artists(tag.artist().as_deref());
+    // Who is on the track, and how the track credits them.
+    //
+    // `ARTISTS` first, which is where a tagger that knows the difference puts the
+    // names one by one — Picard writes it, and writes the ids in the same order.
+    // Without it there is only the credit, and splitting that is the guess it has
+    // always been: "Tiziano Ferro feat. Anahí & Dulce María" has no separator we
+    // dare cut on, so it stays one name and the file's three ids go unused.
+    metadata.artist_credit = clean(tag.artist().as_deref());
+    metadata.artists = match every(tag, ItemKey::TrackArtists) {
+        listed if !listed.is_empty() => listed,
+        _ => split_artists(tag.artist().as_deref()),
+    };
+
     metadata.album_artists = split_artists(text(tag, ItemKey::AlbumArtist).as_deref());
     metadata.genres = split_artists(tag.genre().as_deref());
+
+    metadata.mbid_artists = every(tag, ItemKey::MusicBrainzArtistId);
+    metadata.mbid_album_artists = every(tag, ItemKey::MusicBrainzReleaseArtistId);
 
     metadata.sort_title = text(tag, ItemKey::TrackTitleSortOrder);
     metadata.sort_album = text(tag, ItemKey::AlbumTitleSortOrder);
@@ -360,6 +416,21 @@ fn text(tag: &Tag, key: ItemKey) -> Option<String> {
     clean(tag.get_string(key))
 }
 
+/// Every value written under one key, in the order the file wrote them.
+///
+/// Two shapes to gather, because a tagger may use either and Picard has used both:
+/// the key repeated, and one value with the separators inside it. Splitting each of
+/// them means neither shape is read short — and the order matters here more than
+/// anywhere else, since it is what lines names up with identifiers.
+fn every(tag: &Tag, key: ItemKey) -> Vec<String> {
+    tag.get_strings(key)
+        .flat_map(|value| value.split(ARTIST_SEPARATORS))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// Trims and discards anything that was only whitespace, because an empty tag
 /// and a missing tag mean the same thing to us.
 fn clean(value: Option<&str>) -> Option<String> {
@@ -427,14 +498,30 @@ mod tests {
     }
 
     fn tagged_wav(name: &str, items: &[(ItemKey, &str)]) -> PathBuf {
+        let listed: Vec<(ItemKey, Vec<&str>)> = items
+            .iter()
+            .map(|(key, value)| (*key, vec![*value]))
+            .collect();
+
+        wav_with_lists(name, &listed)
+    }
+
+    /// The same, for the keys a file may write more than once: the artists of a
+    /// track and their identifiers. `push` rather than `insert`, which is the
+    /// difference between a second value and a replacement.
+    fn wav_with_lists(name: &str, items: &[(ItemKey, Vec<&str>)]) -> PathBuf {
         let path = silent_wav(name);
         let mut tag = Tag::new(TagType::Id3v2);
-        for (key, value) in items {
-            tag.insert(TagItem::new(
-                *key,
-                lofty::tag::ItemValue::Text(value.to_string()),
-            ));
+
+        for (key, values) in items {
+            for value in values {
+                tag.push(TagItem::new(
+                    *key,
+                    lofty::tag::ItemValue::Text(value.to_string()),
+                ));
+            }
         }
+
         tag.save_to_path(&path, Default::default()).unwrap();
         path
     }
@@ -653,5 +740,128 @@ mod tests {
         let path = std::env::temp_dir().join("tocata-tags-not-audio.flac");
         std::fs::write(&path, b"this is not a flac file at all").unwrap();
         assert!(read(&path).is_err());
+    }
+
+    /// What Picard writes for a collaboration, taken from a real file: the credit
+    /// whole in the artist field, the names one by one in `ARTISTS`, and the
+    /// identifiers in that same order.
+    #[test]
+    fn the_names_come_from_the_list_and_the_credit_stays_whole() {
+        let path = wav_with_lists(
+            "collab",
+            &[
+                (
+                    ItemKey::TrackArtist,
+                    vec!["Tiziano Ferro feat. Anahí & Dulce María"],
+                ),
+                (
+                    ItemKey::TrackArtists,
+                    vec!["Tiziano Ferro", "Anahí", "Dulce María"],
+                ),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    vec![
+                        "d12b05b0-a0af-4c2c-8c8c-ab8bcf49439e",
+                        "4792522c-9eec-4491-9640-8922d5fbf2c5",
+                        "f07d2a0a-955f-4adc-b70a-7aba348f343d",
+                    ],
+                ),
+            ],
+        );
+
+        let metadata = read(&path).unwrap();
+
+        assert_eq!(
+            metadata.artists,
+            ["Tiziano Ferro", "Anahí", "Dulce María"],
+            "three people, not one name with two conjunctions in it"
+        );
+        assert_eq!(
+            metadata.artist_credit.as_deref(),
+            Some("Tiziano Ferro feat. Anahí & Dulce María"),
+            "and the sentence the record uses about them, kept as it was written"
+        );
+        assert_eq!(metadata.mbid_artists.len(), 3);
+
+        let paired: Vec<(&str, Option<&str>)> =
+            identified(&metadata.artists, &metadata.mbid_artists).collect();
+        assert_eq!(paired[1].0, "Anahí");
+        assert_eq!(paired[1].1, Some("4792522c-9eec-4491-9640-8922d5fbf2c5"));
+    }
+
+    /// And without that list, which is most files: the credit is all there is, so
+    /// it is split as it always was. Nothing is left cojo — a file that names one
+    /// artist and gives one identifier still gets it.
+    #[test]
+    fn without_the_list_the_credit_is_split_as_before() {
+        let one = tagged_wav(
+            "solo",
+            &[
+                (ItemKey::TrackArtist, "Jeff Buckley"),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    "e6e879c0-3d56-4f12-b3c5-3ce459661a8e",
+                ),
+            ],
+        );
+
+        let metadata = read(&one).unwrap();
+        assert_eq!(metadata.artists, ["Jeff Buckley"]);
+        assert_eq!(
+            identified(&metadata.artists, &metadata.mbid_artists).collect::<Vec<_>>(),
+            [("Jeff Buckley", Some("e6e879c0-3d56-4f12-b3c5-3ce459661a8e"))]
+        );
+
+        // Two names in the one field, which is the other shape a tagger uses, and
+        // two identifiers to go with them.
+        let two = wav_with_lists(
+            "split",
+            &[
+                (ItemKey::TrackArtist, vec!["David Bowie; Queen"]),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    vec!["bowie-mbid", "queen-mbid"],
+                ),
+            ],
+        );
+
+        let metadata = read(&two).unwrap();
+        assert_eq!(metadata.artists, ["David Bowie", "Queen"]);
+        assert_eq!(
+            identified(&metadata.artists, &metadata.mbid_artists).collect::<Vec<_>>(),
+            [
+                ("David Bowie", Some("bowie-mbid")),
+                ("Queen", Some("queen-mbid"))
+            ],
+            "the counts agree, so they pair up by position"
+        );
+    }
+
+    /// The case the pairing exists to refuse. One name that could not be split,
+    /// three identifiers: giving it the first would mark somebody who does not
+    /// exist with the identity of somebody who does.
+    #[test]
+    fn a_credit_that_could_not_be_split_takes_no_identifier() {
+        let names = vec!["A feat. B & C".to_string()];
+        let mbids = vec!["a-mbid".to_string(), "b-mbid".into(), "c-mbid".into()];
+
+        assert_eq!(
+            identified(&names, &mbids).collect::<Vec<_>>(),
+            [("A feat. B & C", None)]
+        );
+    }
+
+    #[test]
+    fn nothing_is_paired_when_the_counts_disagree_either_way() {
+        let two = vec!["A".to_string(), "B".to_string()];
+
+        assert!(
+            identified(&two, &["only-one".to_string()]).all(|(_, mbid)| mbid.is_none()),
+            "fewer identifiers than names"
+        );
+        assert!(
+            identified(&two, &[]).all(|(_, mbid)| mbid.is_none()),
+            "and none at all, which is most files"
+        );
     }
 }

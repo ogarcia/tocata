@@ -58,11 +58,14 @@ pub fn write_wav(path: &Path) {
 ///
 /// The kind of tag is the caller's to choose and it matters: which keys a format can
 /// even hold differs, and the reader names its frames after whichever this is.
+/// A key given twice is written twice, which is how a file says there are several of
+/// something: three artists and the three identifiers that go with them. `push`
+/// rather than `insert`, since inserting the second one would replace the first.
 pub fn tag_file(path: &Path, kind: TagType, items: &[(ItemKey, &str)]) {
     let mut tag = Tag::new(kind);
 
     for (key, value) in items {
-        tag.insert(TagItem::new(*key, ItemValue::Text(value.to_string())));
+        tag.push(TagItem::new(*key, ItemValue::Text(value.to_string())));
     }
 
     tag.save_to_path(path, Default::default()).unwrap();

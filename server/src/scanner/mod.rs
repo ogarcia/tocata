@@ -511,7 +511,11 @@ struct State {
     root: PathBuf,
     scan: i64,
     folders: HashMap<PathBuf, i64>,
-    artists: HashMap<String, i64>,
+    /// Artists this scan has seen, by name folded for comparison, each with whether
+    /// a MusicBrainz id has been written onto it yet. Without that second half, a
+    /// file naming somebody already seen would go straight past the chance to
+    /// identify them.
+    artists: HashMap<String, (i64, bool)>,
     /// The albums this scan has looked up so far. A key that is present has been
     /// answered for — from the database on the first track of a record, from here
     /// on every track after it — so a missing key means "not asked yet" and an
@@ -682,12 +686,12 @@ impl State {
             "INSERT INTO tracks (
                  public_id, library_id, folder_id, album_id, path, file_size,
                  file_modified_at, content_type, suffix, title, sort_title,
-                 track_number, disc_number, year, duration_ms, bit_rate,
+                 artist_credit, track_number, disc_number, year, duration_ms, bit_rate,
                  bit_depth, sampling_rate, channel_count, bpm, comment,
                  mbid_recording, mbid_track, isrc, rg_track_gain, rg_track_peak,
                  unreadable_since, last_seen_scan, created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (library_id, path) DO UPDATE SET
                  folder_id = excluded.folder_id,
                  album_id = excluded.album_id,
@@ -697,6 +701,7 @@ impl State {
                  suffix = excluded.suffix,
                  title = excluded.title,
                  sort_title = excluded.sort_title,
+                 artist_credit = excluded.artist_credit,
                  track_number = excluded.track_number,
                  disc_number = excluded.disc_number,
                  year = excluded.year,
@@ -730,6 +735,14 @@ impl State {
         .bind(extension)
         .bind(&title)
         .bind(&metadata.sort_title)
+        // Only when it says something the names do not. One artist credited under
+        // their own name needs no second copy of it, and most files are that.
+        .bind(
+            metadata
+                .artist_credit
+                .as_deref()
+                .filter(|credit| !matches!(metadata.artists.as_slice(), [only] if only == credit)),
+        )
         .bind(metadata.track_number)
         .bind(metadata.disc_number)
         .bind(metadata.year)
@@ -974,8 +987,10 @@ impl State {
             .execute(&mut **tx)
             .await?;
 
-        for (position, name) in metadata.artists.iter().enumerate() {
-            let artist_id = self.artist_id(tx, name).await?;
+        for (position, (name, mbid)) in
+            tags::identified(&metadata.artists, &metadata.mbid_artists).enumerate()
+        {
+            let artist_id = self.artist_id(tx, name, mbid).await?;
             sqlx::query(
                 "INSERT INTO track_artists (track_id, artist_id, role, position)
                  VALUES (?, ?, 'artist', ?)
@@ -1010,8 +1025,8 @@ impl State {
         key: &AlbumKey,
         metadata: &Metadata,
     ) -> Result<()> {
-        for (position, name) in key.credited(metadata).iter().enumerate() {
-            let artist_id = self.artist_id(tx, name).await?;
+        for (position, (name, mbid)) in key.credited(metadata).enumerate() {
+            let artist_id = self.artist_id(tx, name, mbid).await?;
             sqlx::query(
                 "INSERT INTO album_artists (album_id, artist_id, role, position)
                  VALUES (?, ?, 'albumartist', ?)
@@ -1051,10 +1066,28 @@ impl State {
         Ok(())
     }
 
-    async fn artist_id(&mut self, tx: &mut Transaction<'_, Sqlite>, name: &str) -> Result<i64> {
+    /// The row for a name, and the MusicBrainz id written onto it the first time one
+    /// arrives with it.
+    ///
+    /// The name is still what identifies an artist here — an id is a fact about them,
+    /// not the way they are found — so a file that names somebody already known adds
+    /// its id to the row they already have.
+    async fn artist_id(
+        &mut self,
+        tx: &mut Transaction<'_, Sqlite>,
+        name: &str,
+        mbid: Option<&str>,
+    ) -> Result<i64> {
         let key = name.trim().to_lowercase();
-        if let Some(id) = self.artists.get(&key) {
-            return Ok(*id);
+        if let Some((id, identified)) = self.artists.get(&key).copied() {
+            // Known already, and now named with an id it did not have: the first file
+            // of a record may credit somebody the tagger had not yet looked up.
+            if !identified && mbid.is_some() {
+                self.identify(tx, id, mbid).await?;
+                self.artists.insert(key, (id, true));
+            }
+
+            return Ok(id);
         }
 
         // The name is not unique in the schema on purpose: two artists can share
@@ -1082,6 +1115,8 @@ impl State {
             .with_context(|| format!("inserting artist {name}"))?,
         };
 
+        self.identify(tx, id, mbid).await?;
+
         sqlx::query("DELETE FROM artists_fts WHERE rowid = ?")
             .bind(id)
             .execute(&mut **tx)
@@ -1094,8 +1129,44 @@ impl State {
             .await
             .context("indexing an artist")?;
 
-        self.artists.insert(key, id);
+        self.artists.insert(key, (id, mbid.is_some()));
         Ok(id)
+    }
+
+    /// Writes a MusicBrainz id onto an artist that has none.
+    ///
+    /// Never over one that is already there: an artist whose files disagree about
+    /// which person they are has a tagging mistake, and the last file read is no
+    /// better an answer than the first.
+    ///
+    /// And never where another artist already holds it. The schema makes the id
+    /// unique — two rows claiming to be the same person is not a state worth
+    /// keeping — so without that condition this statement would fail, and a failed
+    /// statement here fails the scan. It happens: two spellings of one name, both
+    /// tagged with the same id, is the ordinary shape of a library somebody has been
+    /// tidying up.
+    async fn identify(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        id: i64,
+        mbid: Option<&str>,
+    ) -> Result<()> {
+        let Some(mbid) = mbid else { return Ok(()) };
+
+        sqlx::query(
+            "UPDATE artists SET mbid = ?1, updated_at = ?2
+               WHERE id = ?3
+                 AND mbid IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM artists WHERE mbid = ?1)",
+        )
+        .bind(mbid)
+        .bind(&self.timestamp)
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .with_context(|| format!("identifying artist {id} as {mbid}"))?;
+
+        Ok(())
     }
 
     async fn genre_id(&mut self, tx: &mut Transaction<'_, Sqlite>, name: &str) -> Result<i64> {
@@ -1312,7 +1383,12 @@ impl State {
             // Whoever the record is credited to, which for an album with no album
             // artist tagged is its track artists — otherwise searching an album by
             // the one name written on it would not find it.
-            .bind(key.credited(metadata).join(" "))
+            .bind(
+                key.credited(metadata)
+                    .map(|(name, _)| name)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )
             .execute(&mut **tx)
             .await
             .context("indexing an album")?;

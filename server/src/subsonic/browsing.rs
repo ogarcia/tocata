@@ -598,6 +598,9 @@ struct TrackRow {
     public_id: String,
     title: String,
     sort_title: Option<String>,
+    /// How the file credits whoever is on the track, whole. Where it is null the
+    /// names are the credit, and joining them says the same thing.
+    artist_credit: Option<String>,
     track_number: Option<i64>,
     disc_number: Option<i64>,
     year: Option<i64>,
@@ -631,7 +634,8 @@ macro_rules! track_columns_head {
     () => {
         concat!(
             "
-    SELECT t.id, t.public_id, t.title, t.sort_title, t.track_number, t.disc_number,
+    SELECT t.id, t.public_id, t.title, t.sort_title, t.artist_credit,
+           t.track_number, t.disc_number,
            t.year, t.duration_ms, t.bit_rate, t.bit_depth, t.sampling_rate,
            t.channel_count, t.bpm, t.comment, t.mbid_recording, t.isrc,
            t.rg_track_gain, t.rg_track_peak, t.file_size, t.content_type,
@@ -844,7 +848,14 @@ fn build_child(
     album_artists: Vec<(String, String)>,
     genres: Vec<String>,
 ) -> Child {
-    let display_artist = display_names(&artists);
+    // The file's own credit where it wrote one, and the names joined where it did
+    // not. A record that says "A feat. B" says something a list cannot: joining the
+    // two names back up gives "A, B", which is the same people and not the same
+    // sentence.
+    let display_artist = row
+        .artist_credit
+        .clone()
+        .or_else(|| display_names(&artists));
     let display_album_artist = display_names(&album_artists);
     let first_artist = artists.first().cloned();
 

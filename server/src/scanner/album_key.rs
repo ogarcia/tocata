@@ -121,15 +121,33 @@ impl AlbumKey {
     /// release id. Those two group without regard to artist on purpose, so their
     /// tracks may well be by different people, and there the fallback would
     /// credit the record to whoever happened to be on it.
-    pub fn credited<'m>(&self, metadata: &'m Metadata) -> &'m [String] {
-        if !metadata.album_artists.is_empty() {
-            return &metadata.album_artists;
-        }
+    ///
+    /// Each name comes out with the MusicBrainz id that belongs to it, from the same
+    /// pair of lists — one decision, taken once. Two functions deciding which list
+    /// to read is how a name ends up wearing somebody else's identity: the day one
+    /// of them learns a new case and the other does not.
+    pub fn credited<'m>(
+        &self,
+        metadata: &'m Metadata,
+    ) -> impl Iterator<Item = (&'m str, Option<&'m str>)> {
+        const NOBODY: &[String] = &[];
 
-        match self {
-            Self::Tagged { .. } => &metadata.artists,
-            Self::Compilation { .. } | Self::Release(_) => &[],
-        }
+        let (names, mbids) = if metadata.album_artists.is_empty() {
+            match self {
+                Self::Tagged { .. } => (
+                    metadata.artists.as_slice(),
+                    metadata.mbid_artists.as_slice(),
+                ),
+                Self::Compilation { .. } | Self::Release(_) => (NOBODY, NOBODY),
+            }
+        } else {
+            (
+                metadata.album_artists.as_slice(),
+                metadata.mbid_album_artists.as_slice(),
+            )
+        };
+
+        super::tags::identified(names, mbids)
     }
 }
 
@@ -279,8 +297,8 @@ mod tests {
         let key = AlbumKey::of(&hand_tagged).unwrap();
 
         assert_eq!(
-            key.credited(&hand_tagged),
-            ["Queen".to_string()],
+            key.credited(&hand_tagged).collect::<Vec<_>>(),
+            [("Queen", None)],
             "the one name the file does carry signs the record"
         );
     }
@@ -291,8 +309,8 @@ mod tests {
         let key = AlbumKey::of(&both).unwrap();
 
         assert_eq!(
-            key.credited(&both),
-            ["Jay-Z".to_string(), "Kanye West".to_string()],
+            key.credited(&both).collect::<Vec<_>>(),
+            [("Jay-Z", None), ("Kanye West", None)],
             "tagged as it was tagged, and in the order it was tagged"
         );
     }
@@ -306,7 +324,7 @@ mod tests {
         collected.is_compilation = true;
         let key = AlbumKey::of(&collected).unwrap();
 
-        assert!(key.credited(&collected).is_empty());
+        assert_eq!(key.credited(&collected).count(), 0);
     }
 
     #[test]
@@ -315,7 +333,7 @@ mod tests {
         released.mbid_release = Some("abc-123".into());
         let key = AlbumKey::of(&released).unwrap();
 
-        assert!(key.credited(&released).is_empty());
+        assert_eq!(key.credited(&released).count(), 0);
     }
 
     /// The year is compared between the rows a key finds, not written into the

@@ -187,6 +187,19 @@ CREATE TABLE tracks (
     suffix           TEXT    NOT NULL,
     title            TEXT    NOT NULL,
     sort_title       TEXT,
+    -- How the track credits whoever is on it, as the file writes it whole:
+    -- "Tiziano Ferro feat. Anahí & Dulce María".
+    --
+    -- Kept as well as the rows in track_artists, not instead of them, because it
+    -- says something they cannot. Those rows are who is on the track — three
+    -- people, each with an identity of their own — and this is the sentence the
+    -- record uses about them. Joining the names back up gives "Tiziano Ferro,
+    -- Anahí, Dulce María", which is a list where the file had "feat." and "&", and
+    -- those are the tagger's words about who did what.
+    --
+    -- Null for the ordinary file that credits one artist, where the name is the
+    -- credit and storing it twice would be storing it twice.
+    artist_credit    TEXT,
     track_number     INTEGER,
     disc_number      INTEGER,
     year             INTEGER,

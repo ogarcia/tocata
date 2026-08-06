@@ -50,6 +50,9 @@ fn tag(path: &Path, items: &[(&str, &str)]) {
                 "year" => ItemKey::RecordingDate,
                 "release" => ItemKey::MusicBrainzReleaseId,
                 "compilation" => ItemKey::FlagCompilation,
+                "artists" => ItemKey::TrackArtists,
+                "artist_mbid" => ItemKey::MusicBrainzArtistId,
+                "albumartist_mbid" => ItemKey::MusicBrainzReleaseArtistId,
                 other => panic!("unknown tag {other}"),
             };
 
@@ -213,6 +216,195 @@ async fn a_release_id_and_a_compilation_survive_a_second_scan_too() {
         count(&pool, "SELECT count(*) FROM albums").await,
         2,
         "neither of them was made twice"
+    );
+}
+
+/// A track by three people is by three people.
+///
+/// Taken from a real file. The credit could not be split — "feat." and "&" are not
+/// separators anybody dares cut on — so the whole sentence went in as one artist:
+/// a row for somebody who does not exist, nothing to enrich, and no way to find the
+/// song by asking for one of the three. The names were in `ARTISTS` all along, and
+/// the identifiers beside them in the same order.
+#[tokio::test]
+async fn a_track_credited_to_several_people_names_each_of_them() {
+    let root = temp_root("collaboration");
+    let path = root.join("Album/05.wav");
+    write_wav(&path);
+
+    tag(
+        &path,
+        &[
+            ("album", "A mi edad"),
+            ("albumartist", "Tiziano Ferro"),
+            ("albumartist_mbid", "d12b05b0-a0af-4c2c-8c8c-ab8bcf49439e"),
+            ("artist", "Tiziano Ferro feat. Anahí & Dulce María"),
+            ("artists", "Tiziano Ferro"),
+            ("artists", "Anahí"),
+            ("artists", "Dulce María"),
+            ("artist_mbid", "d12b05b0-a0af-4c2c-8c8c-ab8bcf49439e"),
+            ("artist_mbid", "4792522c-9eec-4491-9640-8922d5fbf2c5"),
+            ("artist_mbid", "f07d2a0a-955f-4adc-b70a-7aba348f343d"),
+        ],
+    );
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    let credited: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT ar.name, ar.mbid FROM track_artists ta
+           JOIN artists ar ON ar.id = ta.artist_id
+          WHERE ta.role = 'artist' ORDER BY ta.position",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        credited,
+        [
+            (
+                "Tiziano Ferro".to_string(),
+                Some("d12b05b0-a0af-4c2c-8c8c-ab8bcf49439e".to_string())
+            ),
+            (
+                "Anahí".to_string(),
+                Some("4792522c-9eec-4491-9640-8922d5fbf2c5".to_string())
+            ),
+            (
+                "Dulce María".to_string(),
+                Some("f07d2a0a-955f-4adc-b70a-7aba348f343d".to_string())
+            ),
+        ],
+        "three people, each with the identity the file gave them, in order"
+    );
+
+    // And the sentence the record uses about them, which no list of names is.
+    let credit: Option<String> = sqlx::query_scalar("SELECT artist_credit FROM tracks")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        credit.as_deref(),
+        Some("Tiziano Ferro feat. Anahí & Dulce María")
+    );
+
+    // Which is the point of naming them: asking for the second one finds the song.
+    let found = count(
+        &pool,
+        "SELECT count(*) FROM tracks_fts WHERE tracks_fts MATCH 'Anahí'",
+    )
+    .await;
+    assert_eq!(found, 1, "the song answers to somebody who is on it");
+
+    // The record is credited to whoever the album artist tag says, with their own
+    // identifier — and that one artist is the same row as the first of the three.
+    let signed: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT ar.name, ar.mbid FROM album_artists aa
+           JOIN artists ar ON ar.id = aa.artist_id
+          WHERE aa.role = 'albumartist'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        signed,
+        [(
+            "Tiziano Ferro".to_string(),
+            Some("d12b05b0-a0af-4c2c-8c8c-ab8bcf49439e".to_string())
+        )]
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM artists").await,
+        3,
+        "and no fourth row for the credit as a whole"
+    );
+}
+
+/// The other file, which is almost every file: one name, one identifier, no list.
+/// Nothing here is left cojo by the case above.
+#[tokio::test]
+async fn one_artist_with_one_identifier_is_identified_too() {
+    let root = temp_root("one-artist");
+    let path = root.join("Grace/01.wav");
+    write_wav(&path);
+
+    tag(
+        &path,
+        &[
+            ("album", "Grace"),
+            ("artist", "Jeff Buckley"),
+            ("albumartist", "Jeff Buckley"),
+            ("artist_mbid", "e6e879c0-3d56-4f12-b3c5-3ce459661a8e"),
+            ("albumartist_mbid", "e6e879c0-3d56-4f12-b3c5-3ce459661a8e"),
+        ],
+    );
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    let artists: Vec<(String, Option<String>)> = sqlx::query_as("SELECT name, mbid FROM artists")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        artists,
+        [(
+            "Jeff Buckley".to_string(),
+            Some("e6e879c0-3d56-4f12-b3c5-3ce459661a8e".to_string())
+        )],
+        "one row, identified once, however many tags name them"
+    );
+
+    // Nothing kept twice: the credit is the name, so there is no second copy of it.
+    let credit: Option<String> = sqlx::query_scalar("SELECT artist_credit FROM tracks")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(credit, None);
+}
+
+/// Two names tagged with one identifier between them. The schema will not hold two
+/// artists claiming to be the same person, and a scan that failed on it would be a
+/// scan that stops at a tagging mistake somebody made years ago.
+#[tokio::test]
+async fn one_identifier_shared_by_two_names_does_not_break_the_scan() {
+    let root = temp_root("same-mbid");
+
+    for (n, who) in [(1, "Anahí"), (2, "Anahi")] {
+        let path = root.join(format!("Album/{n:02}.wav"));
+        write_wav(&path);
+        tag(
+            &path,
+            &[
+                ("album", "Mi Delirio"),
+                ("artist", who),
+                ("artist_mbid", "4792522c-9eec-4491-9640-8922d5fbf2c5"),
+            ],
+        );
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    let outcome = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    assert_eq!(outcome.tracks, 2, "both files were read");
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM artists WHERE mbid = '4792522c-9eec-4491-9640-8922d5fbf2c5'"
+        )
+        .await,
+        1,
+        "the identity belongs to one row: the first to claim it keeps it"
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM artists").await,
+        2,
+        "and the other name is still an artist, just an unidentified one"
     );
 }
 
