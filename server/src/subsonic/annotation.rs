@@ -297,7 +297,7 @@ async fn write_rating(
             .bind(user_id)
             .bind(id)
             .bind(rating)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
         Kind::Album => {
@@ -309,7 +309,7 @@ async fn write_rating(
             .bind(user_id)
             .bind(id)
             .bind(rating)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
         Kind::Artist => {
@@ -321,7 +321,7 @@ async fn write_rating(
             .bind(user_id)
             .bind(id)
             .bind(rating)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
     }

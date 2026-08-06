@@ -10,6 +10,7 @@
 use super::error::ApiError;
 use super::session::Administrator;
 use crate::db;
+use crate::db::InTurn;
 use crate::scanner::overlaps;
 use crate::types::{ErrorBody, Library, LibraryChanges, NewLibrary};
 use axum::Json;
@@ -135,7 +136,7 @@ pub async fn add(
     .bind(path.to_string_lossy().as_ref())
     .bind(&timestamp)
     .bind(&timestamp)
-    .fetch_one(&pool)
+    .in_turn(&pool)
     .await;
 
     let id = match id {
@@ -220,7 +221,7 @@ pub async fn change(
     .bind(changes.enabled.map(i64::from))
     .bind(db::now())
     .bind(id)
-    .execute(&pool)
+    .in_turn(&pool)
     .await;
 
     let changed = match changed {
@@ -281,7 +282,7 @@ pub async fn remove(
 
     sqlx::query("DELETE FROM libraries WHERE id = ?")
         .bind(id)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .map_err(|e| ApiError::internal(e, "removing a library"))?;
 

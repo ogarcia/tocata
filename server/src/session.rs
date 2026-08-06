@@ -13,6 +13,7 @@
 
 use crate::auth;
 use crate::db;
+use crate::db::InTurn;
 use crate::user::User;
 use anyhow::{Context, Result};
 use chrono::Duration;
@@ -52,7 +53,7 @@ pub async fn create(pool: &SqlitePool, user_id: i64, days: i64) -> Result<(Strin
 
     sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
         .bind(&timestamp)
-        .execute(pool)
+        .in_turn(pool)
         .await
         .context("clearing expired sessions")?;
 
@@ -65,7 +66,7 @@ pub async fn create(pool: &SqlitePool, user_id: i64, days: i64) -> Result<(Strin
     .bind(&timestamp)
     .bind(&timestamp)
     .bind(&expires_at)
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("creating a session")?;
 
@@ -101,7 +102,7 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> Result<Option<Session>> 
         let noted = sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
             .bind(db::now())
             .bind(id)
-            .execute(pool)
+            .in_turn(pool)
             .await;
 
         if let Err(e) = noted {
@@ -129,7 +130,7 @@ pub async fn resolve(pool: &SqlitePool, token: &str) -> Result<Option<Session>> 
 pub async fn destroy(pool: &SqlitePool, token: &str) -> Result<()> {
     sqlx::query("DELETE FROM sessions WHERE token_hash = ?")
         .bind(auth::hash_secret(token))
-        .execute(pool)
+        .in_turn(pool)
         .await
         .context("ending a session")?;
 
@@ -151,7 +152,7 @@ pub async fn destroy_all(pool: &SqlitePool, user_id: i64, except: i64) -> Result
     let done = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND id != ?")
         .bind(user_id)
         .bind(except)
-        .execute(pool)
+        .in_turn(pool)
         .await
         .context("ending an account's sessions")?;
 

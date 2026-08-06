@@ -14,6 +14,7 @@
 
 use super::error::ApiError;
 use super::session::Panel;
+use crate::db::InTurn;
 use crate::session;
 use crate::types::{Closed, ErrorBody, Login};
 use axum::Json;
@@ -117,7 +118,7 @@ pub async fn close(
     let done = sqlx::query("DELETE FROM sessions WHERE id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .map_err(|e| ApiError::internal(e, "closing a session"))?;
 

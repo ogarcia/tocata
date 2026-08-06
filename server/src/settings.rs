@@ -12,6 +12,7 @@
 //! The environment seeds this on first run and never again, so a value set from
 //! the panel is not quietly undone by the next restart.
 
+use crate::db::InTurn;
 use crate::db::now;
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
@@ -59,7 +60,7 @@ pub async fn seed(pool: &SqlitePool, ignored_articles: &[String]) -> Result<()> 
     .bind(SCANS_AT_STARTUP)
     .bind(SESSION_DAYS)
     .bind(now())
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("seeding the settings")?;
 
@@ -109,7 +110,7 @@ pub async fn store(pool: &SqlitePool, settings: &Settings) -> Result<()> {
     .bind(settings.absent_grace_days)
     .bind(settings.session_days)
     .bind(now())
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("changing the settings")?;
 

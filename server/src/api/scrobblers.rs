@@ -21,6 +21,7 @@
 use super::error::ApiError;
 use super::session::Panel;
 use crate::db;
+use crate::db::InTurn;
 use crate::net::Net;
 use crate::scrobble::{self, Service, listenbrainz};
 use crate::types::{ErrorBody, NewScrobbler, Offered, Scrobbler, Scrobbling, Switch};
@@ -136,7 +137,7 @@ pub async fn set(
     .bind(i64::from(given.enabled.unwrap_or(true)))
     .bind(&at)
     .bind(&at)
-    .execute(&pool)
+    .in_turn(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "storing a scrobbling destination"))?;
 
@@ -194,7 +195,7 @@ pub async fn switch(
     .bind(db::now())
     .bind(panel.user.id)
     .bind(service.name())
-    .execute(&pool)
+    .in_turn(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "switching a scrobbling destination"))?;
 
@@ -239,7 +240,7 @@ pub async fn remove(
     let gone = sqlx::query("DELETE FROM scrobblers WHERE user_id = ? AND service = ?")
         .bind(panel.user.id)
         .bind(service.name())
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .map_err(|e| ApiError::internal(e, "removing a scrobbling destination"))?;
 

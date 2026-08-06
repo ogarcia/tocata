@@ -7,6 +7,7 @@
 //! stored hash never leaves this module.
 
 use crate::auth;
+use crate::db::InTurn;
 use crate::db::now;
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
@@ -224,7 +225,7 @@ pub async fn seen(pool: &SqlitePool, user_id: i64) {
     // "stale" at once, and this is what makes the second one's write a no-op rather
     // than a second write of the same instant.
     .bind(&stale)
-    .execute(pool)
+    .in_turn(pool)
     .await;
 
     if let Err(e) = written {
@@ -240,7 +241,7 @@ async fn record_api_key_use(pool: &SqlitePool, key_id: i64) {
     let noted = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
         .bind(now())
         .bind(key_id)
-        .execute(pool)
+        .in_turn(pool)
         .await;
 
     if let Err(e) = noted {
@@ -320,7 +321,7 @@ pub async fn ensure_initial_user(pool: &SqlitePool) -> Result<Option<String>> {
     .bind(&hash)
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("creating the initial user")?;
 

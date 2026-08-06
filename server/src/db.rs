@@ -4,9 +4,12 @@
 use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::sqlite::{SqliteArguments, SqliteConnectOptions, SqliteJournalMode, SqliteQueryResult};
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::sync::{Semaphore, SemaphorePermit};
+use tracing::warn;
 
 /// How long a writer waits for the lock before giving up.
 ///
@@ -41,8 +44,147 @@ pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_secs(15);
 /// of them no longer needed writing. Every upsert in this program has the same
 /// shape and so had the same fault waiting: a play counted while a scan writes, a
 /// track starred, a bookmark moved.
-pub async fn writing(pool: &SqlitePool) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Sqlite>> {
-    pool.begin_with("BEGIN IMMEDIATE").await
+pub async fn writing(pool: &SqlitePool) -> sqlx::Result<Writing> {
+    let turn = turn().await;
+    let tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+
+    Ok(Writing { tx, _turn: turn })
+}
+
+/// The one writer at a time, and a fair queue for it.
+///
+/// SQLite has a single write lock and hands it to whoever asks rather than to
+/// whoever has waited longest, so two writers in this process do not take turns —
+/// they race, and the same one can lose several times running. Measured at 2.2
+/// seconds of losing before the scan started standing back between batches, and
+/// still 0.8 after. Nothing failed, because [`BUSY_TIMEOUT`] is long, but nothing
+/// bounded the wait either: the program was correct by luck.
+///
+/// A semaphore of one permit is what bounds it. Tokio's is FIFO, which is the
+/// whole point — the wait becomes at most one other write rather than however many
+/// times in a row the lock happens to go elsewhere, and the entire class of
+/// "database is locked" cannot arise from inside this process.
+///
+/// It does nothing about another process writing to the same file, which is what
+/// the busy timeout is still there for.
+static WRITING: Semaphore = Semaphore::const_new(1);
+
+/// How long a write may wait for its turn before the wait is worth mentioning.
+///
+/// Not a limit: the wait is unbounded on purpose, because failing here is the very
+/// thing this exists to prevent. But a wait this long means a transaction is being
+/// held far longer than any of them should be, and that is worth finding in a log
+/// rather than by watching a request hang.
+const WAITED_TOO_LONG: Duration = Duration::from_secs(5);
+
+/// One statement that writes, run in its turn.
+///
+/// For the writes that are a single statement and want no transaction around them,
+/// which is most of them: a session recorded, a key revoked, a preference stored.
+/// Written `.in_turn(pool)` where it would otherwise say `.execute(pool)`, and the
+/// difference is the whole of what this module is for.
+///
+/// The turn is taken inside, so it lasts exactly as long as the statement. That is
+/// not tidiness: a permit held across a call to something that writes on its own
+/// would wait for a turn that only it could give up, and this shape makes that
+/// impossible to write by accident.
+pub trait InTurn {
+    /// What the statement answers with: how many rows it touched, or the one value
+    /// it was written to return.
+    type Out;
+
+    fn in_turn(
+        self,
+        pool: &SqlitePool,
+    ) -> impl std::future::Future<Output = sqlx::Result<Self::Out>> + Send;
+}
+
+impl<'q> InTurn for sqlx::query::Query<'q, sqlx::Sqlite, SqliteArguments> {
+    type Out = SqliteQueryResult;
+
+    async fn in_turn(self, pool: &SqlitePool) -> sqlx::Result<SqliteQueryResult> {
+        let _turn = turn().await;
+        self.execute(pool).await
+    }
+}
+
+/// The same for a statement that ends in `RETURNING`, which is how a row that
+/// generates its own identifier says what it got.
+impl<'q, O> InTurn for sqlx::query::QueryScalar<'q, sqlx::Sqlite, O, SqliteArguments>
+where
+    O: Send + Unpin,
+    (O,): for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>,
+{
+    type Out = O;
+
+    async fn in_turn(self, pool: &SqlitePool) -> sqlx::Result<O> {
+        let _turn = turn().await;
+        self.fetch_one(pool).await
+    }
+}
+
+/// Waits for the turn to write.
+///
+/// Held for as long as the returned guard lives. Everything in here that takes one
+/// gives it up on the same statement or with the transaction it rode in on; taking
+/// one by hand means taking on that rule as well.
+async fn turn() -> SemaphorePermit<'static> {
+    let waiting = Instant::now();
+
+    let turn = match tokio::time::timeout(WAITED_TOO_LONG, WRITING.acquire()).await {
+        Ok(turn) => turn,
+        Err(_) => {
+            warn!(
+                "a write has been waiting {WAITED_TOO_LONG:?} for its turn: something is \
+                 holding a write transaction open"
+            );
+            WRITING.acquire().await
+        }
+    };
+
+    // The semaphore is never closed, so there is no failure to handle: the only
+    // way `acquire` returns an error is a `close()` that nothing here calls.
+    let turn = turn.expect("the write semaphore is never closed");
+
+    let waited = waiting.elapsed();
+    if waited > WAITED_TOO_LONG {
+        warn!("a write waited {waited:?} for its turn");
+    }
+
+    turn
+}
+
+/// A transaction that is going to write, holding the turn to do it.
+///
+/// The permit lives in here rather than beside it so that it cannot be dropped
+/// early or forgotten: the turn ends when the transaction does, whether that is a
+/// commit, a rollback or a panic on the way to either.
+pub struct Writing {
+    tx: sqlx::Transaction<'static, sqlx::Sqlite>,
+    _turn: SemaphorePermit<'static>,
+}
+
+impl Writing {
+    pub async fn commit(self) -> sqlx::Result<()> {
+        self.tx.commit().await
+    }
+}
+
+/// Dereferences to the transaction, so everything that takes one — including every
+/// function here that is handed a `&mut Transaction` — is unchanged by the permit
+/// riding along with it.
+impl Deref for Writing {
+    type Target = sqlx::Transaction<'static, sqlx::Sqlite>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tx
+    }
+}
+
+impl DerefMut for Writing {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.tx
+    }
 }
 
 /// Current time in the shape the schema stores: ISO-8601, UTC, to the second.
@@ -164,5 +306,128 @@ mod tests {
         for given in ["", "tomorrow", "2026-08-26", "2026-13-01T00:00:00Z"] {
             assert!(timestamp_from(given).is_none(), "{given} is not a moment");
         }
+    }
+}
+
+/// The one thing a semaphore of one permit cannot do for itself: make sure
+/// everything goes through it.
+///
+/// A write that reaches the pool directly waits on SQLite rather than on the queue,
+/// which is exactly the race this module exists to remove — and one such write is
+/// enough to bring the whole class of failure back. There is nothing in the type
+/// system to prevent it, because `.execute(pool)` is what sqlx offers and it is
+/// right for everything that reads. So the program reads itself instead.
+#[cfg(test)]
+mod every_write_takes_its_turn {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    /// How far past a statement to look for the call that runs it. Generous: the
+    /// longest of them is a scan's track insert, with its conflict clause and its
+    /// twenty binds.
+    const REACH: usize = 4_000;
+
+    fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir)
+            .expect("reading the source tree")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, found);
+            // `tests.rs` is a whole module of fixtures, which write to a database
+            // of their own and have nobody to take turns with.
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && path.file_name().is_some_and(|name| name != "tests.rs")
+            {
+                found.push(path);
+            }
+        }
+    }
+
+    /// Whether a position sits inside a `#[cfg(test)]` module.
+    ///
+    /// Decided by the last item that starts at the left margin before it: in this
+    /// program every module and every function does, so the nearest one going
+    /// backwards is the one a position belongs to. Counting braces would have to
+    /// know which of them are inside a SQL string, and the SQL here is full of them.
+    fn under_cfg_test(text: &str, at: usize) -> bool {
+        let before = &text[..at];
+        let Some(start) = before
+            .match_indices("\nmod ")
+            .chain(before.match_indices("\npub mod "))
+            .chain(before.match_indices("\nfn "))
+            .chain(before.match_indices("\npub fn "))
+            .chain(before.match_indices("\nasync fn "))
+            .chain(before.match_indices("\npub async fn "))
+            .chain(before.match_indices("\nimpl "))
+            .chain(before.match_indices("\npub trait "))
+            .map(|(i, _)| i)
+            .max()
+        else {
+            return false;
+        };
+
+        // The attribute sits on the line above whatever it applies to.
+        text[..start].trim_end().ends_with("#[cfg(test)]")
+    }
+
+    #[test]
+    fn nothing_writes_to_the_pool_behind_the_queue() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        assert!(!files.is_empty(), "no sources found under {root:?}");
+
+        let mut loose = Vec::new();
+
+        for path in files {
+            let text = fs::read_to_string(&path).expect("reading a source file");
+
+            for statement in ["INSERT INTO", "INSERT OR", "UPDATE ", "DELETE FROM"] {
+                for (at, _) in text.match_indices(statement) {
+                    if under_cfg_test(&text, at) {
+                        continue;
+                    }
+
+                    let ahead = &text[at..text.len().min(at + REACH)];
+                    let Some(call) = ["in_turn(", "execute(", "fetch_one(", "fetch_optional("]
+                        .iter()
+                        .filter_map(|call| ahead.find(call).map(|i| (i, *call)))
+                        .min()
+                    else {
+                        continue;
+                    };
+
+                    let (i, call) = call;
+                    if call == "in_turn(" {
+                        continue;
+                    }
+
+                    // Against a transaction, which carries the turn it was opened
+                    // with. Only the pool is a way round the queue.
+                    let executor: String = ahead[i + call.len()..]
+                        .chars()
+                        .take_while(|c| *c != ')')
+                        .collect();
+                    if !executor.contains("pool") {
+                        continue;
+                    }
+
+                    let line = text[..at].matches('\n').count() + 1;
+                    let name = path.strip_prefix(&root).unwrap_or(&path).display();
+                    loose.push(format!(
+                        "{name}:{line} runs a write with .{call}{executor})"
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            loose.is_empty(),
+            "these writes go straight to the pool instead of taking their turn — \
+             use `.in_turn(pool)`, or open a transaction with `db::writing`:\n  {}",
+            loose.join("\n  ")
+        );
     }
 }

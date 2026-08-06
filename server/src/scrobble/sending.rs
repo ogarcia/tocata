@@ -310,7 +310,7 @@ async fn done(pool: &SqlitePool, ids: &[i64]) -> Result<()> {
     for id in ids {
         sqlx::query("DELETE FROM scrobble_queue WHERE id = ?")
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .context("removing a sent listen")?;
     }
@@ -346,7 +346,7 @@ async fn postpone(
     .bind(destination.user_id)
     .bind(destination.service.name())
     .bind(db::now())
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .context("holding a destination back")?;
 
@@ -359,7 +359,7 @@ async fn postpone(
         .bind(i64::from(counts))
         .bind(why)
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .context("writing down why a listen is waiting")?;
     }

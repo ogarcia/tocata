@@ -82,6 +82,7 @@ mod letting_go_tests {
 mod walker;
 
 use crate::db;
+use crate::db::InTurn;
 use album_key::AlbumKey;
 use anyhow::{Context, Result};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -235,7 +236,7 @@ pub async fn scan_all(
     // quick one exists to skip work, and this is work.
     if mode == Mode::Full {
         let forgotten = sqlx::query("DELETE FROM artwork_lookups WHERE found = 0")
-            .execute(pool)
+            .in_turn(pool)
             .await
             .context("forgetting the covers that were not found")?
             .rows_affected();
@@ -286,7 +287,7 @@ async fn scan_library(
     .bind(library_id)
     .bind(db::now())
     .bind(i64::from(mode == Mode::Full))
-    .fetch_one(pool)
+    .in_turn(pool)
     .await
     .context("recording the start of the scan")?;
 
@@ -491,7 +492,7 @@ async fn scan_library(
     .bind(outcome.tracks as i64)
     .bind((outcome.tracks - outcome.unchanged) as i64)
     .bind(scan)
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("recording the end of the scan")?;
 
@@ -1416,7 +1417,7 @@ pub async fn sync_libraries(pool: &SqlitePool, paths: &[PathBuf]) -> Result<()> 
         .bind(path.as_ref())
         .bind(&timestamp)
         .bind(&timestamp)
-        .execute(pool)
+        .in_turn(pool)
         .await
         .with_context(|| format!("registering library {path}"))?;
     }

@@ -17,6 +17,7 @@
 //! own. A scan is minutes and has a whole progress stream to itself; these are
 //! seconds, and waiting for the answer is what the caller wants.
 
+use crate::db::InTurn;
 use crate::db::now;
 use crate::types::{Job, Run};
 use anyhow::{Context, Result};
@@ -86,7 +87,7 @@ pub async fn run(pool: &SqlitePool, data_dir: &Path, job: Job) -> Result<Run> {
         sqlx::query_scalar("INSERT INTO job_runs (job, started_at) VALUES (?, ?) RETURNING id")
             .bind(job.name())
             .bind(&at)
-            .fetch_one(pool)
+            .in_turn(pool)
             .await
             .context("recording that a job started")?;
 
@@ -113,7 +114,7 @@ pub async fn run(pool: &SqlitePool, data_dir: &Path, job: Job) -> Result<Run> {
         .bind(affected)
         .bind(&error)
         .bind(id)
-        .execute(pool)
+        .in_turn(pool)
         .await
         .context("recording that a job finished")?;
 
@@ -233,7 +234,7 @@ async fn covers(pool: &SqlitePool, data_dir: &Path) -> Result<Outcome> {
     }
 
     let forgotten = sqlx::query("DELETE FROM artwork_lookups WHERE found = 0")
-        .execute(pool)
+        .in_turn(pool)
         .await
         .context("forgetting the covers that were not found")?
         .rows_affected();

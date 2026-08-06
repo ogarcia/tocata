@@ -28,6 +28,7 @@ pub mod listenbrainz;
 pub mod sending;
 
 use crate::db;
+use crate::db::InTurn;
 use crate::net::Net;
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
@@ -213,7 +214,7 @@ async fn enqueue(pool: &SqlitePool, user_id: i64, track_id: i64, played_at: &str
     .bind(&at)
     .bind(track_id)
     .bind(user_id)
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("queueing a listen")?;
 
@@ -247,7 +248,7 @@ pub async fn due_again(pool: &SqlitePool, user_id: i64, service: Service) -> Res
     .bind(db::now())
     .bind(user_id)
     .bind(service.name())
-    .execute(pool)
+    .in_turn(pool)
     .await
     .context("making a destination's listens due again")?;
 
@@ -440,7 +441,7 @@ mod tests {
         )
         .bind(&at)
         .bind(&at)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .unwrap();
 

@@ -36,6 +36,7 @@
 
 use super::error::ApiError;
 use super::session::Panel;
+use crate::db::InTurn;
 use crate::types::{ErrorBody, IssuedKey, Key, KeyChanges, NewKey, Revoked};
 use crate::{auth, db};
 use axum::Json;
@@ -232,7 +233,7 @@ pub async fn issue(
     .bind(&label)
     .bind(&created_at)
     .bind(&expires_at)
-    .fetch_one(&pool)
+    .in_turn(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "issuing an API key"))?;
 
@@ -305,7 +306,7 @@ pub async fn rotate(
     .bind(auth::hash_secret(&key))
     .bind(id)
     .bind(user_id)
-    .execute(&pool)
+    .in_turn(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "rotating an API key"))?;
 
@@ -377,7 +378,7 @@ pub async fn change(
             .bind(label)
             .bind(id)
             .bind(user_id)
-            .execute(&pool)
+            .in_turn(&pool)
             .await
             .map_err(|e| ApiError::internal(e, "changing an API key"))?;
 
@@ -390,7 +391,7 @@ pub async fn change(
             .bind(expires_at)
             .bind(id)
             .bind(user_id)
-            .execute(&pool)
+            .in_turn(&pool)
             .await
             .map_err(|e| ApiError::internal(e, "changing when an API key expires"))?;
     }
@@ -447,7 +448,7 @@ pub async fn revoke_all(
         sqlx::query("UPDATE api_keys SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
             .bind(db::now())
             .bind(user_id)
-            .execute(&pool)
+            .in_turn(&pool)
             .await
             .map_err(|e| ApiError::internal(e, "revoking every API key"))?;
 
@@ -493,7 +494,7 @@ pub async fn revoke(
     .bind(db::now())
     .bind(id)
     .bind(user_id)
-    .execute(&pool)
+    .in_turn(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "revoking an API key"))?;
 
@@ -547,7 +548,7 @@ pub async fn remove(
     sqlx::query("DELETE FROM api_keys WHERE id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .map_err(|e| ApiError::internal(e, "removing an API key"))?;
 

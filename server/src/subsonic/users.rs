@@ -15,6 +15,7 @@
 use super::auth::Authenticated;
 use super::error::ApiError;
 use super::response::{self, Empty};
+use crate::db::InTurn;
 use crate::{auth, db};
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
@@ -233,7 +234,7 @@ pub async fn create_user(
     .bind(i64::from(query.admin_role.unwrap_or(false)))
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&pool)
+    .in_turn(&pool)
     .await;
 
     match written {
@@ -300,7 +301,7 @@ pub async fn delete_user(
 
     let deleted = sqlx::query("DELETE FROM users WHERE username = ?")
         .bind(&query.username)
-        .execute(&pool)
+        .in_turn(&pool)
         .await;
 
     match deleted {
@@ -341,7 +342,7 @@ pub async fn change_password(
             .bind(&hash)
             .bind(db::now())
             .bind(&query.username)
-            .execute(&pool)
+            .in_turn(&pool)
             .await;
 
     match written {
@@ -368,7 +369,7 @@ async fn apply_update(pool: &SqlitePool, query: &UpdateUserQuery) -> Result<bool
         sqlx::query("UPDATE users SET email = ? WHERE id = ?")
             .bind(email)
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
@@ -376,7 +377,7 @@ async fn apply_update(pool: &SqlitePool, query: &UpdateUserQuery) -> Result<bool
         sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
             .bind(i64::from(is_admin))
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
@@ -384,7 +385,7 @@ async fn apply_update(pool: &SqlitePool, query: &UpdateUserQuery) -> Result<bool
         sqlx::query("UPDATE users SET scrobbling_enabled = ? WHERE id = ?")
             .bind(i64::from(scrobbling))
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
@@ -402,14 +403,14 @@ async fn apply_update(pool: &SqlitePool, query: &UpdateUserQuery) -> Result<bool
         sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
             .bind(&hash)
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
     sqlx::query("UPDATE users SET updated_at = ? WHERE id = ?")
         .bind(db::now())
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     tx.commit().await?;

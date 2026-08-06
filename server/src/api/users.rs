@@ -22,6 +22,7 @@
 
 use super::error::ApiError;
 use super::session::{Administrator, Panel};
+use crate::db::InTurn;
 use crate::types::{Account, AccountChanges, ErrorBody, Holdings, LibraryAccess, NewAccount};
 use crate::{auth, db, session, user};
 use axum::Json;
@@ -257,7 +258,7 @@ pub async fn create(
     .bind(i64::from(new.admin))
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&pool)
+    .in_turn(&pool)
     .await;
 
     match written {
@@ -480,7 +481,7 @@ pub async fn change(
     .bind(changes.scrobbling.map(i64::from))
     .bind(&now)
     .bind(&username)
-    .execute(&pool)
+    .in_turn(&pool)
     .await;
 
     match changed {
@@ -648,7 +649,7 @@ pub async fn delete(
 
     let deleted = sqlx::query("DELETE FROM users WHERE username = ?")
         .bind(&username)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .map_err(|e| ApiError::internal(e, "deleting an account"))?;
 
@@ -707,7 +708,7 @@ pub async fn restrict(
     // not what to add to it, so there is no order in which two calls disagree.
     sqlx::query("DELETE FROM user_libraries WHERE user_id = ?")
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| ApiError::internal(e, "clearing a restriction"))?;
 
@@ -715,7 +716,7 @@ pub async fn restrict(
         let written = sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, ?)")
             .bind(user_id)
             .bind(library_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await;
 
         match written {
@@ -794,7 +795,7 @@ mod tests {
             .bind(&timestamp)
             .bind(&timestamp)
             .bind(expires_at)
-            .execute(&pool)
+            .in_turn(&pool)
             .await
             .unwrap();
         }

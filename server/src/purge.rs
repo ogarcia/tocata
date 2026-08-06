@@ -71,7 +71,7 @@ async fn sweep(
                              AND (?1 IS NULL OR missing_since <= ?1))",
     )
     .bind(until)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     let tracks = sqlx::query(
@@ -79,7 +79,7 @@ async fn sweep(
           WHERE missing_since IS NOT NULL AND (?1 IS NULL OR missing_since <= ?1)",
     )
     .bind(until)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected() as i64;
 
@@ -102,7 +102,7 @@ async fn sweep(
                 AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = folders.id)",
         )
         .bind(until)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?
         .rows_affected() as i64;
 
@@ -117,14 +117,14 @@ async fn sweep(
           WHERE rowid IN (SELECT id FROM albums a
                            WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = a.id))",
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     let albums = sqlx::query(
         "DELETE FROM albums
           WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = albums.id)",
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected() as i64;
 
@@ -137,7 +137,7 @@ async fn sweep(
                WHERE NOT EXISTS (SELECT 1 FROM track_artists ta WHERE ta.artist_id = a.id)
                  AND NOT EXISTS (SELECT 1 FROM album_artists aa WHERE aa.artist_id = a.id))",
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     let artists = sqlx::query(
@@ -145,7 +145,7 @@ async fn sweep(
           WHERE NOT EXISTS (SELECT 1 FROM track_artists ta WHERE ta.artist_id = artists.id)
             AND NOT EXISTS (SELECT 1 FROM album_artists aa WHERE aa.artist_id = artists.id)",
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected() as i64;
 
@@ -154,7 +154,7 @@ async fn sweep(
           WHERE NOT EXISTS (SELECT 1 FROM track_genres tg WHERE tg.genre_id = genres.id)
             AND NOT EXISTS (SELECT 1 FROM album_genres ag WHERE ag.genre_id = genres.id)",
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected() as i64;
 
@@ -162,7 +162,7 @@ async fn sweep(
         "DELETE FROM moods
           WHERE NOT EXISTS (SELECT 1 FROM track_moods tm WHERE tm.mood_id = moods.id)",
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?
     .rows_affected() as i64;
 

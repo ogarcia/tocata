@@ -19,6 +19,7 @@
 
 use super::error::ApiError;
 use super::session::Panel;
+use crate::db::InTurn;
 use crate::types::{ErrorBody, PreferenceChanges, Preferences};
 use axum::Json;
 use axum::extract::State;
@@ -106,7 +107,7 @@ pub async fn change(
     .bind(theme.is_some())
     .bind(locale.is_some())
     .bind(accent.is_some())
-    .execute(&pool)
+    .in_turn(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "changing the panel preferences"))?;
 

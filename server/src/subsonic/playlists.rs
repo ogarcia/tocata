@@ -15,6 +15,7 @@ use super::error::ApiError;
 use super::models::{Child, seconds};
 use super::response::{self, Empty, Repeated};
 use crate::db;
+use crate::db::InTurn;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -279,7 +280,7 @@ pub async fn delete_playlist(
     // that does: a playlist owns nothing else.
     match sqlx::query("DELETE FROM playlists WHERE id = ?")
         .bind(row.id)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
     {
         Ok(_) => response::ok(auth.format, Empty {}),
@@ -349,7 +350,7 @@ async fn create_new(
     .bind(name)
     .bind(&timestamp)
     .bind(&timestamp)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     let track_ids = resolve_tracks(&mut tx, song_ids).await?;
@@ -399,21 +400,21 @@ async fn apply_update(
         sqlx::query("UPDATE playlists SET name = ? WHERE id = ?")
             .bind(name)
             .bind(row.id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
     if let Some(comment) = &query.comment {
         sqlx::query("UPDATE playlists SET comment = ? WHERE id = ?")
             .bind(comment)
             .bind(row.id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
     if let Some(public) = query.public {
         sqlx::query("UPDATE playlists SET is_public = ? WHERE id = ?")
             .bind(i64::from(public))
             .bind(row.id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
@@ -428,7 +429,7 @@ async fn apply_update(
             "SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY position",
         )
         .bind(row.id)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await?;
 
         let removing: HashSet<i64> = query.song_index_to_remove.iter().copied().collect();

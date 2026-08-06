@@ -15,6 +15,7 @@
 
 use crate::artwork;
 use crate::db;
+use crate::db::InTurn;
 use axum::extract::Request;
 use axum::response::{IntoResponse, Response};
 use sqlx::SqlitePool;
@@ -260,7 +261,7 @@ pub(crate) async fn extract_cover(
     let existing: Option<i64> =
         sqlx::query_scalar("SELECT id FROM artworks WHERE content_hash = ? LIMIT 1")
             .bind(&hash)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
 
     let artwork_id = match existing {
@@ -278,7 +279,7 @@ pub(crate) async fn extract_cover(
             .bind(mime_type)
             .bind(&hash)
             .bind(&timestamp)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?
         }
     };
@@ -286,7 +287,7 @@ pub(crate) async fn extract_cover(
     sqlx::query("UPDATE albums SET artwork_id = ? WHERE id = ? AND artwork_id IS NULL")
         .bind(artwork_id)
         .bind(album_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     tx.commit().await?;
@@ -339,7 +340,7 @@ async fn remember_nothing(pool: &SqlitePool, kind: &str, id: i64) -> Result<(), 
     .bind(kind)
     .bind(id)
     .bind(db::now())
-    .execute(pool)
+    .in_turn(pool)
     .await?;
 
     Ok(())
@@ -410,7 +411,7 @@ pub(crate) async fn artist_picture(
     let existing: Option<i64> =
         sqlx::query_scalar("SELECT id FROM artworks WHERE content_hash = ? LIMIT 1")
             .bind(&hash)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
 
     let artwork_id = match existing {
@@ -427,7 +428,7 @@ pub(crate) async fn artist_picture(
             .bind(mime_type)
             .bind(&hash)
             .bind(&timestamp)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?
         }
     };
@@ -435,7 +436,7 @@ pub(crate) async fn artist_picture(
     sqlx::query("UPDATE artists SET artwork_id = ? WHERE id = ? AND artwork_id IS NULL")
         .bind(artwork_id)
         .bind(artist_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     tx.commit().await?;
@@ -567,7 +568,7 @@ mod tests {
         )
         .bind(&at)
         .bind(&at)
-        .execute(&pool)
+        .in_turn(&pool)
         .await
         .unwrap();
 

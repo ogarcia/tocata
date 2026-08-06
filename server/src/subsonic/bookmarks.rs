@@ -14,6 +14,7 @@ use super::error::ApiError;
 use super::models::Child;
 use super::response::{self, Empty, Repeated};
 use crate::db;
+use crate::db::InTurn;
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -182,7 +183,7 @@ pub async fn create_bookmark(
     .bind(&query.comment)
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&pool)
+    .in_turn(&pool)
     .await;
 
     match written {
@@ -203,7 +204,7 @@ pub async fn delete_bookmark(
     )
     .bind(auth.user.id)
     .bind(&query.id)
-    .execute(&pool)
+    .in_turn(&pool)
     .await;
 
     match deleted {
@@ -329,14 +330,14 @@ async fn write_queue(
     .bind(query.position.unwrap_or(0).max(0))
     .bind(db::now())
     .bind(&auth.client)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     // Rewritten whole, like a playlist and for the same reason: the key is
     // (user, position), and shifting positions in place violates it.
     sqlx::query("DELETE FROM play_queue_tracks WHERE user_id = ?")
         .bind(auth.user.id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     let mut current_track_id = None;
@@ -345,7 +346,7 @@ async fn write_queue(
     for public_id in &query.id {
         let id: Option<i64> = sqlx::query_scalar("SELECT id FROM tracks WHERE public_id = ?")
             .bind(public_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
 
         let Some(id) = id else { continue };
@@ -358,7 +359,7 @@ async fn write_queue(
             .bind(auth.user.id)
             .bind(position)
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
 
         position += 1;
@@ -367,7 +368,7 @@ async fn write_queue(
     sqlx::query("UPDATE play_queues SET current_track_id = ? WHERE user_id = ?")
         .bind(current_track_id)
         .bind(auth.user.id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     tx.commit().await

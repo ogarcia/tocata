@@ -9,6 +9,7 @@
 //! one set of figures. Two ways of counting would be two answers to how many
 //! times a song has been heard.
 
+use crate::db::InTurn;
 use sqlx::SqlitePool;
 
 /// Counts a play: one more for the tally, and the time it happened.
@@ -46,7 +47,7 @@ pub async fn record_play(
     .bind(user_id)
     .bind(track_id)
     .bind(played_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     // The album tally too, so a client can sort albums by how much they get
@@ -61,7 +62,7 @@ pub async fn record_play(
     .bind(user_id)
     .bind(played_at)
     .bind(track_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
     // A play is a play whether or not the client also announced it beforehand,
@@ -69,7 +70,7 @@ pub async fn record_play(
     sqlx::query("DELETE FROM now_playing WHERE user_id = ? AND track_id = ?")
         .bind(user_id)
         .bind(track_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     tx.commit().await?;
@@ -122,7 +123,7 @@ pub async fn record_now_playing(
     .bind(client)
     .bind(track_id)
     .bind(started_at)
-    .execute(pool)
+    .in_turn(pool)
     .await?;
 
     // A client that keeps announcing replaces its own row and leaves nothing
@@ -141,7 +142,7 @@ pub async fn record_now_playing(
         ")"
     ))
     .bind(user_id)
-    .execute(pool)
+    .in_turn(pool)
     .await?;
 
     Ok(Some(track_id))
