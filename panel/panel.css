@@ -2893,9 +2893,14 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 .settled.alarm { color: var(--alarm); }
 
 /* Why what follows has gone quiet. The shape of `.trouble` without any of its alarm:
- * nothing is wrong, something is switched off. */
+ * nothing is wrong, something is switched off.
+ *
+ * Air on both sides, and the same on both: what it explains has air above it when
+ * this box is not there, and a box wedged against the sentence above it is a box
+ * that reads as part of that sentence. Below, its margin and the list's collapse
+ * into one, so the gap is the same whether this is here or not. */
 .because {
-  margin: 0 0 1rem;
+  margin: 1rem 0;
   padding: 0.6875rem 0.875rem;
   border-left: 2px solid var(--quiet);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
