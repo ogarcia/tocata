@@ -2830,6 +2830,39 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 .ways.keyed .said { grid-column: 2; }
 
+/* A list whose rows carry a figure: what it is called, how it is going, and the
+ * action. Every cell is placed by hand, which is not fussiness — leave the figure's
+ * column to `auto` and it lands in column one and pushes the name onto a row of its
+ * own. */
+.ways.tallied > li { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+.ways.tallied .what { grid-area: 1 / 1; }
+
+.ways.tallied .standing {
+  grid-area: 1 / 2;
+  justify-self: end;
+  white-space: nowrap;
+  font-size: var(--aside);
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The figure in the alarm colour when it is a figure that means something is wrong,
+ * which the row decides: a queue with nobody trying to send it is not stuck. */
+.ways.tallied .standing.alarm { color: var(--alarm); }
+
+.ways.tallied .doing { grid-area: 1 / 3; }
+.ways.tallied .said { grid-area: 2 / 1 / 2 / 3; }
+
+/* What the far end said, on a line of its own under everything. In the alarm colour,
+ * which it was not: it wore the class and the stylesheet had no rule for it, so the
+ * one line saying a machine refused something read exactly like the address above
+ * it. */
+.ways.tallied .said.wrong {
+  grid-area: 3 / 1 / 3 / 3;
+  color: var(--alarm);
+}
+
 /* A key that no longer opens anything. Quiet, and neither struck through nor gone:
  * it is the row that says what was withdrawn, which is the whole reason revoking
  * is not deleting. */

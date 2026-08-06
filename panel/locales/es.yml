@@ -689,6 +689,8 @@ listens:
   add: "Añadir un destino"
   actions: "Acciones"
   at: "Enviar a %{name}"
+  somewhere: "Envía tus escuchas a algún sitio"
+  choose: "Elige uno"
   sheet_lead: "El token lo encuentras en los ajustes de tu cuenta del servicio. Se guarda aquí y no se vuelve a mostrar."
   service: "Servicio"
   address: "Dirección"
@@ -707,5 +709,6 @@ listens:
   remove: "Quitar"
   # La línea bajo el nombre cuando hay algo esperando. Dos claves porque rust-i18n
   # interpola pero no pluraliza.
-  waiting_one: "1 escucha esperando, desde %{when}"
-  waiting_many: "%{count} escuchas esperando, desde %{when}"
+  up_to_date: "al día"
+  waiting: "%{count} en cola"
+  oldest: "la más antigua %{when}"

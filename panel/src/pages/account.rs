@@ -649,16 +649,13 @@ fn Destinations(
             {move || {
                 spare()
                     .filter(|spare| !spare.is_empty())
-                    .map(|spare| {
-                        // Opens on the first one still free; the sheet has the list, so
-                        // choosing another is one field rather than another menu here.
-                        let first = spare[0].clone();
+                    .map(|_| {
+                        // Opens on none of them: the sheet holds the list, and which
+                        // one it is going to be is the first thing it asks.
                         view! {
                             <button
                                 class="offer"
-                                on:click=move |_| {
-                                    asking.set(Some(Asked::adding(&first)));
-                                }
+                                on:click=move |_| asking.set(Some(Asked::adding()))
                             >
                                 <Glyph icon=Icon::Add />
                                 {t!("listens.add")}
@@ -697,7 +694,7 @@ fn Destinations(
                 }
                 Some(sending) => {
                     view! {
-                        <ul class="ways">
+                        <ul class="ways tallied">
                             {sending
                                 .scrobblers
                                 .into_iter()
@@ -757,9 +754,12 @@ struct Asked {
 }
 
 impl Asked {
-    fn adding(offer: &tocata::types::Offered) -> Self {
+    /// With no service in it. Opening on the first spare one meant the sheet named a
+    /// service nobody had chosen, and changed that name under the pointer as soon as
+    /// they chose — so it opens asking which, and says nothing until it is told.
+    fn adding() -> Self {
         Self {
-            service: offer.service.clone(),
+            service: String::new(),
             url: String::new(),
             existing: false,
         }
@@ -793,9 +793,28 @@ fn Destination(
     // and a closure that moved this out of scope would only be good for one press.
     let again = StoredValue::new(Asked::changing(&one));
 
-    // The line under the name, joined out of what is worth knowing: which account it
-    // is over there, where it is, and what is waiting. Whichever of the three there
-    // is — a hosted service at its one address adds nothing by saying so.
+    // How it is going, level with the name and out of the joined line below.
+    //
+    // It used to be the tail of that line, after the address — which put the one fact
+    // that means something is wrong behind a URL that ellipsises away. It is the
+    // figure somebody is looking for, so the address is what gives way.
+    let queue = match one.waiting {
+        0 => t!("listens.up_to_date").to_string(),
+        waiting => t!("listens.waiting", count = waiting).to_string(),
+    };
+
+    // Only when something is actually stuck, which needs both halves: listens waiting
+    // and somebody trying to send them. A destination that is merely behind catches up
+    // on its own, and a paused one is a queue standing still on purpose — the reason
+    // it gave the last time it tried would read as a problem in both.
+    //
+    // Being paused used to say the second half on its own: the error sat under the
+    // word "paused", where it read as the reason somebody had paused it.
+    let stuck = enabled && one.waiting > 0;
+    let complaint = stuck.then_some(one.last_error).flatten();
+
+    // The line under the name: which account it is over there, where it is, and how
+    // far back the queue goes. Whichever of the three there is.
     let line = {
         let mut said = Vec::new();
 
@@ -810,31 +829,17 @@ fn Destination(
         // that has to know which service that is.
         said.push(one.url.clone());
 
-        match (one.waiting, one.oldest.as_deref()) {
-            (0, _) => {}
-            (1, Some(oldest)) => {
-                said.push(t!("listens.waiting_one", when = when(oldest)).to_string())
-            }
-            (waiting, Some(oldest)) => said
-                .push(t!("listens.waiting_many", count = waiting, when = when(oldest)).to_string()),
-            // A count with nothing to date it by cannot happen — every queued listen
-            // carries the moment it was heard — so this says the count and nothing
-            // about when, rather than inventing a date to say it with.
-            (waiting, None) => said.push(waiting.to_string()),
+        // How long the oldest of them has been waiting, which the figure beside the
+        // name cannot say. Nothing when there is no queue to date, and nothing when
+        // the queue has no date — every queued listen carries the moment it was heard,
+        // so this is the shape of a server that answered oddly rather than a case to
+        // put a number in.
+        if let Some(oldest) = one.oldest.as_deref().filter(|_| one.waiting > 0) {
+            said.push(t!("listens.oldest", when = when(oldest)).to_string());
         }
 
         said.join(" · ")
     };
-
-    // Only when something is actually stuck. A destination that is merely behind is
-    // going to catch up on its own, and the reason it gave last time would read as a
-    // problem where there is none.
-    //
-    // Being paused is not one of those reasons, and it used to be: a paused
-    // destination showed whatever error it last had, sitting under the word "paused"
-    // where it read as the reason somebody had paused it. Nothing is stuck there —
-    // nothing is being tried.
-    let stuck = (one.waiting > 0).then_some(one.last_error).flatten();
 
     view! {
         <li class:off=move || !enabled>
@@ -844,6 +849,10 @@ fn Destination(
                 // same word shape and is a fault, and this is somebody's decision.
                 {(!enabled)
                     .then(|| view! { <span class="tag deliberate">{t!("listens.paused")}</span> })}
+            </span>
+
+            <span class="standing" class:alarm=stuck>
+                {queue}
             </span>
 
             <span class="doing">
@@ -875,7 +884,7 @@ fn Destination(
             </span>
 
             <span class="said">{line}</span>
-            {stuck.map(|why| view! { <span class="said wrong">{why}</span> })}
+            {complaint.map(|why| view! { <span class="said wrong">{why}</span> })}
         </li>
     }
 }
@@ -996,7 +1005,18 @@ fn NewDestinationSheet(
         <dialog node_ref=dialog class="sheet" on:close=move |_| shut()>
             <form on:submit=submit>
                 <div class="sheet-body">
-                    <h2>{move || t!("listens.at", name = named()).to_string()}</h2>
+                    // Neutral until there is a service to name. Named before that, it
+                    // said one thing on opening and another the moment somebody chose,
+                    // which is a heading changing under the hands of whoever reads it.
+                    <h2>
+                        {move || {
+                            if chosen.get().is_empty() {
+                                t!("listens.somewhere").to_string()
+                            } else {
+                                t!("listens.at", name = named()).to_string()
+                            }
+                        }}
+                    </h2>
                     <p class="sheet-lead">{t!("listens.sheet_lead")}</p>
 
                     <div class="sheet-content">
@@ -1015,6 +1035,11 @@ fn NewDestinationSheet(
                                         set_address.set(String::new());
                                     }
                                 >
+                                    // The state the sheet opens in, and a real option
+                                    // rather than a blank line: a list whose first entry
+                                    // is already selected is a choice somebody has made
+                                    // without knowing it.
+                                    <option value="">{t!("listens.choose")}</option>
                                     <For
                                         each=move || spare.get()
                                         key=|offer| offer.service.clone()
@@ -1073,7 +1098,8 @@ fn NewDestinationSheet(
                         type="submit"
                         class="pill solid"
                         disabled=move || {
-                            waiting.get() || token.get().trim().is_empty()
+                            waiting.get() || chosen.get().is_empty()
+                                || token.get().trim().is_empty()
                                 || (!fixed() && address.get().trim().is_empty())
                         }
                     >

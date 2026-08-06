@@ -693,6 +693,8 @@ listens:
   add: "Add a destination"
   actions: "Actions"
   at: "Send to %{name}"
+  somewhere: "Send your listens somewhere"
+  choose: "Choose one"
   sheet_lead: "The token is in your account's settings on the service. It is stored here and never shown again."
   service: "Service"
   address: "Address"
@@ -711,5 +713,6 @@ listens:
   remove: "Remove"
   # The line under the name when something is waiting. Two keys because rust-i18n
   # interpolates and does not pluralise.
-  waiting_one: "1 listen waiting, since %{when}"
-  waiting_many: "%{count} listens waiting, since %{when}"
+  up_to_date: "up to date"
+  waiting: "%{count} waiting"
+  oldest: "oldest %{when}"
