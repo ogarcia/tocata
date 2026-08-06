@@ -301,9 +301,15 @@ struct ArtistRow {
 impl From<ArtistRow> for ArtistId3 {
     fn from(row: ArtistRow) -> Self {
         Self {
+            // Their own id doubles as the handle for their picture, the way an
+            // album's does. Said whether or not one has been found yet, because
+            // finding it is what the asking sets off: it is looked for on disk the
+            // first time somebody wants it, and an artist who never announced a
+            // picture would never be asked about and so never looked at. A refusal
+            // is the answer where there is none, and it is remembered.
+            cover_art: Some(row.public_id.clone()),
             id: row.public_id,
             name: row.name,
-            cover_art: None,
             album_count: Some(row.album_count),
             starred: row.starred_at,
             music_brainz_id: row.mbid,
@@ -1687,6 +1693,50 @@ mod visibility_tests {
         // reaches it.
         assert!(songs[1].album_artists.is_empty());
         assert!(songs[1].display_album_artist.is_none());
+    }
+
+    /// An artist says where their picture is, and that handle is their own id.
+    ///
+    /// Without it a client has nothing to ask with, so however many pictures we find
+    /// on disk none of them is ever drawn — and worse, none is ever looked for: the
+    /// asking is what sets off the search. Said whether or not one has been found
+    /// yet, exactly as an album says it.
+    #[tokio::test]
+    async fn an_artist_says_where_their_picture_is() {
+        let (pool, everybody, restricted, ids) = two_libraries().await;
+
+        let artists = load_artists_by_ids(&pool, everybody, &ids).await.unwrap();
+        assert_eq!(artists.len(), 2);
+
+        for artist in &artists {
+            assert_eq!(
+                artist.cover_art.as_deref(),
+                Some(artist.id.as_str()),
+                "their own id is the handle for their picture"
+            );
+        }
+
+        // And asking with it is refused for an artist whose music this account may
+        // not see — the same wall the rest of the catalogue is behind.
+        let hidden = artists
+            .iter()
+            .find(|artist| artist.name == "Artist b")
+            .expect("the artist of the second library");
+
+        assert!(
+            crate::media::resolve_artist(&pool, everybody, &hidden.id)
+                .await
+                .unwrap()
+                .is_some(),
+            "visible to somebody with no restriction"
+        );
+        assert!(
+            crate::media::resolve_artist(&pool, restricted, &hidden.id)
+                .await
+                .unwrap()
+                .is_none(),
+            "and not there at all as far as this account is concerned"
+        );
     }
 
     #[tokio::test]

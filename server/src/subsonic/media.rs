@@ -128,33 +128,15 @@ pub async fn get_cover_art(
     Query(query): Query<IdQuery>,
     request: Request,
 ) -> Response {
-    let album = match crate::media::resolve_album(&pool, auth.user.id, &query.id).await {
-        Ok(Some(album)) => album,
+    let found = picture_for(&pool, config.data_dir(), auth.user.id, &query.id).await;
+
+    let (hash, mime_type) = match found {
+        Ok(Some(found)) => found,
         Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => {
-            error!("resolving cover art: {e}");
+            error!("finding cover art for {}: {e:#}", query.id);
             return ApiError::Internal.in_format(auth.format).into_response();
         }
-    };
-
-    let cached = match crate::media::cover_in_cache(&pool, album).await {
-        Ok(cached) => cached,
-        Err(e) => {
-            error!("looking for a cached cover: {e}");
-            return ApiError::Internal.in_format(auth.format).into_response();
-        }
-    };
-
-    let (hash, mime_type) = match cached {
-        Some(found) => found,
-        None => match crate::media::extract_cover(&pool, config.data_dir(), album).await {
-            Ok(Some(found)) => found,
-            Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
-            Err(e) => {
-                error!("extracting a cover: {e:#}");
-                return ApiError::Internal.in_format(auth.format).into_response();
-            }
-        },
     };
 
     let path = artwork::cache_path(config.data_dir(), &hash);
@@ -170,6 +152,40 @@ pub async fn get_cover_art(
             ApiError::NotFound.in_format(auth.format).into_response()
         }
     }
+}
+
+/// Which picture an identifier is asking for, whichever kind of thing it names.
+///
+/// The call takes one parameter and the protocol does not say what kind of id goes
+/// in it, so a client passes whatever it has: the id of an album, of one of its
+/// songs, or of an artist. All three are tried, album first because that is nearly
+/// every request.
+///
+/// An artist used to fall through to a refusal, and the artist's picture was
+/// reachable only over the native API — so a client had no way to draw one however
+/// many we had found.
+///
+/// Each kind knows about its own cache: an album's cover is looked up and extracted
+/// in two steps, and an artist's picture does both behind one call.
+async fn picture_for(
+    pool: &SqlitePool,
+    data_dir: &std::path::Path,
+    user_id: i64,
+    id: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    if let Some(album) = crate::media::resolve_album(pool, user_id, id).await? {
+        if let Some(cached) = crate::media::cover_in_cache(pool, album).await? {
+            return Ok(Some(cached));
+        }
+
+        return crate::media::extract_cover(pool, data_dir, album).await;
+    }
+
+    if let Some(artist) = crate::media::resolve_artist(pool, user_id, id).await? {
+        return crate::media::artist_picture(pool, data_dir, artist).await;
+    }
+
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
