@@ -348,14 +348,15 @@ async fn remember_nothing(pool: &SqlitePool, kind: &str, id: i64) -> Result<(), 
 
 /// The picture of an artist, cached the way a cover is.
 ///
-/// Nothing puts these there but this: the scanner reads music, and a photograph
-/// of a band is not in a track's tags. So it is looked for the first time
-/// somebody asks, and the answer — including "there is none" — is remembered.
+/// Nothing puts these there but this: a scan reads music and keeps what the schema
+/// has columns for, and a photograph of a band is not one of them. So it is looked
+/// for the first time somebody asks, and the answer — including "there is none" — is
+/// remembered, because a screen full of artists asks once per artist every time it
+/// is scrolled.
 ///
-/// Local files only. The conventions are the ones the tools that fetch these
-/// already write, so a collection kept by Lidarr or beets has them on disk
-/// already. Reaching out to the network for the rest is a decision of its own,
-/// and it is not made here.
+/// What is already here, and nothing else: a file named for them beside their
+/// records, or a picture of them tagged onto their music. Reaching out to the
+/// network for the rest is a decision of its own, and it is not made here.
 pub(crate) async fn artist_picture(
     pool: &SqlitePool,
     data_dir: &Path,
@@ -378,18 +379,15 @@ pub(crate) async fn artist_picture(
         return Ok(None);
     }
 
-    let Some(directory) = where_their_records_are(pool, artist_id).await? else {
-        remember_nothing(pool, "artist", artist_id).await?;
-        return Ok(None);
-    };
+    let directory = where_their_records_are(pool, artist_id).await?;
+    let files = their_files(pool, artist_id).await?;
 
     // Opening files is the filesystem's business rather than the executor's.
-    let found = tokio::task::spawn_blocking(move || {
-        artwork::find_named(Path::new(&directory), artwork::ARTIST_FILE_STEMS)
-    })
-    .await?;
+    let found =
+        tokio::task::spawn_blocking(move || find_artist_picture(directory.as_deref(), &files))
+            .await?;
 
-    let Some((path, bytes)) = found else {
+    let Some((source, source_ref, bytes)) = found else {
         remember_nothing(pool, "artist", artist_id).await?;
         return Ok(None);
     };
@@ -420,11 +418,12 @@ pub(crate) async fn artist_picture(
             sqlx::query_scalar(
                 "INSERT INTO artworks (public_id, kind, source, source_ref, mime_type,
                                        content_hash, fetched_at)
-                 VALUES (?, 'artist', 'local_file', ?, ?, ?, ?)
+                 VALUES (?, 'artist', ?, ?, ?, ?, ?)
                  RETURNING id",
             )
             .bind(db::public_id()?)
-            .bind(path.to_string_lossy().to_string())
+            .bind(source)
+            .bind(source_ref)
             .bind(mime_type)
             .bind(&hash)
             .bind(&timestamp)
@@ -442,6 +441,67 @@ pub(crate) async fn artist_picture(
     tx.commit().await?;
 
     Ok(Some((hash, mime_type.to_string())))
+}
+
+/// Two places a picture of an artist can already be, in the order they are worth
+/// looking in.
+///
+/// A file named for them in the directory their records sit in comes first: it is
+/// what every tool that fetches these writes, so a collection kept by Lidarr or
+/// beets has one, and finding it costs a look at a directory listing.
+///
+/// Then the tags. A file can carry a photograph of the band as well as its sleeve —
+/// rare, and it does happen — and that is worth opening files for, because the
+/// alternative for those artists is asking a website for something that was on the
+/// disk all along.
+///
+/// Blocking: opens files.
+fn find_artist_picture(
+    directory: Option<&str>,
+    files: &[String],
+) -> Option<(&'static str, Option<String>, Vec<u8>)> {
+    if let Some(directory) = directory
+        && let Some((path, bytes)) =
+            artwork::find_named(Path::new(directory), artwork::ARTIST_FILE_STEMS)
+    {
+        return Some((
+            "local_file",
+            Some(path.to_string_lossy().to_string()),
+            bytes,
+        ));
+    }
+
+    for path in files {
+        if let Ok(Some(bytes)) = crate::scanner::read_artist_picture(Path::new(path)) {
+            return Some(("embedded", None, bytes));
+        }
+    }
+
+    None
+}
+
+/// Files that credit this artist, to be looked inside for a picture of them.
+///
+/// Their own tracks and the records they signed, since a photograph of the band may
+/// be tagged onto either. Bounded, because this runs when somebody opens a screen
+/// and a prolific artist would otherwise mean opening hundreds of files to learn
+/// that none of them carries one.
+async fn their_files(pool: &SqlitePool, artist_id: i64) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT l.path || '/' || t.path
+           FROM tracks t
+           JOIN libraries l ON l.id = t.library_id
+          WHERE t.missing_since IS NULL
+            AND (EXISTS (SELECT 1 FROM track_artists ta
+                          WHERE ta.track_id = t.id AND ta.artist_id = ?1)
+              OR EXISTS (SELECT 1 FROM album_artists aa
+                          WHERE aa.album_id = t.album_id AND aa.artist_id = ?1))
+          ORDER BY t.album_id, t.disc_number, t.track_number
+          LIMIT 20",
+    )
+    .bind(artist_id)
+    .fetch_all(pool)
+    .await
 }
 
 /// The directory an artist's records sit in, if there is one worth calling that.
@@ -695,5 +755,67 @@ mod tests {
         .unwrap();
 
         assert_eq!(where_their_records_are(&pool, 1).await.unwrap(), None);
+    }
+
+    /// Which of the two places is looked in first, and that both are looked in.
+    ///
+    /// The file beside the records wins because it is what every tool that fetches
+    /// these writes, and finding it is a directory listing rather than opening
+    /// music. The tags are what answers for the artist nobody has fetched anything
+    /// for — rare, and it was already on the disk.
+    #[test]
+    fn a_file_beside_the_records_comes_before_the_tags() {
+        use lofty::picture::Picture;
+        use lofty::prelude::TagExt;
+
+        let root = crate::fixtures::temp_root("artist-picture");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let song = root.join("01.wav");
+        crate::fixtures::write_wav(&song);
+
+        let mut tag = lofty::tag::Tag::new(lofty::tag::TagType::Id3v2);
+        tag.push_picture(
+            Picture::unchecked(b"\xff\xd8\xffTAGGED".to_vec())
+                .pic_type(lofty::picture::PictureType::Band)
+                .mime_type(lofty::picture::MimeType::Jpeg)
+                .build(),
+        );
+        tag.save_to_path(&song, Default::default()).unwrap();
+
+        let files = vec![song.to_string_lossy().to_string()];
+        let directory = root.to_string_lossy().to_string();
+
+        // Only the tags to go on, which is the case this adds.
+        let (source, _, bytes) = find_artist_picture(Some(&directory), &files).unwrap();
+        assert_eq!(source, "embedded");
+        assert_eq!(bytes, b"\xff\xd8\xffTAGGED");
+
+        // And with a file named for them in the directory, that is the one.
+        std::fs::write(root.join("artist.jpg"), b"\xff\xd8\xffBESIDE").unwrap();
+
+        let (source, source_ref, bytes) = find_artist_picture(Some(&directory), &files).unwrap();
+        assert_eq!(source, "local_file");
+        assert!(source_ref.is_some_and(|named| named.ends_with("artist.jpg")));
+        assert_eq!(bytes, b"\xff\xd8\xffBESIDE");
+    }
+
+    /// Neither of them, which is most artists: nothing is invented and the answer is
+    /// none. What happens next is a network request somebody has to switch on.
+    #[test]
+    fn nothing_anywhere_is_nothing() {
+        let root = crate::fixtures::temp_root("artist-picture-none");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let song = root.join("01.wav");
+        crate::fixtures::write_wav(&song);
+
+        assert!(
+            find_artist_picture(
+                Some(root.to_string_lossy().as_ref()),
+                &[song.to_string_lossy().to_string()]
+            )
+            .is_none()
+        );
     }
 }

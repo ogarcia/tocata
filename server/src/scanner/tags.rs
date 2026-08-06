@@ -123,6 +123,45 @@ pub fn read_with_cover_art(path: &Path) -> Result<Metadata> {
     read_with(path, ParseOptions::new().read_cover_art(true))
 }
 
+/// A picture of whoever made the record, out of a file that carries one.
+///
+/// Never the front cover, and that is the whole of the rule: the types are
+/// different and a file may hold both. A sleeve is a picture of a record, and using
+/// one where a photograph of the band belongs would put the same image on the
+/// artist and on every album they made — which looks less like a photograph than
+/// like something gone wrong.
+///
+/// The three types that do answer it are `Artist`, `LeadArtist` and `Band`: one
+/// person, the person out front, and the group. Which of them a file used says
+/// something about the file and nothing about what is wanted here, so the first of
+/// the three it carries is the answer.
+///
+/// Rare in the wild. It costs one pass over pictures already parsed, and the
+/// alternative for those files is asking a website for something that was on the
+/// disk all along.
+pub fn read_artist_picture(path: &Path) -> Result<Option<Vec<u8>>> {
+    let tagged = Probe::open(path)
+        .with_context(|| format!("opening {}", path.display()))?
+        .options(ParseOptions::new().read_cover_art(true))
+        .read()
+        .with_context(|| format!("reading tags from {}", path.display()))?;
+
+    let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
+        return Ok(None);
+    };
+
+    Ok(tag
+        .pictures()
+        .iter()
+        .find(|picture| {
+            matches!(
+                picture.pic_type(),
+                PictureType::Artist | PictureType::LeadArtist | PictureType::Band
+            )
+        })
+        .map(|picture| picture.data().to_vec()))
+}
+
 /// Every tag in a file, spelt as its own format spells them.
 ///
 /// The answer the database cannot give, and the reason the panel offers it: the
@@ -849,6 +888,67 @@ mod tests {
             identified(&names, &mbids).collect::<Vec<_>>(),
             [("A feat. B & C", None)]
         );
+    }
+
+    /// A picture of the band, out of a file that also carries its sleeve. Getting
+    /// this wrong is not a missing picture but a wrong one: the sleeve would end up
+    /// as the photograph of the artist and on every record they made.
+    #[test]
+    fn a_picture_of_the_band_is_not_the_sleeve() {
+        use lofty::picture::Picture;
+
+        // Bytes only have to be recognisable as an image where somebody checks, and
+        // what is checked here is which picture came back.
+        let sleeve = b"\xff\xd8\xffSLEEVE".to_vec();
+        let band = b"\xff\xd8\xffBAND".to_vec();
+
+        let path = silent_wav("both-pictures");
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.push_picture(
+            Picture::unchecked(sleeve.clone())
+                .pic_type(PictureType::CoverFront)
+                .mime_type(MimeType::Jpeg)
+                .build(),
+        );
+        tag.push_picture(
+            Picture::unchecked(band.clone())
+                .pic_type(PictureType::Band)
+                .mime_type(MimeType::Jpeg)
+                .build(),
+        );
+        tag.save_to_path(&path, Default::default()).unwrap();
+
+        assert_eq!(
+            read_artist_picture(&path).unwrap(),
+            Some(band),
+            "the one of the band, out of the two"
+        );
+        // And the cover is still the cover. Read with the artwork asked for, since a
+        // scan deliberately does not carry it.
+        assert_eq!(
+            read_with_cover_art(&path).unwrap().picture,
+            Some(sleeve),
+            "neither picture took the other's place"
+        );
+    }
+
+    /// The ordinary file: a sleeve and nothing else. There is no picture of the
+    /// artist in it, and saying so is what sends the question somewhere else.
+    #[test]
+    fn a_file_with_only_a_sleeve_has_no_picture_of_anybody() {
+        use lofty::picture::Picture;
+
+        let path = silent_wav("sleeve-only");
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.push_picture(
+            Picture::unchecked(b"\xff\xd8\xffSLEEVE".to_vec())
+                .pic_type(PictureType::CoverFront)
+                .mime_type(MimeType::Jpeg)
+                .build(),
+        );
+        tag.save_to_path(&path, Default::default()).unwrap();
+
+        assert_eq!(read_artist_picture(&path).unwrap(), None);
     }
 
     #[test]
