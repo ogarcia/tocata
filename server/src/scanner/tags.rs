@@ -17,6 +17,14 @@ use std::path::Path;
 /// artist name is a worse one.
 const ARTIST_SEPARATORS: [char; 2] = [';', '\0'];
 
+/// And the one more that a list of identifiers takes.
+///
+/// ID3v2.3 has no null separator: it divides several values inside one field with a
+/// slash, so a file with three artists writes their three ids as one string. Cutting
+/// on it is safe here and nowhere else — a MusicBrainz id is a UUID and can never
+/// contain a slash, while a name very well can: AC/DC is one band.
+const ID_SEPARATORS: [char; 3] = [';', '\0', '/'];
+
 /// Names paired with the identifiers that belong to them, and nothing paired when
 /// they cannot be.
 ///
@@ -374,16 +382,24 @@ fn read_tag(tag: &Tag, metadata: &mut Metadata) {
     // always been: "Tiziano Ferro feat. Anahí & Dulce María" has no separator we
     // dare cut on, so it stays one name and the file's three ids go unused.
     metadata.artist_credit = clean(tag.artist().as_deref());
-    metadata.artists = match every(tag, ItemKey::TrackArtists) {
+
+    // Read before the names, because how many there are is what settles whether a
+    // slash in a name divides two of them — see `as_many_as`.
+    metadata.mbid_artists = every_id(tag, ItemKey::MusicBrainzArtistId);
+    metadata.mbid_album_artists = every_id(tag, ItemKey::MusicBrainzReleaseArtistId);
+
+    let listed = match every(tag, ItemKey::TrackArtists) {
         listed if !listed.is_empty() => listed,
         _ => split_artists(tag.artist().as_deref()),
     };
 
-    metadata.album_artists = split_artists(text(tag, ItemKey::AlbumArtist).as_deref());
-    metadata.genres = split_artists(tag.genre().as_deref());
+    metadata.artists = as_many_as(listed, metadata.mbid_artists.len());
+    metadata.album_artists = as_many_as(
+        split_artists(text(tag, ItemKey::AlbumArtist).as_deref()),
+        metadata.mbid_album_artists.len(),
+    );
 
-    metadata.mbid_artists = every(tag, ItemKey::MusicBrainzArtistId);
-    metadata.mbid_album_artists = every(tag, ItemKey::MusicBrainzReleaseArtistId);
+    metadata.genres = split_artists(tag.genre().as_deref());
 
     metadata.sort_title = text(tag, ItemKey::TrackTitleSortOrder);
     metadata.sort_album = text(tag, ItemKey::AlbumTitleSortOrder);
@@ -462,12 +478,49 @@ fn text(tag: &Tag, key: ItemKey) -> Option<String> {
 /// them means neither shape is read short — and the order matters here more than
 /// anywhere else, since it is what lines names up with identifiers.
 fn every(tag: &Tag, key: ItemKey) -> Vec<String> {
+    every_divided_by(tag, key, &ARTIST_SEPARATORS)
+}
+
+/// The same for a key holding identifiers, which takes the slash as well.
+fn every_id(tag: &Tag, key: ItemKey) -> Vec<String> {
+    every_divided_by(tag, key, &ID_SEPARATORS)
+}
+
+fn every_divided_by(tag: &Tag, key: ItemKey, separators: &[char]) -> Vec<String> {
     tag.get_strings(key)
-        .flat_map(|value| value.split(ARTIST_SEPARATORS))
+        .flat_map(|value| value.split(separators))
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// Names with a slash read as a separator, but only when the identifiers say it was
+/// one.
+///
+/// ID3v2.3 writes "Alejandro Sanz/Juan Habichuela/Ketama" into one field, and nothing
+/// in a name says whether a slash divides two of them or belongs to one of them —
+/// AC/DC is a band, and cutting there invents two that do not exist. What does say it
+/// is the other field: identifiers cannot contain a slash, so how many there are is
+/// known exactly, and a name that comes apart into precisely that many pieces was a
+/// list divided that way. Two independent fields agreeing on a count is not a guess.
+///
+/// Anything else is left alone. With one id and one name there is nothing to resolve;
+/// with no ids there is no witness, and a slash stays part of the name.
+fn as_many_as(names: Vec<String>, ids: usize) -> Vec<String> {
+    if ids == 0 || names.len() == ids {
+        return names;
+    }
+
+    let divided: Vec<String> = names
+        .iter()
+        .flat_map(|name| name.split('/'))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    if divided.len() == ids { divided } else { names }
 }
 
 /// Trims and discards anything that was only whitespace, because an empty tag
@@ -874,6 +927,82 @@ mod tests {
             ],
             "the counts agree, so they pair up by position"
         );
+    }
+
+    /// ID3v2.3, which has no null separator and puts several values in one field
+    /// divided by a slash. Taken from a real file.
+    ///
+    /// Read as one name it was worse than a name with slashes in it: the identifiers
+    /// came through the same way, so three of them pasted together looked like one,
+    /// the counts agreed, and a person who does not exist was marked with an
+    /// identifier that identifies nobody — in a column the schema keeps unique.
+    #[test]
+    fn a_slash_divides_them_when_the_identifiers_say_it_does() {
+        let path = tagged_wav(
+            "id3v23-list",
+            &[
+                (
+                    ItemKey::TrackArtist,
+                    "Alejandro Sanz con Juan Habichuela y Ketama",
+                ),
+                (
+                    ItemKey::TrackArtists,
+                    "Alejandro Sanz/Juan Habichuela/Ketama",
+                ),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    "9bacf78f-9132-43da-8873-8a9eb49da0e9/\
+                     2c915cf4-231e-49f3-93f8-e35cbd8e9ca2/\
+                     7fe8e911-d706-44d9-b633-702065f8fd6c",
+                ),
+            ],
+        );
+
+        let metadata = read(&path).unwrap();
+
+        assert_eq!(
+            metadata.artists,
+            ["Alejandro Sanz", "Juan Habichuela", "Ketama"]
+        );
+        assert_eq!(metadata.mbid_artists.len(), 3);
+        assert_eq!(
+            metadata.mbid_artists[2],
+            "7fe8e911-d706-44d9-b633-702065f8fd6c"
+        );
+        assert_eq!(
+            metadata.artist_credit.as_deref(),
+            Some("Alejandro Sanz con Juan Habichuela y Ketama"),
+            "and the credit is the sentence the record uses, slashes nowhere in it"
+        );
+    }
+
+    /// The band the slash belongs to. One identifier, so there is one artist, and
+    /// cutting there would invent two who do not exist.
+    #[test]
+    fn a_slash_inside_a_name_stays_inside_it() {
+        let path = tagged_wav(
+            "acdc",
+            &[
+                (ItemKey::TrackArtist, "AC/DC"),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    "66c662b6-6e2f-4930-8610-912e24c63ed1",
+                ),
+            ],
+        );
+
+        let metadata = read(&path).unwrap();
+        assert_eq!(metadata.artists, ["AC/DC"]);
+        assert_eq!(metadata.mbid_artists.len(), 1);
+    }
+
+    /// And with nothing to check it against, a slash is left where it is. There is
+    /// no witness, and inventing one is how AC/DC becomes two bands.
+    #[test]
+    fn without_identifiers_a_slash_is_left_alone() {
+        let path = tagged_wav("no-witness", &[(ItemKey::TrackArtist, "Alice/Bob")]);
+
+        assert_eq!(read(&path).unwrap().artists, ["Alice/Bob"]);
     }
 
     /// The case the pairing exists to refuse. One name that could not be split,
