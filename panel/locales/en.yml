@@ -533,9 +533,9 @@ profile:
   repeat_password: "Repeat the new password"
   role: "Role"
   save_changes: "Save the changes"
-  scrobbling: Pass plays on to a scrobbling service
+  scrobbling: Pass plays on
   scrobbling_on: "Pass my plays on"
-  scrobbling_why: "Passes what you play to the service configured on the server."
+  scrobbling_why: "Counting them here never stops. This is only about sending them anywhere else."
   unchanged: Leave empty to keep it
   username: Username
   username_theirs: "An administrator changes this"
@@ -688,7 +688,8 @@ listens:
   destinations: "Where they go"
   lead: "Besides counting them here, Tocata can pass what you listen to on to a scrobbling service. You can send to more than one."
   none: "You are not sending your listens anywhere."
-  add: "Add"
+  none_why: "Passing plays on is switched on, but a listen is queued for a destination: until there is one, nothing is being kept to send later."
+  add: "Add a destination"
   actions: "Actions"
   at: "Send to %{name}"
   sheet_lead: "The token is in your account's settings on the service. It is stored here and never shown again."

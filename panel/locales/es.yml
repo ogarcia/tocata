@@ -530,9 +530,9 @@ profile:
   repeat_password: "Repite la nueva contraseña"
   role: "Rol"
   save_changes: "Guardar los cambios"
-  scrobbling: Enviar las reproducciones a un servicio de scrobbling
+  scrobbling: Pasar las reproducciones
   scrobbling_on: "Pasar mis reproducciones"
-  scrobbling_why: "Pasa lo que reproduces al servicio configurado en el servidor."
+  scrobbling_why: "Contarlas aquí no se detiene nunca. Esto es solo sobre enviarlas a otro sitio."
   unchanged: Vacío para dejarla como está
   username: Usuario
   username_theirs: "Lo cambia un administrador"
@@ -684,7 +684,8 @@ listens:
   destinations: "Dónde se envían"
   lead: "Además de contarlas aquí, Tocata puede pasar lo que escuchas a un servicio de scrobbling. Puedes enviarlas a más de uno."
   none: "No estás enviando tus escuchas a ningún sitio."
-  add: "Añadir"
+  none_why: "Pasar las reproducciones está activado, pero una escucha se encola para cada destino: hasta que haya uno, no se guarda nada para enviarlo después."
+  add: "Añadir un destino"
   actions: "Acciones"
   at: "Enviar a %{name}"
   sheet_lead: "El token lo encuentras en los ajustes de tu cuenta del servicio. Se guarda aquí y no se vuelve a mostrar."

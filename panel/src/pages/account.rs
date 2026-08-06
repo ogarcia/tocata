@@ -540,7 +540,10 @@ fn Listening(
         // Under the switch and outside its form: these save themselves as they are
         // pressed, and one Save for both would mean a token being sent because
         // somebody ticked a box.
-        <Destinations on_expired />
+        //
+        // Given the switch as the server has it and not as the checkbox stands, since
+        // what the list has to say about the queue is true of what was saved.
+        <Destinations passing=account.scrobbling on_expired />
     }
 }
 
@@ -551,7 +554,12 @@ fn Listening(
 /// knows is the shape: a name, an address for the ones that run on your own machine,
 /// and a token.
 #[component]
-fn Destinations(on_expired: Callback<()>) -> impl IntoView {
+fn Destinations(
+    /// Whether plays are being passed on at all, which is what decides what the empty
+    /// state owes the reader.
+    passing: bool,
+    on_expired: Callback<()>,
+) -> impl IntoView {
     let (sending, set_sending) = signal(Option::<tocata::types::Scrobbling>::None);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (unchecked, set_unchecked) = signal(false);
@@ -638,7 +646,15 @@ fn Destinations(on_expired: Callback<()>) -> impl IntoView {
         {move || match sending.get() {
             None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
             Some(sending) if sending.scrobblers.is_empty() => {
-                view! { <p class="nothing">{t!("listens.none")}</p> }.into_any()
+                // What this state raises is what becomes of what you play meanwhile,
+                // and the answer is nothing: a listen is queued once per destination,
+                // so with none there is nothing to queue it against. Said only when
+                // the switch is on, because with it off the switch is the answer.
+                view! {
+                    <p class="nothing">{t!("listens.none")}</p>
+                    {passing.then(|| view! { <p class="hint quiet">{t!("listens.none_why")}</p> })}
+                }
+                    .into_any()
             }
             Some(sending) => {
                 view! {
@@ -773,15 +789,21 @@ fn Destination(
     // Only when something is actually stuck. A destination that is merely behind is
     // going to catch up on its own, and the reason it gave last time would read as a
     // problem where there is none.
-    let stuck = (!enabled || one.waiting > 0)
-        .then_some(one.last_error)
-        .flatten();
+    //
+    // Being paused is not one of those reasons, and it used to be: a paused
+    // destination showed whatever error it last had, sitting under the word "paused"
+    // where it read as the reason somebody had paused it. Nothing is stuck there —
+    // nothing is being tried.
+    let stuck = (one.waiting > 0).then_some(one.last_error).flatten();
 
     view! {
         <li class:off=move || !enabled>
             <span class="what">
                 {one.shown}
-                {(!enabled).then(|| view! { <span class="tag">{t!("listens.paused")}</span> })}
+                // Quiet and not in the ink of something wrong: a revoked key wears the
+                // same word shape and is a fault, and this is somebody's decision.
+                {(!enabled)
+                    .then(|| view! { <span class="tag deliberate">{t!("listens.paused")}</span> })}
             </span>
 
             <span class="doing">

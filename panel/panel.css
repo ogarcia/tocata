@@ -2840,6 +2840,11 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   color: var(--alarm);
 }
 
+/* And the same word when it is somebody's decision rather than something wrong: a
+ * destination paused on purpose says so, and says it quietly. A key that expired or
+ * was revoked keeps the alarm, which is the difference. */
+.tag.deliberate { color: var(--quiet); }
+
 /* The question at the foot of a list, with its answer next to it. At the foot and
  * never at the top: what makes somebody reach for this is having read the list. */
 .after {
