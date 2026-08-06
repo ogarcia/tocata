@@ -1423,11 +1423,12 @@ mod visibility_tests {
             .unwrap();
 
             sqlx::query(
-                "INSERT INTO albums (id, public_id, name, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO albums (id, public_id, grouping_key, name, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)",
             )
             .bind(id)
             .bind(format!("alb{id}"))
+            .bind(format!("album {name}"))
             .bind(format!("Album {name}"))
             .bind(&at)
             .bind(&at)

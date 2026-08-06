@@ -12,7 +12,7 @@ use super::tags::Metadata;
 /// Album artist values that mean "this is a collection", not an artist.
 const VARIOUS_ARTISTS: [&str; 3] = ["various artists", "various", "va"];
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AlbumKey {
     /// The tag told us exactly which release this is. Nothing to guess.
     Release(String),
@@ -39,6 +39,31 @@ impl AlbumKey {
             // empty one and cannot collide with a real name.
             Self::Compilation { name, date } => Some(("", name, date.as_deref())),
             Self::Tagged { artist, name, date } => Some((artist, name, date.as_deref())),
+        }
+    }
+
+    /// The same identity as one string, which is how the row remembers it.
+    ///
+    /// A scan holds its albums in a map keyed by this type, and that map is what
+    /// keeps a scan to one pass — but it lives only as long as the scan. The next
+    /// scan to reread a file it already knows starts with an empty map, finds
+    /// nothing, and inserts the record a second time. So the key goes in the row
+    /// as well, where the scan after this one can still read it.
+    ///
+    /// The year is not in here. It is in the `year` column, compared between the
+    /// candidates this key finds, because a year missing from some of a record's
+    /// tracks must not split the record in two — see the lookup in `album_id`.
+    /// Which is also why this is not a unique index: an original and its remaster
+    /// share this key and are two records.
+    ///
+    /// The variants are named in it. Two of them carry a name and would otherwise
+    /// be free to collide: a compilation called something is not a record by
+    /// nobody called the same thing.
+    pub fn grouping_key(&self) -> String {
+        match self {
+            Self::Release(mbid) => format!("release\u{1f}{mbid}"),
+            Self::Compilation { name, .. } => format!("compilation\u{1f}{name}"),
+            Self::Tagged { artist, name, .. } => format!("tagged\u{1f}{artist}\u{1f}{name}"),
         }
     }
 
@@ -291,6 +316,38 @@ mod tests {
         let key = AlbumKey::of(&released).unwrap();
 
         assert!(key.credited(&released).is_empty());
+    }
+
+    /// The year is compared between the rows a key finds, not written into the
+    /// key, so that a record whose tracks disagree about the year is still one
+    /// record. Two editions that do agree are told apart afterwards, by the year
+    /// on the row.
+    #[test]
+    fn the_year_is_not_part_of_the_stored_key() {
+        let mut original = metadata("Rumours", &["Fleetwood Mac"], &["Fleetwood Mac"]);
+        original.year = Some(1977);
+        let mut remaster = metadata("Rumours", &["Fleetwood Mac"], &["Fleetwood Mac"]);
+        remaster.year = Some(2004);
+
+        assert_eq!(
+            AlbumKey::of(&original).unwrap().grouping_key(),
+            AlbumKey::of(&remaster).unwrap().grouping_key()
+        );
+    }
+
+    /// Two records can carry the same name and be nothing alike, so the key says
+    /// which kind of key it is. Without that, a compilation called Greatest Hits
+    /// and an untagged record called Greatest Hits would be one row.
+    #[test]
+    fn a_compilation_does_not_collide_with_a_record_by_nobody() {
+        let mut collected = metadata("Greatest Hits", &["Björk"], &[]);
+        collected.is_compilation = true;
+        let anonymous = metadata("Greatest Hits", &[], &[]);
+
+        assert_ne!(
+            AlbumKey::of(&collected).unwrap().grouping_key(),
+            AlbumKey::of(&anonymous).unwrap().grouping_key()
+        );
     }
 
     #[test]

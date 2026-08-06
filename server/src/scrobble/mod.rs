@@ -469,8 +469,8 @@ mod tests {
         .unwrap();
 
         sqlx::query(
-            "INSERT INTO albums (id, public_id, name, mbid_release, created_at, updated_at)
-             VALUES (1, 'al1', 'In Absentia', 'rel-1', ?, ?)",
+            "INSERT INTO albums (id, public_id, grouping_key, name, mbid_release, created_at, updated_at)
+             VALUES (1, 'al1', 'release\u{1f}rel-1', 'In Absentia', 'rel-1', ?, ?)",
         )
         .bind(&at)
         .bind(&at)

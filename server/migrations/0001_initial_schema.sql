@@ -101,6 +101,19 @@ CREATE INDEX artists_sort_name_idx   ON artists (sort_name);
 CREATE TABLE albums (
     id                 INTEGER PRIMARY KEY,
     public_id          TEXT    NOT NULL UNIQUE,
+    -- Which record this row is, as the scanner decided it: the release id, or
+    -- the album artist and the name folded to one string. Written here because
+    -- otherwise the decision lives only in the scanner's memory, and a scan that
+    -- rereads a file it already knows has no way to find the row it made last
+    -- time — it inserts a second one, moves the tracks over, and leaves the
+    -- first orphaned with the play counts and ratings hanging off it.
+    --
+    -- Not unique: an original and its remaster share an artist and a name and
+    -- are two records, told apart by the year. The year is deliberately not in
+    -- here, because a year missing from some of a record's tracks must not split
+    -- it in two, and that is a judgement between candidates rather than a
+    -- lookup — see `AlbumKey::grouping_key`.
+    grouping_key       TEXT    NOT NULL,
     name               TEXT    NOT NULL,
     sort_name          TEXT,
     year               INTEGER,
@@ -123,6 +136,7 @@ CREATE TABLE albums (
     updated_at         TEXT    NOT NULL
 );
 
+CREATE INDEX albums_grouping_idx  ON albums (grouping_key);
 CREATE INDEX albums_name_idx      ON albums (name);
 CREATE INDEX albums_sort_name_idx ON albums (sort_name);
 CREATE INDEX albums_mbid_idx      ON albums (mbid_release);

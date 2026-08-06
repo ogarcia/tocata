@@ -85,7 +85,7 @@ use crate::db;
 use album_key::AlbumKey;
 use anyhow::{Context, Result};
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -98,13 +98,14 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
 use walker::Entry;
 
-/// An album already recorded in this scan: the year it was filed under, and its
-/// row.
+/// An album already recorded: the year it was filed under, and its row.
 type RecordedAlbum = (Option<String>, i64);
 
-/// Albums reachable by artist and name, which is how a track with no year finds
-/// the album its siblings already created.
-type AlbumsByName = HashMap<(String, String), Vec<RecordedAlbum>>;
+/// Albums reachable by the key that says which record they are, each with the
+/// years already filed under it. What lets a track with no year join the album
+/// its siblings belong to, and what lets a second scan find the record the first
+/// one made instead of making it again.
+type AlbumsByKey = HashMap<String, Vec<RecordedAlbum>>;
 
 /// What a scan already knows about a file it is about to look at: how it looked from
 /// outside last time, and whether looking inside worked.
@@ -510,10 +511,16 @@ struct State {
     scan: i64,
     folders: HashMap<PathBuf, i64>,
     artists: HashMap<String, i64>,
-    albums: HashMap<AlbumKey, i64>,
-    /// Albums indexed by artist and name, each with the year it was recorded
-    /// under. What lets a track with no year join an album that has one.
-    albums_by_name: AlbumsByName,
+    /// The albums this scan has looked up so far. A key that is present has been
+    /// answered for — from the database on the first track of a record, from here
+    /// on every track after it — so a missing key means "not asked yet" and an
+    /// empty list means "asked, and there is no such record".
+    albums: AlbumsByKey,
+    /// The albums this scan has written, so a record it found rather than made is
+    /// brought up to date once — by the first track of it that comes through —
+    /// and not once per track, where the last file read would be the one that
+    /// decided what the whole record says.
+    rewritten: HashSet<i64>,
     genres: HashMap<String, i64>,
     timestamp: String,
 }
@@ -526,8 +533,8 @@ impl State {
             scan,
             folders: HashMap::new(),
             artists: HashMap::new(),
-            albums: HashMap::new(),
-            albums_by_name: AlbumsByName::new(),
+            albums: AlbumsByKey::new(),
+            rewritten: HashSet::new(),
             genres: HashMap::new(),
             timestamp: db::now(),
         }
@@ -1116,53 +1123,85 @@ impl State {
         key: &AlbumKey,
         metadata: &Metadata,
     ) -> Result<i64> {
-        if let Some(id) = self.albums.get(key) {
-            let id = *id;
-            return Ok(id);
+        let slot = key.grouping_key();
+
+        // The records already filed under this key, whoever filed them. Asked
+        // once and remembered, which is what keeps the second track of a record
+        // from going back to the database — and asked at all, which is what
+        // keeps a scan that rereads a known file from recording the record it
+        // already has a second time.
+        if !self.albums.contains_key(&slot) {
+            let recorded: Vec<(Option<i64>, i64)> =
+                sqlx::query_as("SELECT year, id FROM albums WHERE grouping_key = ?")
+                    .bind(&slot)
+                    .fetch_all(&mut **tx)
+                    .await
+                    .with_context(|| format!("looking for an album already recorded as {slot}"))?;
+
+            self.albums.insert(
+                slot.clone(),
+                recorded
+                    .into_iter()
+                    .map(|(year, id)| (year.map(|year| year.to_string()), id))
+                    .collect(),
+            );
         }
 
         // A year nobody tagged must not split an album.
         //
-        // The year is in the key so that an original and its remaster stay
-        // apart, but that only holds when both are actually tagged. An album
-        // with the year missing from some of its tracks is far more common than
-        // two editions of one album in the same library, and without this it
-        // would come out as two albums of one track each.
-        if let Some((artist, name, date)) = key.grouping() {
-            let slot = (artist.to_string(), name.to_string());
-            if let Some(candidates) = self.albums_by_name.get(&slot) {
-                let compatible = candidates.iter().find(|(year, _)| match (year, date) {
-                    (Some(recorded), Some(incoming)) => recorded == incoming,
-                    // Either side unknown: same album as far as anyone can tell.
-                    _ => true,
-                });
+        // The year is compared here rather than being part of the key so that an
+        // original and its remaster stay apart, but that only holds when both are
+        // actually tagged. An album with the year missing from some of its tracks
+        // is far more common than two editions of one album in the same library,
+        // and without this it would come out as two albums of one track each.
+        //
+        // A release id takes no year at all: it has already said which record
+        // this is, so whatever year is filed under it is this record's year.
+        let date = key.grouping().and_then(|(_, _, date)| date);
 
-                if let Some((recorded, id)) = compatible {
-                    let id = *id;
-                    // Fill in a year the album did not have, so the next track
-                    // to arrive matches on it directly.
-                    if recorded.is_none() && date.is_some() {
-                        sqlx::query("UPDATE albums SET year = ?, release_date = ? WHERE id = ?")
-                            .bind(metadata.year)
-                            .bind(&metadata.date)
-                            .bind(id)
-                            .execute(&mut **tx)
-                            .await
-                            .context("filling in the year of an album")?;
+        let compatible = self
+            .albums
+            .entry(slot.clone())
+            .or_default()
+            .iter()
+            .find(|(year, _)| match (year, date) {
+                (Some(recorded), Some(incoming)) => recorded == incoming,
+                // Either side unknown: same album as far as anyone can tell.
+                _ => true,
+            })
+            .map(|(year, id)| (year.is_none(), *id));
 
-                        if let Some(entry) = self
-                            .albums_by_name
-                            .get_mut(&slot)
-                            .and_then(|c| c.iter_mut().find(|(_, existing)| *existing == id))
-                        {
-                            entry.0 = date.map(str::to_string);
-                        }
-                    }
+        if let Some((undated, id)) = compatible {
+            // Fill in a year the album did not have, so the next track to arrive
+            // matches on it directly.
+            if undated && date.is_some() {
+                sqlx::query("UPDATE albums SET year = ?, release_date = ? WHERE id = ?")
+                    .bind(metadata.year)
+                    .bind(&metadata.date)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await
+                    .context("filling in the year of an album")?;
 
-                    self.albums.insert(key.clone(), id);
-                    return Ok(id);
+                if let Some(entry) = self
+                    .albums
+                    .get_mut(&slot)
+                    .and_then(|c| c.iter_mut().find(|(_, existing)| *existing == id))
+                {
+                    entry.0 = date.map(str::to_string);
                 }
             }
+
+            // A record the scan found rather than made was written the last time
+            // somebody read these files, and the tags may have been corrected
+            // since. So the first track of it this scan reads writes the record
+            // again — the same track that would have created it, so a record that
+            // already existed and one that did not end up saying the same thing.
+            if self.rewritten.insert(id) {
+                self.rewrite_album(tx, id, key, metadata).await?;
+            }
+
+            return Ok(id);
         }
 
         let name = metadata.album.clone().unwrap_or_default();
@@ -1170,13 +1209,14 @@ impl State {
 
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO albums (
-                 public_id, name, sort_name, year, release_date, is_compilation,
-                 mbid_release, mbid_release_group, label, rg_album_gain, rg_album_peak,
-                 created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 public_id, grouping_key, name, sort_name, year, release_date,
+                 is_compilation, mbid_release, mbid_release_group, label,
+                 rg_album_gain, rg_album_peak, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING id",
         )
         .bind(db::public_id()?)
+        .bind(&slot)
         .bind(&name)
         .bind(&metadata.sort_album)
         .bind(metadata.year)
@@ -1193,14 +1233,81 @@ impl State {
         .await
         .with_context(|| format!("inserting album {name}"))?;
 
+        self.index_album(tx, id, &name, key, metadata).await?;
+
+        self.albums
+            .entry(slot)
+            .or_default()
+            .push((date.map(str::to_string), id));
+        self.rewritten.insert(id);
+
+        Ok(id)
+    }
+
+    /// Writes what the tags say about a record onto the row that already holds
+    /// it, leaving the row itself alone.
+    ///
+    /// Everything here is a fact the files carry and can be corrected in them:
+    /// the name as it is written, how it sorts, the label, the release date, the
+    /// identifiers, the album gain. What is not here is what the row means to
+    /// whoever has it: its public id, when it was first seen, the cover chosen
+    /// for it, and the plays, ratings and stars hanging off it.
+    ///
+    /// The year is not here either, because a different year is a different
+    /// record — a remaster, filed apart on purpose — and the one case where it
+    /// should be written is the album that had none, which is handled above.
+    async fn rewrite_album(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        id: i64,
+        key: &AlbumKey,
+        metadata: &Metadata,
+    ) -> Result<()> {
+        let name = metadata.album.clone().unwrap_or_default();
+
+        sqlx::query(
+            "UPDATE albums SET
+                 name = ?, sort_name = ?, release_date = ?, mbid_release = ?,
+                 mbid_release_group = ?, label = ?, rg_album_gain = ?,
+                 rg_album_peak = ?, updated_at = ?
+               WHERE id = ?",
+        )
+        .bind(&name)
+        .bind(&metadata.sort_album)
+        .bind(&metadata.date)
+        .bind(&metadata.mbid_release)
+        .bind(&metadata.mbid_release_group)
+        .bind(&metadata.label)
+        .bind(metadata.rg_album_gain)
+        .bind(metadata.rg_album_peak)
+        .bind(&self.timestamp)
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .with_context(|| format!("bringing album {name} up to date"))?;
+
+        self.index_album(tx, id, &name, key, metadata).await
+    }
+
+    /// Puts a record into the search index under the name it goes by and whoever
+    /// it is credited to, replacing whatever was indexed for it before.
+    async fn index_album(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        id: i64,
+        name: &str,
+        key: &AlbumKey,
+        metadata: &Metadata,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM albums_fts WHERE rowid = ?")
             .bind(id)
             .execute(&mut **tx)
             .await
             .context("clearing the old index entry of an album")?;
+
         sqlx::query("INSERT INTO albums_fts (rowid, name, artists) VALUES (?, ?, ?)")
             .bind(id)
-            .bind(&name)
+            .bind(name)
             // Whoever the record is credited to, which for an album with no album
             // artist tagged is its track artists — otherwise searching an album by
             // the one name written on it would not find it.
@@ -1209,15 +1316,7 @@ impl State {
             .await
             .context("indexing an album")?;
 
-        if let Some((artist, name, date)) = key.grouping() {
-            self.albums_by_name
-                .entry((artist.to_string(), name.to_string()))
-                .or_default()
-                .push((date.map(str::to_string), id));
-        }
-
-        self.albums.insert(key.clone(), id);
-        Ok(id)
+        Ok(())
     }
 }
 

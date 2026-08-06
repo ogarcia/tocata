@@ -251,7 +251,7 @@ mod tests {
             .bind(&at).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO artists (id, public_id, name, created_at, updated_at) VALUES (1, 'a1', 'Solitaria', ?, ?)")
             .bind(&at).bind(&at).execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO albums (id, public_id, name, artwork_id, created_at, updated_at) VALUES (1, 'b1', 'Único', 1, ?, ?)")
+        sqlx::query("INSERT INTO albums (id, public_id, grouping_key, name, artwork_id, created_at, updated_at) VALUES (1, 'b1', 'único', 'Único', 1, ?, ?)")
             .bind(&at).bind(&at).execute(&pool).await.unwrap();
         sqlx::query(
             "INSERT INTO album_artists (album_id, artist_id, role) VALUES (1, 1, 'albumartist')",
@@ -419,7 +419,7 @@ mod tests {
         let at = db::now();
         sqlx::query("INSERT INTO artworks (id, public_id, kind, source, mime_type, content_hash, fetched_at) VALUES (2, 'w2', 'album', 'file', 'image/jpeg', 'abcd', ?)")
             .bind(&at).execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO albums (id, public_id, name, artwork_id, created_at, updated_at) VALUES (2, 'b2', 'Otro', 2, ?, ?)")
+        sqlx::query("INSERT INTO albums (id, public_id, grouping_key, name, artwork_id, created_at, updated_at) VALUES (2, 'b2', 'otro', 'Otro', 2, ?, ?)")
             .bind(&at).bind(&at).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path, file_size, file_modified_at, content_type, suffix, title, last_seen_scan, created_at, updated_at) VALUES (3, 't3', 1, 1, 2, '/l/3.wav', 1, ?, 'audio/wav', 'wav', 'Otra', 1, ?, ?)")
             .bind(&at).bind(&at).bind(&at).execute(&pool).await.unwrap();

@@ -48,6 +48,8 @@ fn tag(path: &Path, items: &[(&str, &str)]) {
                 // Written as a recording date, which is the field that survives a
                 // RIFF container.
                 "year" => ItemKey::RecordingDate,
+                "release" => ItemKey::MusicBrainzReleaseId,
+                "compilation" => ItemKey::FlagCompilation,
                 other => panic!("unknown tag {other}"),
             };
 
@@ -109,6 +111,211 @@ async fn a_full_scan_reads_everything_again() {
 
     assert_eq!(full.unchanged, 0, "a full scan skips nothing");
     assert_eq!(full.tracks, 1);
+}
+
+/// Reading a file again must not make a second record of the album it is on.
+///
+/// This is the one an early Tocata got wrong, and it went unseen because the
+/// test above scans an untagged file, which belongs to no album at all. The
+/// albums lived in a map that a scan built from nothing and threw away at the
+/// end, so the next scan to look inside a file it already knew found no record,
+/// made another, moved the tracks onto it and left the first one behind — with
+/// the play counts, the rating and the star still hanging off the row nobody
+/// would ever see again.
+///
+/// Which is why the assertion is on the id and not just on the count: a record
+/// that keeps its row keeps everything anyone attached to it.
+#[tokio::test]
+async fn a_scan_finds_the_album_a_previous_scan_made() {
+    let root = temp_root("album-again");
+    for n in 1..=3 {
+        let path = root.join(format!("Album/{n:02}.wav"));
+        write_wav(&path);
+        tag(
+            &path,
+            &[
+                ("album", "Kid A"),
+                ("albumartist", "Radiohead"),
+                ("artist", "Radiohead"),
+                ("year", "2000"),
+            ],
+        );
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+    let first: i64 = sqlx::query_scalar("SELECT id FROM albums")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    scan(&pool, id, &root, Mode::Full).await.unwrap();
+
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM albums").await,
+        1,
+        "one record, however many times its files are read"
+    );
+    assert_eq!(
+        count(&pool, "SELECT id FROM albums").await,
+        first,
+        "and the same row, so nothing anyone attached to it is orphaned"
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM tracks WHERE album_id IS NOT NULL"
+        )
+        .await,
+        3,
+        "with its tracks still on it"
+    );
+}
+
+/// The other two ways a record is identified, which take different paths through
+/// the lookup: a release id names the record outright, and a compilation is
+/// grouped without regard to who is on it.
+#[tokio::test]
+async fn a_release_id_and_a_compilation_survive_a_second_scan_too() {
+    let root = temp_root("keys-again");
+
+    let released = root.join("Release/01.wav");
+    write_wav(&released);
+    tag(
+        &released,
+        &[
+            ("album", "OK Computer"),
+            ("artist", "Radiohead"),
+            ("release", "e7c0e2ef-0b6d-4d6f-b4a5-0d6f4e0f8b3c"),
+        ],
+    );
+
+    // Two tracks by different people, which is the whole point of the flag.
+    for (n, who) in [(1, "Björk"), (2, "Pulp")] {
+        let path = root.join(format!("Hits/{n:02}.wav"));
+        write_wav(&path);
+        tag(
+            &path,
+            &[("album", "Hits 96"), ("artist", who), ("compilation", "1")],
+        );
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+    assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 2);
+
+    scan(&pool, id, &root, Mode::Full).await.unwrap();
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM albums").await,
+        2,
+        "neither of them was made twice"
+    );
+}
+
+/// Tags get corrected, and the record has to take the correction. It is the same
+/// record — the release id says so — and it now says something else about itself.
+///
+/// Worth its own test because the record surviving the scan that made it is what
+/// makes this possible to get wrong: the row is no longer rewritten from nothing
+/// every time, so what is on it and what is in the search index are only right
+/// if the scan puts them right.
+#[tokio::test]
+async fn a_record_that_already_existed_takes_the_corrected_tags() {
+    let root = temp_root("retagged");
+    let path = root.join("Album/01.wav");
+    write_wav(&path);
+
+    let release = "e7c0e2ef-0b6d-4d6f-b4a5-0d6f4e0f8b3c";
+    tag(
+        &path,
+        &[
+            ("album", "kid a"),
+            ("artist", "Radiohead"),
+            ("release", release),
+        ],
+    );
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    // Somebody capitalised the title and said who the record is by.
+    tag(
+        &path,
+        &[
+            ("album", "Kid A"),
+            ("artist", "Radiohead"),
+            ("albumartist", "Radiohead"),
+            ("release", release),
+        ],
+    );
+
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 1);
+
+    let name: String = sqlx::query_scalar("SELECT name FROM albums")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "Kid A", "the record goes by what its files now say");
+
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM albums_fts WHERE albums_fts MATCH 'Radiohead'"
+        )
+        .await,
+        1,
+        "and answers to the name it was just credited to"
+    );
+}
+
+/// A year appearing on a file that had none joins the record rather than
+/// splitting it — and now that the record outlives the scan that made it, so
+/// does the case where the year arrives on a later scan.
+#[tokio::test]
+async fn a_year_tagged_afterwards_joins_the_album_it_belongs_to() {
+    let root = temp_root("year-later");
+    let dated = root.join("Album/01.wav");
+    let undated = root.join("Album/02.wav");
+    for path in [&dated, &undated] {
+        write_wav(path);
+        tag(
+            path,
+            &[("album", "Rumours"), ("albumartist", "Fleetwood Mac")],
+        );
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 1);
+
+    // Somebody fixed the tags of one file, so that one is read again and the
+    // other is not.
+    tag(
+        &dated,
+        &[
+            ("album", "Rumours"),
+            ("albumartist", "Fleetwood Mac"),
+            ("year", "1977"),
+        ],
+    );
+
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM albums").await,
+        1,
+        "the year filled in the album, it did not make another one"
+    );
+    assert_eq!(count(&pool, "SELECT year FROM albums").await, 1977);
 }
 
 #[tokio::test]

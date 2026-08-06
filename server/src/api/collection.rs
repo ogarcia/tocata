@@ -1629,11 +1629,12 @@ mod tests {
         // One album per library, so a restriction has something to hide.
         for (id, library, name) in [(1i64, 1i64, "El Patio"), (2, 2, "Hijos del Agobio")] {
             sqlx::query(
-                "INSERT INTO albums (id, public_id, name, year, created_at, updated_at)
-                 VALUES (?, ?, ?, 1975, ?, ?)",
+                "INSERT INTO albums (id, public_id, grouping_key, name, year, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 1975, ?, ?)",
             )
             .bind(id)
             .bind(format!("al{id}"))
+            .bind(name.to_lowercase())
             .bind(name)
             .bind(&at)
             .bind(&at)
