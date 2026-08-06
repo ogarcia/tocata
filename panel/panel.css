@@ -2771,8 +2771,11 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  *
  * The action is a cell of its own spanning both lines, so it stays against the
  * right and level with the name whatever the sentence under it says. */
+/* Air above the rule, because the line that introduces the list is not part of it.
+ * Without it the first rule sat against the descender of the sentence explaining
+ * what the list is, and the two read as one block of small grey text. */
 .ways {
-  margin: 0;
+  margin: 1rem 0 0;
   padding: 0;
   border-top: 1px solid var(--line);
   list-style: none;
