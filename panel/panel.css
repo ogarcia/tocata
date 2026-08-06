@@ -2876,6 +2876,36 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * offered. */
 .hint { font-size: var(--aside); }
 
+/* One line under the control that just did something, saying it did — or saying it
+ * did not. Under the control, because a pane whose settings save themselves has no
+ * button to put it beside, and the note this one used to share with the form above it
+ * appeared at the foot of the whole screen, a column away from the switch somebody
+ * had just touched. */
+.settled {
+  margin: 0.5rem 0 0;
+  font-size: var(--aside);
+  color: var(--quiet);
+}
+
+.settled.alarm { color: var(--alarm); }
+
+/* Why what follows has gone quiet. The shape of `.trouble` without any of its alarm:
+ * nothing is wrong, something is switched off. */
+.because {
+  margin: 0 0 1rem;
+  padding: 0.6875rem 0.875rem;
+  border-left: 2px solid var(--quiet);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-size: var(--aside);
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+/* Still there, and doing nothing. Faded and not disabled: every action on it still
+ * works, because switching a destination off, or adding one, is exactly what somebody
+ * does while the whole thing is off. */
+.stilled { opacity: 0.55; }
+
 /* A hint that is a complaint. Said in the alarm colour rather than shown as a
  * banner, because it belongs to the field above it and goes away as soon as that
  * field is right. */

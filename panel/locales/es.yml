@@ -682,7 +682,8 @@ common:
 # clave la damos nosotros y este token nos lo dan, y quien lo pega viene de otra web.
 listens:
   destinations: "Dónde se envían"
-  lead: "Además de contarlas aquí, Tocata puede pasar lo que escuchas a un servicio de scrobbling. Puedes enviarlas a más de uno."
+  lead: "Además de contarlas aquí, Tocata puede pasar lo que escuchas a un servicio de scrobbling. Puedes enviarlas a más de uno. Surten efecto al pulsarlos: aquí no hay nada que guardar."
+  while_off: "No se está enviando nada mientras el interruptor de arriba esté apagado. Lo que espera sigue esperando, y sale en cuanto lo vuelvas a encender."
   none: "No estás enviando tus escuchas a ningún sitio."
   none_why: "Pasar las reproducciones está activado, pero una escucha se encola para cada destino: hasta que haya uno, no se guarda nada para enviarlo después."
   add: "Añadir un destino"

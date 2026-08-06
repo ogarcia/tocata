@@ -138,7 +138,7 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
                         // does.
                         <div class="forms">
                             <Yourself account=account.clone() save />
-                            <Listening account=account.clone() save on_expired />
+                            <Listening account=account.clone() on_expired />
                         </div>
 
                         <Rail account on_expired />
@@ -492,58 +492,84 @@ fn Yourself(account: Account, save: Callback<AccountChanges>) -> impl IntoView {
 /// The switch and the destinations are one block on purpose. The switch is the older
 /// half — OpenSubsonic has always carried it — and on its own it was a promise
 /// nothing kept: it now means "pass my listens on", and what is under it is where to.
+///
+/// Nothing in here is saved by a button. The destinations always took effect as they
+/// were pressed, and the switch had a Save of its own beside them: two buttons of
+/// apparently equal rank, one of which did nothing for the list next to it. The switch
+/// saves itself now and says so under itself — which is also what separates this pane
+/// properly from the one above, where the button is there because the current password
+/// guards what it sends.
 #[component]
-fn Listening(
-    account: Account,
-    save: Callback<AccountChanges>,
-    on_expired: Callback<()>,
-) -> impl IntoView {
-    let (scrobbling, set_scrobbling) = signal(account.scrobbling);
+fn Listening(account: Account, on_expired: Callback<()>) -> impl IntoView {
+    let me = StoredValue::new(account.username.clone());
+    // What the server has, which is what the destinations below are described against.
+    let (passing, set_passing) = signal(account.scrobbling);
+    // What the checkbox shows, which runs ahead of the answer.
+    let (shown, set_shown) = signal(account.scrobbling);
+    let (saved, set_saved) = signal(false);
+    let (failure, set_failure) = signal(Option::<String>::None);
 
-    let submit = move |event: web_sys::SubmitEvent| {
-        event.prevent_default();
+    // Saved where it is changed, and its own call rather than the one the form above
+    // shares: that one reports at the foot of the whole screen, a column away from
+    // the switch somebody just touched.
+    let flip = move |wanted: bool| {
+        set_shown.set(wanted);
+        set_saved.set(false);
+        set_failure.set(None);
 
-        save.run(AccountChanges {
-            scrobbling: Some(scrobbling.get()),
-            ..Default::default()
+        spawn_local(async move {
+            let changes = AccountChanges {
+                scrobbling: Some(wanted),
+                ..Default::default()
+            };
+
+            match api::change_account(&me.get_value(), changes).await {
+                Ok(fresh) => {
+                    set_passing.set(fresh.scrobbling);
+                    set_shown.set(fresh.scrobbling);
+                    set_saved.set(true);
+                }
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => {
+                    // Back to what the server still has. A box left ticked over a
+                    // refusal is a setting somebody believes they made.
+                    set_shown.set(passing.get_untracked());
+                    set_failure.set(Some(said(&why)));
+                }
+            }
         });
     };
 
     view! {
         <h2 class="part">{t!("profile.listening")}</h2>
 
-        <form on:submit=submit>
-            <div class="settings">
-                <Setting
-                    label=t!("profile.scrobbling").to_string()
-                    why=t!("profile.scrobbling_why").to_string()
-                >
-                    <label class="checkbox">
-                        <input
-                            type="checkbox"
-                            prop:checked=scrobbling
-                            on:change:target=move |e| set_scrobbling.set(e.target().checked())
-                        />
-                        <span>{t!("profile.scrobbling_on")}</span>
-                    </label>
-                </Setting>
-            </div>
+        <div class="settings">
+            <Setting
+                label=t!("profile.scrobbling").to_string()
+                why=t!("profile.scrobbling_why").to_string()
+            >
+                <label class="checkbox">
+                    <input
+                        type="checkbox"
+                        prop:checked=shown
+                        on:change:target=move |e| flip(e.target().checked())
+                    />
+                    <span>{t!("profile.scrobbling_on")}</span>
+                </label>
 
-            // Its own, and with nothing to confirm: a preference is not an identity
-            // change, so the password that guards the block above has no business
-            // guarding this one.
-            <div class="saving">
-                <button type="submit" class="pill solid">{t!("common.save")}</button>
-            </div>
-        </form>
+                {move || saved.get().then(|| view! { <p class="settled">{t!("common.saved")}</p> })}
+                {move || {
+                    failure
+                        .get()
+                        .map(|why| view! { <p class="settled alarm" role="alert">{why}</p> })
+                }}
+            </Setting>
+        </div>
 
-        // Under the switch and outside its form: these save themselves as they are
-        // pressed, and one Save for both would mean a token being sent because
-        // somebody ticked a box.
-        //
-        // Given the switch as the server has it and not as the checkbox stands, since
-        // what the list has to say about the queue is true of what was saved.
-        <Destinations passing=account.scrobbling on_expired />
+        // Told what the switch is, so it can say what that means for the queue and go
+        // quiet when nothing is being sent. The switch as the server has it and not as
+        // the box stands, because what the list says is true of what was saved.
+        <Destinations passing=Signal::derive(move || passing.get()) on_expired />
     }
 }
 
@@ -555,9 +581,9 @@ fn Listening(
 /// and a token.
 #[component]
 fn Destinations(
-    /// Whether plays are being passed on at all, which is what decides what the empty
-    /// state owes the reader.
-    passing: bool,
+    /// Whether plays are being passed on at all, as the server has it. What decides
+    /// whether any of this is doing anything, and so how it reads.
+    passing: Signal<bool>,
     on_expired: Callback<()>,
 ) -> impl IntoView {
     let (sending, set_sending) = signal(Option::<tocata::types::Scrobbling>::None);
@@ -643,32 +669,46 @@ fn Destinations(
         </div>
         <p class="hint quiet">{t!("listens.lead")}</p>
 
-        {move || match sending.get() {
-            None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
-            Some(sending) if sending.scrobblers.is_empty() => {
-                // What this state raises is what becomes of what you play meanwhile,
-                // and the answer is nothing: a listen is queued once per destination,
-                // so with none there is nothing to queue it against. Said only when
-                // the switch is on, because with it off the switch is the answer.
-                view! {
-                    <p class="nothing">{t!("listens.none")}</p>
-                    {passing.then(|| view! { <p class="hint quiet">{t!("listens.none_why")}</p> })}
-                }
-                    .into_any()
-            }
-            Some(sending) => {
-                view! {
-                    <ul class="ways">
-                        {sending
-                            .scrobblers
-                            .into_iter()
-                            .map(|one| view! { <Destination one act busy asking /> })
-                            .collect_view()}
-                    </ul>
-                }
-                    .into_any()
-            }
+        // A sibling of what has gone quiet and never a child of it. Dimmed along with
+        // everything else, the one line explaining why the rest went quiet was the
+        // least legible text on the screen.
+        {move || {
+            (!passing.get()).then(|| view! { <p class="because">{t!("listens.while_off")}</p> })
         }}
+
+        <div class:stilled=move || !passing.get()>
+            {move || match sending.get() {
+                None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
+                Some(sending) if sending.scrobblers.is_empty() => {
+                    // What this state raises is what becomes of what you play
+                    // meanwhile, and the answer is nothing: a listen is queued once per
+                    // destination, so with none there is nothing to queue it against.
+                    // Said only when the switch is on, because with it off the line
+                    // above is already the answer.
+                    view! {
+                        <p class="nothing">{t!("listens.none")}</p>
+                        {move || {
+                            passing
+                                .get()
+                                .then(|| view! { <p class="hint quiet">{t!("listens.none_why")}</p> })
+                        }}
+                    }
+                        .into_any()
+                }
+                Some(sending) => {
+                    view! {
+                        <ul class="ways">
+                            {sending
+                                .scrobblers
+                                .into_iter()
+                                .map(|one| view! { <Destination one act busy asking /> })
+                                .collect_view()}
+                        </ul>
+                    }
+                        .into_any()
+                }
+            }}
+        </div>
 
         {move || {
             unchecked.get().then(|| view! { <p class="note">{t!("listens.unchecked")}</p> })

@@ -686,7 +686,8 @@ common:
 # out and this is one somebody was given elsewhere.
 listens:
   destinations: "Where they go"
-  lead: "Besides counting them here, Tocata can pass what you listen to on to a scrobbling service. You can send to more than one."
+  lead: "Besides counting them here, Tocata can pass what you listen to on to a scrobbling service. You can send to more than one. These take effect as you press them — there is nothing here to save."
+  while_off: "Nothing is being sent while the switch above is off. What is waiting stays waiting, and goes as soon as you switch it back on."
   none: "You are not sending your listens anywhere."
   none_why: "Passing plays on is switched on, but a listen is queued for a destination: until there is one, nothing is being kept to send later."
   add: "Add a destination"
