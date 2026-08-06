@@ -20,6 +20,11 @@
 // They belong to both. Which libraries somebody may look at is a rule about the
 // server and not about OpenSubsonic, and a second copy of it living under `/api`
 // would be a second place for it to be wrong.
+//
+// And behind the `server` feature, one by one, like the modules below: they are SQL
+// for a database the panel does not have. Compiled into the panel they were seven
+// warnings on every wasm build — the sort of noise that ends up hiding a warning
+// worth reading.
 
 /// The libraries this request may look at, hoisted to the front of the statement.
 ///
@@ -39,6 +44,7 @@
 /// and forgetting the bind is not, but it fails closed: a null identifier matches
 /// no user, the set comes out empty, and the answer is nothing rather than
 /// somebody else's music.
+#[cfg(feature = "server")]
 macro_rules! visible_libraries_head {
     () => {
         "
@@ -51,6 +57,7 @@ macro_rules! visible_libraries_head {
     };
 }
 
+#[cfg(feature = "server")]
 macro_rules! visible_libraries_tail {
     () => {
         "
@@ -70,6 +77,7 @@ macro_rules! visible_libraries_tail {
 /// Split in two above for the same reason the column lists are: a `QueryBuilder`
 /// cannot take an argument without also writing its own `?`, so a statement it
 /// assembles has to be given the pieces either side of the parameter.
+#[cfg(feature = "server")]
 macro_rules! visible_libraries {
     () => {
         concat!(visible_libraries_head!(), "?", visible_libraries_tail!())
@@ -84,6 +92,7 @@ macro_rules! visible_libraries {
 ///
 /// `$join` reaches the tracks in question and must end in its own `WHERE`, since
 /// the conditions below are appended to it.
+#[cfg(feature = "server")]
 macro_rules! has_a_visible_track {
     ($join:expr) => {
         concat!(
@@ -96,6 +105,7 @@ macro_rules! has_a_visible_track {
 }
 
 /// An album with something in it.
+#[cfg(feature = "server")]
 macro_rules! album_is_visible {
     ($album:literal) => {
         has_a_visible_track!(concat!("WHERE t.album_id = ", $album))
@@ -103,6 +113,7 @@ macro_rules! album_is_visible {
 }
 
 /// An artist credited on a track, or on an album that still has one.
+#[cfg(feature = "server")]
 macro_rules! artist_is_visible {
     ($artist:literal) => {
         concat!(
@@ -141,6 +152,7 @@ macro_rules! artist_is_visible {
 ///
 /// `$started` and `$duration` name the columns to read, the second in
 /// milliseconds.
+#[cfg(feature = "server")]
 macro_rules! still_playing {
     ($started:literal, $duration:literal) => {
         concat!(
