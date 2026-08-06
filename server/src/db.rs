@@ -5,10 +5,12 @@ use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteArguments, SqliteConnectOptions, SqliteJournalMode, SqliteQueryResult};
+use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{Semaphore, SemaphorePermit};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::warn;
 
 /// How long a writer waits for the lock before giving up.
@@ -45,7 +47,7 @@ pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_secs(15);
 /// shape and so had the same fault waiting: a play counted while a scan writes, a
 /// track starred, a bookmark moved.
 pub async fn writing(pool: &SqlitePool) -> sqlx::Result<Writing> {
-    let turn = turn().await;
+    let turn = turn(pool).await;
     let tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
     Ok(Writing { tx, _turn: turn })
@@ -67,7 +69,31 @@ pub async fn writing(pool: &SqlitePool) -> sqlx::Result<Writing> {
 ///
 /// It does nothing about another process writing to the same file, which is what
 /// the busy timeout is still there for.
-static WRITING: Semaphore = Semaphore::const_new(1);
+///
+/// **One per database, and not one for the program.** The lock this stands in for
+/// belongs to a file, so two pools onto two databases have no reason to wait for
+/// each other — and made to, they do worse than wait: the test suite opens hundreds
+/// of databases in one process, and a single global permit had them queueing behind
+/// whichever one was slowest, turning four seconds into thirty-six and hanging
+/// outright about one run in three. Keyed by the pool, which is an `Arc` inside, so
+/// its address identifies the database as long as anybody holds it.
+static WRITING: Mutex<BTreeMap<usize, Arc<Semaphore>>> = Mutex::new(BTreeMap::new());
+
+/// The queue for one database, made the first time it is written to.
+fn queue_for(pool: &SqlitePool) -> Arc<Semaphore> {
+    // The pool holds its options behind an `Arc` and hands out clones of it, so the
+    // address is the same for the life of the pool and different for every other —
+    // which is exactly what identifies the database without sqlx offering a handle
+    // for it.
+    let key = Arc::as_ptr(&pool.connect_options()) as usize;
+
+    WRITING
+        .lock()
+        .expect("the write queue registry is never poisoned")
+        .entry(key)
+        .or_insert_with(|| Arc::new(Semaphore::new(1)))
+        .clone()
+}
 
 /// How long a write may wait for its turn before the wait is worth mentioning.
 ///
@@ -103,7 +129,7 @@ impl<'q> InTurn for sqlx::query::Query<'q, sqlx::Sqlite, SqliteArguments> {
     type Out = SqliteQueryResult;
 
     async fn in_turn(self, pool: &SqlitePool) -> sqlx::Result<SqliteQueryResult> {
-        let _turn = turn().await;
+        let _turn = turn(pool).await;
         self.execute(pool).await
     }
 }
@@ -118,7 +144,7 @@ where
     type Out = O;
 
     async fn in_turn(self, pool: &SqlitePool) -> sqlx::Result<O> {
-        let _turn = turn().await;
+        let _turn = turn(pool).await;
         self.fetch_one(pool).await
     }
 }
@@ -128,23 +154,24 @@ where
 /// Held for as long as the returned guard lives. Everything in here that takes one
 /// gives it up on the same statement or with the transaction it rode in on; taking
 /// one by hand means taking on that rule as well.
-async fn turn() -> SemaphorePermit<'static> {
+async fn turn(pool: &SqlitePool) -> OwnedSemaphorePermit {
+    let queue = queue_for(pool);
     let waiting = Instant::now();
 
-    let turn = match tokio::time::timeout(WAITED_TOO_LONG, WRITING.acquire()).await {
+    let turn = match tokio::time::timeout(WAITED_TOO_LONG, queue.clone().acquire_owned()).await {
         Ok(turn) => turn,
         Err(_) => {
             warn!(
                 "a write has been waiting {WAITED_TOO_LONG:?} for its turn: something is \
                  holding a write transaction open"
             );
-            WRITING.acquire().await
+            queue.acquire_owned().await
         }
     };
 
     // The semaphore is never closed, so there is no failure to handle: the only
     // way `acquire` returns an error is a `close()` that nothing here calls.
-    let turn = turn.expect("the write semaphore is never closed");
+    let turn = turn.expect("a write queue is never closed");
 
     let waited = waiting.elapsed();
     if waited > WAITED_TOO_LONG {
@@ -161,7 +188,7 @@ async fn turn() -> SemaphorePermit<'static> {
 /// commit, a rollback or a panic on the way to either.
 pub struct Writing {
     tx: sqlx::Transaction<'static, sqlx::Sqlite>,
-    _turn: SemaphorePermit<'static>,
+    _turn: OwnedSemaphorePermit,
 }
 
 impl Writing {
@@ -306,6 +333,46 @@ mod tests {
         for given in ["", "tomorrow", "2026-08-26", "2026-13-01T00:00:00Z"] {
             assert!(timestamp_from(given).is_none(), "{given} is not a moment");
         }
+    }
+
+    /// One queue per database, asked for as many times as there are writes.
+    ///
+    /// The whole mechanism rests on this and would fail silently without it: a key
+    /// that changed between calls would hand out a fresh permit every time, so every
+    /// write would hold a queue of its own and none would ever wait — serialised in
+    /// appearance and racing in fact, which is the state this module exists to leave.
+    #[tokio::test]
+    async fn a_database_has_one_queue_however_often_it_is_asked_for() {
+        let one = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let other = SqlitePool::connect("sqlite::memory:").await.unwrap();
+
+        assert!(
+            Arc::ptr_eq(&queue_for(&one), &queue_for(&one)),
+            "the same database, so the same queue"
+        );
+        assert!(
+            !Arc::ptr_eq(&queue_for(&one), &queue_for(&other)),
+            "and two databases wait for nobody but themselves"
+        );
+
+        // A clone of a pool is that pool, which is how it travels through the state.
+        assert!(Arc::ptr_eq(&queue_for(&one), &queue_for(&one.clone())));
+    }
+
+    /// And the queue is a queue: the second writer waits for the first.
+    #[tokio::test]
+    async fn a_second_write_waits_for_the_first() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let queue = queue_for(&pool);
+
+        let held = turn(&pool).await;
+        assert_eq!(queue.available_permits(), 0, "somebody has the turn");
+
+        // Nothing else can have it while that one lives.
+        assert!(queue.clone().try_acquire_owned().is_err());
+
+        drop(held);
+        assert_eq!(queue.available_permits(), 1, "and giving it up frees it");
     }
 }
 
