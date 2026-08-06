@@ -704,10 +704,10 @@ async fn load_song(
     }
 }
 
-/// Attaches artists and genres to a batch of tracks.
+/// Attaches artists, genres and the record's own credit to a batch of tracks.
 ///
-/// Two queries for the whole batch rather than two per track: the credits of a
-/// fifty track album are one round trip, not a hundred.
+/// Three queries for the whole batch rather than three per track: the credits of
+/// a fifty track album are one round trip, not a hundred and fifty.
 async fn build_children(pool: &SqlitePool, rows: Vec<TrackRow>) -> Result<Vec<Child>, sqlx::Error> {
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -717,12 +717,32 @@ async fn build_children(pool: &SqlitePool, rows: Vec<TrackRow>) -> Result<Vec<Ch
     let mut artists = artists_by_track(pool, &ids).await?;
     let mut genres = genres_by_track(pool, &ids).await?;
 
+    // Asked for by album and not by track, because that is where the credit
+    // lives: a batch is usually one record's worth of songs, and asking each of
+    // them who the record is by would be asking the same question fifty times.
+    let mut albums: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| row.album_public_id.as_deref())
+        .collect();
+    albums.sort_unstable();
+    albums.dedup();
+    let credits = album_artists_by_album(pool, &albums).await?;
+
     Ok(rows
         .into_iter()
         .map(|row| {
             let track_artists = artists.remove(&row.public_id).unwrap_or_default();
             let track_genres = genres.remove(&row.public_id).unwrap_or_default();
-            build_child(row, track_artists, track_genres)
+            // Cloned rather than taken: the songs of one record all point at the
+            // same credit, and the second one to ask must find it still there.
+            let credited = row
+                .album_public_id
+                .as_deref()
+                .and_then(|album| credits.get(album))
+                .cloned()
+                .unwrap_or_default();
+
+            build_child(row, track_artists, credited, track_genres)
         })
         .collect())
 }
@@ -781,8 +801,51 @@ async fn genres_by_track(
     Ok(grouped)
 }
 
-fn build_child(row: TrackRow, artists: Vec<(String, String)>, genres: Vec<String>) -> Child {
+/// Who the record a batch of songs comes from is credited to.
+///
+/// A song carries this as well as its own artist, and the two are different
+/// questions — the album artist is how a client groups a record whose tracks are
+/// each by somebody else, and how it files a song heard on its own under the
+/// record it belongs to.
+async fn album_artists_by_album(
+    pool: &SqlitePool,
+    album_ids: &[&str],
+) -> Result<HashMap<String, Vec<(String, String)>>, sqlx::Error> {
+    if album_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut builder = sqlx::QueryBuilder::new(
+        "SELECT al.public_id, ar.public_id, ar.name
+           FROM album_artists aa
+           JOIN albums al ON al.id = aa.album_id
+           JOIN artists ar ON ar.id = aa.artist_id
+          WHERE aa.role = 'albumartist' AND al.public_id IN (",
+    );
+    let mut separated = builder.separated(", ");
+    for id in album_ids {
+        separated.push_bind(*id);
+    }
+    builder.push(") ORDER BY al.public_id, aa.position");
+
+    let rows: Vec<(String, String, String)> = builder.build_query_as().fetch_all(pool).await?;
+
+    let mut grouped: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (album, artist_id, name) in rows {
+        grouped.entry(album).or_default().push((artist_id, name));
+    }
+
+    Ok(grouped)
+}
+
+fn build_child(
+    row: TrackRow,
+    artists: Vec<(String, String)>,
+    album_artists: Vec<(String, String)>,
+    genres: Vec<String>,
+) -> Child {
     let display_artist = display_names(&artists);
+    let display_album_artist = display_names(&album_artists);
     let first_artist = artists.first().cloned();
 
     Child {
@@ -827,8 +890,11 @@ fn build_child(row: TrackRow, artists: Vec<(String, String)>, genres: Vec<String
             .map(|(id, name)| ArtistId3::named(id, name))
             .collect(),
         display_artist,
-        album_artists: Vec::new(),
-        display_album_artist: None,
+        album_artists: album_artists
+            .into_iter()
+            .map(|(id, name)| ArtistId3::named(id, name))
+            .collect(),
+        display_album_artist,
         replay_gain: ReplayGain::of(
             row.rg_track_gain,
             row.rg_track_peak,
@@ -1561,6 +1627,55 @@ mod visibility_tests {
                 .is_some(),
             "and the one it may see is still there"
         );
+    }
+
+    /// A song says who the record it is on is by, which is not the same question
+    /// as who played on the track. Clients read it to file a song heard on its
+    /// own under its record, and to group a record whose every track is by
+    /// somebody else — and it was going out empty on every song we served.
+    #[tokio::test]
+    async fn a_song_carries_the_credit_of_the_record_it_is_on() {
+        let (pool, everybody, _, ids) = two_libraries().await;
+        let at = db::now();
+
+        // Credited to somebody other than whoever is on the track, which is the
+        // difference the two fields exist to carry.
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+             VALUES (9, 'art9', 'The Band', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role, position)
+             VALUES (1, 9, 'albumartist', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let songs = load_tracks_by_ids(&pool, everybody, &ids).await.unwrap();
+
+        let credited: Vec<&str> = songs[0]
+            .album_artists
+            .iter()
+            .map(|artist| artist.name.as_str())
+            .collect();
+        assert_eq!(credited, ["The Band"]);
+        assert_eq!(songs[0].display_album_artist.as_deref(), Some("The Band"));
+        assert_eq!(
+            songs[0].display_artist.as_deref(),
+            Some("Artist a"),
+            "and whoever is on the track is still whoever is on the track"
+        );
+
+        // The other record is credited to nobody, and nobody else's credit
+        // reaches it.
+        assert!(songs[1].album_artists.is_empty());
+        assert!(songs[1].display_album_artist.is_none());
     }
 
     #[tokio::test]
