@@ -387,7 +387,7 @@ async fn scan_library(
         }
     });
 
-    let mut state = State::new(library_id, root.to_path_buf(), scan);
+    let mut state = State::new(library_id, root.to_path_buf(), scan, mode);
     let mut outcome = Outcome::default();
     let mut tx_db = db::writing(pool)
         .await
@@ -515,6 +515,9 @@ struct State {
     /// to it.
     root: PathBuf,
     scan: i64,
+    /// Which kind of pass this is, for the one decision that turns on it down here:
+    /// whether a record's credits may be thrown away and written again.
+    mode: Mode,
     folders: HashMap<PathBuf, i64>,
     /// Artists this scan has seen, by name folded for comparison, each with whether
     /// a MusicBrainz id has been written onto it yet. Without that second half, a
@@ -536,11 +539,12 @@ struct State {
 }
 
 impl State {
-    fn new(library_id: i64, root: PathBuf, scan: i64) -> Self {
+    fn new(library_id: i64, root: PathBuf, scan: i64, mode: Mode) -> Self {
         Self {
             library_id,
             root,
             scan,
+            mode,
             folders: HashMap::new(),
             artists: HashMap::new(),
             albums: AlbumsByKey::new(),
@@ -1365,7 +1369,51 @@ impl State {
         .await
         .with_context(|| format!("bringing album {name} up to date"))?;
 
+        self.clear_credits(tx, id).await?;
         self.index_album(tx, id, &name, key, metadata).await
+    }
+
+    /// Throws away who a record is credited to and what it is filed under, for the
+    /// tracks about to arrive to say again.
+    ///
+    /// `link_album` can only add. It is called once per track of the record and each
+    /// call knows one file, so a call that cleared first would leave the record
+    /// saying whatever its last song said. That makes the table grow and never
+    /// forget: rename an artist and the record ends up signed by both the new name
+    /// and a ghost of the old one, which nothing afterwards can tell apart from a
+    /// second real credit. Its tracks do not have this — `link_track` clears, because
+    /// a track is read whole in one go.
+    ///
+    /// So the clearing goes here, where the pass meets each record for the first
+    /// time, and only on a full scan. That is what makes it safe rather than merely
+    /// convenient: a full pass reads every file, so what the tracks put back is
+    /// exactly what the files say. An incremental one may reread three songs of
+    /// fifteen, and emptying the record there would throw away what the other twelve
+    /// still hold and nobody has looked at.
+    ///
+    /// One record can hold tracks from two libraries, which are scanned one after
+    /// another with a state each. Then the second library clears what the first
+    /// wrote, and the record is left saying what that library's copy says instead of
+    /// both. A rare shape — the same release filed twice, tagged differently — and
+    /// the answer is still one the files support.
+    async fn clear_credits(&self, tx: &mut Transaction<'_, Sqlite>, id: i64) -> Result<()> {
+        if self.mode != Mode::Full {
+            return Ok(());
+        }
+
+        sqlx::query("DELETE FROM album_artists WHERE album_id = ?")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .context("clearing who an album is credited to")?;
+
+        sqlx::query("DELETE FROM album_genres WHERE album_id = ?")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .context("clearing what an album is filed under")?;
+
+        Ok(())
     }
 
     /// Puts a record into the search index under the name it goes by and whoever

@@ -51,6 +51,7 @@ fn tag(path: &Path, items: &[(&str, &str)]) {
                 "release" => ItemKey::MusicBrainzReleaseId,
                 "compilation" => ItemKey::FlagCompilation,
                 "artists" => ItemKey::TrackArtists,
+                "genre" => ItemKey::Genre,
                 "artist_mbid" => ItemKey::MusicBrainzArtistId,
                 "albumartist_mbid" => ItemKey::MusicBrainzReleaseArtistId,
                 other => panic!("unknown tag {other}"),
@@ -465,6 +466,106 @@ async fn a_record_that_already_existed_takes_the_corrected_tags() {
         1,
         "and answers to the name it was just credited to"
     );
+}
+
+/// Correct the name a record is filed under, on every file of it, and the record
+/// used to end up under both names at once.
+///
+/// Its tracks correct themselves, since each is read whole and written again from
+/// nothing. The record cannot: it is written once per track of it, each call
+/// knowing one file, so all it may do is add. What it added was never taken away,
+/// and the old name was left signing a record with no track of its own — which the
+/// tidying will not collect either, because a record still names it.
+///
+/// The clearing belongs to the full pass, which reads every file, so what the
+/// tracks put back is what the files say. The quick pass may reread three songs of
+/// fifteen, and there it would throw away what the other twelve still hold.
+///
+/// A compilation because the fixture needs the record to stay the same record: what
+/// an ordinary album is filed under includes whoever signs it, so renaming them
+/// there files a second record rather than correcting the first. The two shapes
+/// that group without regard to artist are this one and a release id, and lofty
+/// does not persist a release id into a RIFF container.
+#[tokio::test]
+async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
+    let root = temp_root("renamed-signer");
+    let songs = [("01", "Björk"), ("02", "Pulp")];
+
+    for (n, who) in songs {
+        let path = root.join(format!("Hits/{n}.wav"));
+        write_wav(&path);
+        tag(
+            &path,
+            &[
+                ("album", "Hits 96"),
+                ("artist", who),
+                ("albumartist", "V.A."),
+                ("genre", "Pop"),
+                ("compilation", "1"),
+            ],
+        );
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    // Somebody went through the record and wrote the name out in full.
+    for (n, who) in songs {
+        tag(
+            &root.join(format!("Hits/{n}.wav")),
+            &[
+                ("album", "Hits 96"),
+                ("artist", who),
+                ("albumartist", "Various Artists"),
+                ("genre", "Britpop"),
+                ("compilation", "1"),
+            ],
+        );
+    }
+
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM albums").await,
+        1,
+        "the same record throughout, which is what makes the rest of this a test"
+    );
+    assert_eq!(
+        signers(&pool).await,
+        vec!["V.A.".to_string(), "Various Artists".to_string()],
+        "the quick pass adds and does not take away, which is what it is for"
+    );
+
+    scan(&pool, id, &root, Mode::Full).await.unwrap();
+
+    assert_eq!(
+        signers(&pool).await,
+        vec!["Various Artists".to_string()],
+        "and the full pass, having read every file, leaves only what they say"
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM album_genres").await,
+        1,
+        "a genre dropped from the tags goes the same way"
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM albums").await,
+        1,
+        "and the record itself is the one it always was"
+    );
+}
+
+/// Who a record is credited to, by name.
+async fn signers(pool: &SqlitePool) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT ar.name FROM album_artists aa
+           JOIN artists ar ON ar.id = aa.artist_id
+          ORDER BY ar.name",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
 }
 
 /// A year appearing on a file that had none joins the record rather than
