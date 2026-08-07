@@ -16,7 +16,16 @@
  * furniture that stayed put. A line is not a measure — a hairline is one physical
  * pixel and has to stay one, since in `rem` it would land on a fraction that
  * browsers round differently from one edge to the next, and this whole look is
- * that its lines are all the same. Corners and shadows go with the lines. */
+ * that its lines are all the same. Corners and shadows go with the lines.
+ *
+ * Every grid that fits as many columns as it can is written
+ * `repeat(auto-fit, minmax(min(Xrem, 100%), 1fr))` and never with a bare `Xrem`.
+ * A bare one is a floor the column keeps however narrow the screen gets: at 28rem
+ * the last remaining column stays 448 pixels wide on a phone that has 350, and
+ * whatever lives at its right edge — a button, a figure, the end of a name — is
+ * off the side of the screen. The `min` lets the floor give way exactly when it
+ * was doing harm and changes nothing at any width where it was not. Four screens
+ * were overflowing on a phone this way before it was written down here. */
 
 :root {
   color-scheme: light dark;
@@ -1988,7 +1997,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * third of the window each, which is a shelf of three enormous covers. */
 .shelves {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(12.5rem, 100%), 1fr));
   gap: 1.625rem 1.375rem;
 }
 
@@ -2128,7 +2137,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * five. */
 .crowd {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(28rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(28rem, 100%), 1fr));
   gap: 0 3.5rem;
   margin: 0;
   padding: 0;
@@ -2173,7 +2182,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * you reach it has promised something there is nothing to give. */
 .kinds {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16.25rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(16.25rem, 100%), 1fr));
   gap: 0 3.5rem;
   margin: 0;
   padding: 0;
@@ -2624,7 +2633,7 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
  * pixels away is a row nobody can read across. */
 .ticks {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(17.5rem, 100%), 1fr));
   gap: 0 3.5rem;
   margin-top: 0.875rem;
   border-top: 1px solid var(--line);
@@ -3190,6 +3199,22 @@ button:disabled { opacity: 0.6; cursor: default; }
   max-width: 20rem;
 }
 
+/* And uncapped once it is no longer beside the form.
+ *
+ * The cap is about sharing a line. Wrapped underneath, it turned into a column of
+ * short labels down the left of a phone with a band of nothing to its right, which
+ * is the cap doing the opposite of what it was for.
+ *
+ * The width is worked out rather than picked. The pair wraps when the column holding
+ * it drops below 26.25 + 3.5 + 16.25 = 46rem, which with the sidebar's 15rem and the
+ * page's own padding is a screen of about 68rem. And the cap only ever bites above
+ * about 83rem, where the rail's quarter of the free space first exceeds 20rem — so
+ * anywhere between those two says the same thing, and 72rem is the round number in
+ * the middle. */
+@media (max-width: 72rem) {
+  .rail { max-width: none; }
+}
+
 /* Inside the pair the form's own columns tighten: it has less room than it had with
  * the screen to itself, and a label column still asking for 200 would push every
  * field into wrapping under it. */
@@ -3294,7 +3319,7 @@ select.narrow { width: 12.5rem; }
  * and no width in a media query. */
 .knobs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(26.25rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(26.25rem, 100%), 1fr));
   gap: 2.75rem 3.5rem;
 }
 
@@ -3365,14 +3390,9 @@ select.narrow { width: 12.5rem; }
  * four rows in one grid the columns would be filled across — clear, compact,
  * covers, check — and the pairs that belong together would end up in different
  * columns. */
-/* Two groups where there is room for two and one where there is not.
- *
- * `min(…, 100%)` and not the bare measure. A bare `minmax(27.5rem, 1fr)` is a floor
- * the column keeps having no matter how narrow the screen gets: on a phone the one
- * remaining column stays 440 pixels wide, and everything living at its right edge —
- * which here is every run button — sits off the side of the screen. The `min` lets
- * the floor give way once the space is smaller than it, which is the only case where
- * the floor was doing harm. */
+/* Two groups where there is room for two and one where there is not. This is the
+ * grid whose bare floor put every run button off the side of a phone, which is what
+ * the note at the head of this sheet was written from. */
 .chores {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(27.5rem, 100%), 1fr));
@@ -4850,7 +4870,7 @@ select.narrow { width: 12.5rem; }
  * three across the panel rather than a gap where the fourth was. And a hairline
  * underneath, because unlike the scan's these have rows following them. */
 .leafing .figures {
-  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(6.5rem, 100%), 1fr));
   gap: 0 0.875rem;
   margin-top: 0.75rem;
   padding-top: 0;
