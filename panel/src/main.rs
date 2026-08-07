@@ -98,7 +98,6 @@ fn Panel() -> impl IntoView {
 #[component]
 fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     let admin = identity.admin;
-    let who = identity.clone();
 
     // What the account chose, over what this browser had cached from last time.
     // Both were already applied before the first paint; this is where they are
@@ -135,37 +134,34 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     // answer from before one finished is a list that is wrong.
     provide_context(scan);
 
-    // What to call whoever is logged in, held apart from the identity that arrived
-    // with the session so that changing it takes effect where it is read.
+    // Who is logged in, held apart from the identity that arrived with the session so
+    // that changing either of the two names takes effect where they are read.
     //
     // A context rather than a signal threaded down, and above all not a new identity:
     // the identity is what `Inside` was built from, so replacing it would rebuild the
-    // whole panel and stop the music on the way past. Only the greeting and the
-    // account menu read this, so only they repaint.
-    provide_context(layout::CalledMe(RwSignal::new(
-        identity.display_name.clone(),
-    )));
+    // whole panel and stop the music on the way past. What reads these repaints and
+    // nothing else does.
+    provide_context(layout::Me {
+        username: RwSignal::new(identity.username.clone()),
+        called: RwSignal::new(identity.display_name.clone()),
+    });
 
     view! {
         <Router>
-            <layout::Shell identity on_out=forget scan>
+            <layout::Shell admin on_out=forget scan>
                 <Routes fallback=move || {
                     view! { <pages::Unbuilt heading=t!("nav.home").to_string() /> }
                 }>
                     <Route
                         path=path!("/")
-                        view={
-                            let who = who.clone();
-                            move || {
-                                view! {
-                                    <pages::home::Home
-                                        identity=who.clone()
-                                        scan
-                                        resources=live.resources
-                                        admin
-                                        on_expired=forget
-                                    />
-                                }
+                        view=move || {
+                            view! {
+                                <pages::home::Home
+                                    scan
+                                    resources=live.resources
+                                    admin
+                                    on_expired=forget
+                                />
                             }
                         }
                     />
@@ -174,25 +170,11 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     // sees on somebody else, because none of this is administration.
                     <Route
                         path=path!("/account")
-                        view={
-                            let who = who.clone();
-                            move || {
-                                view! {
-                                    <pages::account::Profile who=who.clone() on_expired=forget />
-                                }
-                            }
-                        }
+                        view=move || view! { <pages::account::Profile on_expired=forget /> }
                     />
                     <Route
                         path=path!("/account/access")
-                        view={
-                            let who = who.clone();
-                            move || {
-                                view! {
-                                    <pages::account::Access who=who.clone() on_expired=forget />
-                                }
-                            }
-                        }
+                        view=move || view! { <pages::account::Access on_expired=forget /> }
                     />
                     <Route
                         path=path!("/account/preferences")
@@ -239,39 +221,21 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     />
                     <Route
                         path=path!("/accounts")
-                        view={
-                            let who = who.clone();
-                            move || {
-                                if admin {
-                                    view! {
-                                        <pages::accounts::Accounts
-                                            who=who.clone()
-                                            on_expired=forget
-                                        />
-                                    }
-                                        .into_any()
-                                } else {
-                                    view! { <pages::NotForYou /> }.into_any()
-                                }
+                        view=move || {
+                            if admin {
+                                view! { <pages::accounts::Accounts on_expired=forget /> }.into_any()
+                            } else {
+                                view! { <pages::NotForYou /> }.into_any()
                             }
                         }
                     />
                     <Route
                         path=path!("/accounts/:username")
-                        view={
-                            let who = who.clone();
-                            move || {
-                                if admin {
-                                    view! {
-                                        <pages::accounts::Detail
-                                            who=who.clone()
-                                            on_expired=forget
-                                        />
-                                    }
-                                        .into_any()
-                                } else {
-                                    view! { <pages::NotForYou /> }.into_any()
-                                }
+                        view=move || {
+                            if admin {
+                                view! { <pages::accounts::Detail on_expired=forget /> }.into_any()
+                            } else {
+                                view! { <pages::NotForYou /> }.into_any()
                             }
                         }
                     />
@@ -523,6 +487,48 @@ mod tests {
             "on the shared list and shared by nobody: {}.\nTake it off, so the next \
              person reaching for the word finds it free or finds it taken, and not both.",
             idle.join(", ")
+        );
+    }
+
+    /// Nothing but the panel's own root is built from the identity the session
+    /// arrived with.
+    ///
+    /// That identity is a photograph: taken when the session was opened and never
+    /// taken again, because taking it again means rebuilding everything under it and
+    /// stopping the music on the way past. Every screen that wanted a name out of it
+    /// therefore held the name you had when you logged in — and renaming an account
+    /// is precisely the one thing an administrator may do to their own. One save
+    /// later, Profile and Access and the roster were all asking the server about
+    /// somebody who no longer exists, and the greeting was still saying the old name,
+    /// which reads as a change that did not take.
+    ///
+    /// Both names live in [`layout::Me`] now, where they can change. This is what
+    /// stops the photograph from being handed round again: the form takes it, the
+    /// root reads out of it the parts that cannot change, and nothing downstream ever
+    /// sees one.
+    ///
+    /// The word rather than a shape like `: Identity`, which is what this looked for
+    /// first and which one of the screens it was written for would have walked
+    /// straight past: the greeting's prop was spelt `identity: tocata::types::Identity`.
+    #[test]
+    fn only_the_root_is_built_from_the_identity() {
+        /// Where it is allowed to be: the form that obtains one, and the root that
+        /// unpacks it.
+        const ITS_PLACE: [&str; 2] = ["main.rs", "login.rs"];
+
+        let carried: Vec<&str> = SOURCES
+            .iter()
+            .filter(|(name, _)| !ITS_PLACE.contains(name))
+            .filter(|(_, source)| source.contains("Identity"))
+            .map(|(name, _)| *name)
+            .collect();
+
+        assert!(
+            carried.is_empty(),
+            "handed the identity the session arrived with: {}. It says who you were \
+             when you logged in, and an administrator can rename themselves — take \
+             the name from layout::Me, which follows.",
+            carried.join(", ")
         );
     }
 

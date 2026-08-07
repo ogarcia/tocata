@@ -36,7 +36,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 use rust_i18n::t;
-use tocata::types::{Account, AccountChanges, Holdings, Identity, PreferenceChanges};
+use tocata::types::{Account, AccountChanges, Holdings, PreferenceChanges};
 
 /// Who you are, in two forms rather than one.
 ///
@@ -54,17 +54,20 @@ use tocata::types::{Account, AccountChanges, Holdings, Identity, PreferenceChang
 /// The administrator tick appears in neither: nobody may take it off themselves, and
 /// a disabled box explaining that is a box that exists to be refused.
 #[component]
-pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
+pub fn Profile(on_expired: Callback<()>) -> impl IntoView {
     let (account, set_account) = signal(Option::<Account>::None);
     let (held, set_held) = signal(Option::<Holdings>::None);
     let (failure, set_failure) = signal(Option::<String>::None);
     let (note, set_note) = signal(Option::<String>::None);
 
-    let me = StoredValue::new(who.username.clone());
+    // Read rather than copied, so that walking back onto this screen after renaming
+    // yourself asks about the name you have now. It used to be taken from the identity
+    // the panel was built with, which is the name you had when you logged in.
+    let me = expect_context::<crate::layout::Me>();
 
     let load = move || {
         spawn_local(async move {
-            match api::account(&me.get_value()).await {
+            match api::account(&me.username.get_untracked()).await {
                 Ok(found) => set_account.set(Some(found)),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
@@ -77,31 +80,26 @@ pub fn Profile(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     // What is yours on this server, which the account itself does not carry: it is
     // counted where it is asked for, and this is the screen that asks.
     spawn_local(async move {
-        if let Ok(counted) = api::holdings(&me.get_value()).await {
+        if let Ok(counted) = api::holdings(&me.username.get_untracked()).await {
             set_held.set(Some(counted));
         }
     });
 
-    // Changing your own name changes what every call here asks about, so the held
-    // name follows it. Without that, saving twice would ask about somebody who no
-    // longer exists under that name.
+    // Changing your own name changes what every call about you asks the server about,
+    // so who the panel thinks you are follows the answer. Without that, saving twice
+    // would ask about somebody who no longer exists under that name — and so would
+    // this screen the next time it was opened, and Access, and the roster.
     let save = Callback::new(move |changes: AccountChanges| {
         set_failure.set(None);
         set_note.set(None);
 
         spawn_local(async move {
-            match api::change_account(&me.get_value(), changes).await {
+            match api::change_account(&me.username.get_untracked(), changes).await {
                 Ok(fresh) => {
-                    me.set_value(fresh.username.clone());
-
-                    // The greeting and the account menu read this, and they are two
-                    // of the three things on screen that say your name: without it,
-                    // choosing one would appear to do nothing until a reload.
-                    if let Some(crate::layout::CalledMe(called)) =
-                        use_context::<crate::layout::CalledMe>()
-                    {
-                        called.set(fresh.display_name.clone());
-                    }
+                    // The greeting and the account menu say your name, and they read
+                    // it from here: without this, changing it would appear to do
+                    // nothing at all until a reload.
+                    me.is_now(&fresh);
 
                     set_note.set(Some(t!("common.saved").to_string()));
                     set_account.set(Some(fresh));
@@ -1129,18 +1127,21 @@ fn NewDestinationSheet(
 /// a question already on the screen, and the two would disagree the moment
 /// something was revoked in another tab.
 #[component]
-pub fn Access(who: Identity, on_expired: Callback<()>) -> impl IntoView {
+pub fn Access(on_expired: Callback<()>) -> impl IntoView {
     let (keys, set_keys) = signal(Option::<Vec<tocata::types::Key>>::None);
     let (logins, set_logins) = signal(Option::<Vec<tocata::types::Login>>::None);
     let (changed, set_changed) = signal(Option::<String>::None);
 
-    let me = StoredValue::new(who.username.clone());
+    // The name as it stands, not as it was when the panel was built: renaming
+    // yourself on the profile screen and coming straight here used to ask about an
+    // account that no longer exists, and every list on the screen came back empty.
+    let me = expect_context::<crate::layout::Me>().username;
 
     // The one thing on this screen that neither list knows: when the password was
     // last set. It is a figure here and a line at the foot of the sessions, and
     // changing it is on the other screen, which is where the link goes.
     spawn_local(async move {
-        if let Ok(account) = api::account(&me.get_value()).await {
+        if let Ok(account) = api::account(&me.get_untracked()).await {
             set_changed.set(Some(account.password_set_at));
         }
     });
@@ -1156,8 +1157,8 @@ pub fn Access(who: Identity, on_expired: Callback<()>) -> impl IntoView {
         <Figures keys logins changed />
 
         <div class="lists">
-            <MyKeys username=who.username.clone() keys set_keys on_expired />
-            <MySessions username=who.username logins set_logins changed on_expired />
+            <MyKeys username=me.get_untracked() keys set_keys on_expired />
+            <MySessions username=me.get_untracked() logins set_logins changed on_expired />
         </div>
     }
 }

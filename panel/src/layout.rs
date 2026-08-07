@@ -33,7 +33,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 use rust_i18n::t;
-use tocata::types::{Identity, Status};
+use tocata::types::{Account, Status};
 
 /// A place to go, and what to call it.
 ///
@@ -142,12 +142,11 @@ const MINE: [Section; 3] = [
 
 #[component]
 pub fn Shell(
-    identity: Identity,
+    admin: bool,
     on_out: Callback<()>,
     scan: ReadSignal<Option<Status>>,
     children: Children,
 ) -> impl IntoView {
-    let admin = identity.admin;
     let (folded_out, fold) = signal(false);
     // Whether the player is open over the screen, and whether the queue is. Both
     // client-only and deliberately not routes: what is behind them keeps its scroll
@@ -212,7 +211,7 @@ pub fn Shell(
                         <ScanStrip scan />
                     </Show>
                     <Dock queue />
-                    <WhoAmI identity on_out fold />
+                    <WhoAmI admin on_out fold />
                 </div>
             </aside>
 
@@ -861,6 +860,54 @@ fn Pair(label: String, figure: Signal<String>) -> impl IntoView {
     }
 }
 
+/// Who you are now, as against who you were when the panel was built.
+///
+/// The identity that arrives with the session is what the panel is built from, and
+/// building it again is what would stop the music — so anything about yourself that
+/// can change while you are looking at the panel has to be read from here instead.
+/// Two things can, and an administrator can change both of their own: the name of
+/// the account, and the name it asks to be called by.
+///
+/// The first of those is not decoration. Every call a screen makes about you names
+/// the account in its path, so a copy taken when the panel was built is a copy that
+/// asks the server about somebody who no longer exists the moment you rename
+/// yourself — which is what Profile and Access did, one save later.
+///
+/// A type of its own rather than two loose signals, because a context is looked up
+/// by type: a second `RwSignal<String>` provided anywhere in the panel would
+/// silently become this one.
+#[derive(Clone, Copy)]
+pub struct Me {
+    /// The name of the account, which is what the server is asked about.
+    pub username: RwSignal<String>,
+    /// What to be called, or nothing to be called by the account's name.
+    pub called: RwSignal<Option<String>>,
+}
+
+impl Me {
+    /// Who the server has just said you are.
+    ///
+    /// Both names out of the one answer, rather than each being remembered
+    /// separately: forgetting the first leaves the panel asking about a name that is
+    /// gone, and forgetting the second leaves a change looking like it was not saved.
+    pub fn is_now(&self, account: &Account) {
+        self.username.set(account.username.clone());
+        self.called.set(account.display_name.clone());
+    }
+}
+
+/// The name to address somebody by: what they chose, and their account's name until
+/// they choose.
+///
+/// The two places that address anybody — the greeting and the account menu — read it
+/// from here, so they cannot disagree about which name that is, and neither of them
+/// is still saying the old one after a rename.
+pub fn called_me() -> Signal<String> {
+    let Me { username, called } = expect_context::<Me>();
+
+    Signal::derive(move || called.get().unwrap_or_else(|| username.get()))
+}
+
 /// Who is asking, and what that lets them reach.
 ///
 /// The whole row opens the menu rather than the small round thing at its left end,
@@ -872,41 +919,15 @@ fn Pair(label: String, figure: Signal<String>) -> impl IntoView {
 /// away before the click could land on anything in it. So it closes the way the
 /// folded sections do — a sheet behind it catches anything aimed elsewhere — and
 /// every entry closes it on the way out, since choosing one is finishing with it.
-/// What to call whoever is logged in, or nothing to call them by their account's
-/// name.
-///
-/// A type of its own rather than a bare `RwSignal<Option<String>>`, because a context
-/// is looked up by type: a second optional string provided anywhere else in the panel
-/// would silently become this one.
-#[derive(Clone, Copy)]
-pub struct CalledMe(pub RwSignal<Option<String>>);
-
-/// The name to address somebody by: what they chose, and their account's name until
-/// they choose.
-///
-/// Reads the context where there is one and falls back to the account's name, so the
-/// two places that address anybody — the greeting and the account menu — cannot
-/// disagree about which name that is.
-pub fn called_me(username: &str) -> Signal<String> {
-    let account = username.to_string();
-    let chosen = use_context::<CalledMe>();
-
-    Signal::derive(move || {
-        chosen
-            .and_then(|CalledMe(chosen)| chosen.get())
-            .unwrap_or_else(|| account.clone())
-    })
-}
-
 #[component]
-fn WhoAmI(identity: Identity, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl IntoView {
+fn WhoAmI(admin: bool, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl IntoView {
     let (open, set_open) = signal(false);
 
     // What they asked to be called, falling back to the name of the account, and read
-    // from the signal so that choosing one on the profile screen shows here without a
-    // reload. Both the letter and the name come from the same string, so the initial
+    // from the signal so that changing either on the profile screen shows here without
+    // a reload. Both the letter and the name come from the same string, so the initial
     // of somebody called Óscar is not the initial of an account called ogarcia.
-    let name = called_me(&identity.username);
+    let name = called_me();
 
     // The first letter, and only ever one: a name is text in a language we do
     // not know, so a character is taken rather than a byte sliced off.
@@ -917,7 +938,6 @@ fn WhoAmI(identity: Identity, on_out: Callback<()>, fold: WriteSignal<bool>) -> 
             .map(|first| first.to_uppercase().to_string())
             .unwrap_or_default()
     });
-    let admin = identity.admin;
 
     let away = move |_| {
         set_open.set(false);

@@ -27,7 +27,6 @@ use tocata::types::{Resources, Stats, Status};
 
 #[component]
 pub fn Home(
-    identity: tocata::types::Identity,
     scan: ReadSignal<Option<Status>>,
     resources: ReadSignal<Option<Resources>>,
     admin: bool,
@@ -38,7 +37,7 @@ pub fn Home(
     // the greeting is the one line on the panel that addresses somebody. Read from
     // the same place the account menu reads it, so choosing a name shows in both at
     // once and without a reload.
-    let name = crate::layout::called_me(&identity.username);
+    let name = crate::layout::called_me();
 
     view! {
         <header class="titled">

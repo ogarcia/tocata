@@ -27,7 +27,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use rust_i18n::t;
 use std::cmp::Ordering;
-use tocata::types::{Account, AccountChanges, Holdings, Identity, Library, NewAccount};
+use tocata::types::{Account, AccountChanges, Holdings, Library, NewAccount};
 
 /// Who there is, one row each.
 ///
@@ -41,7 +41,7 @@ use tocata::types::{Account, AccountChanges, Holdings, Identity, Library, NewAcc
 /// return is a list where the row somebody knows is somewhere new every time, and
 /// the row they know best is their own.
 #[component]
-pub fn Accounts(who: Identity, on_expired: Callback<()>) -> impl IntoView {
+pub fn Accounts(on_expired: Callback<()>) -> impl IntoView {
     let (accounts, set_accounts) = signal(Option::<Vec<Account>>::None);
     let (libraries, set_libraries) = signal(Option::<usize>::None);
     let (looking, set_looking) = signal(String::new());
@@ -52,7 +52,10 @@ pub fn Accounts(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     let (note, set_note) = signal(Option::<String>::None);
     let (busy, set_busy) = signal(false);
 
-    let me = StoredValue::new(who.username);
+    // Which row is yours, read live: renaming yourself on the profile screen and
+    // coming here would otherwise mark nobody, since the name it looked for is one
+    // no account has any more.
+    let me = expect_context::<crate::layout::Me>().username;
 
     let load = move || {
         spawn_local(async move {
@@ -154,7 +157,7 @@ pub fn Accounts(who: Identity, on_expired: Callback<()>) -> impl IntoView {
             });
         }
 
-        let mine = me.get_value();
+        let mine = me.get();
 
         list.sort_by(|one, other| {
             (one.username != mine)
@@ -229,7 +232,7 @@ pub fn Accounts(who: Identity, on_expired: Callback<()>) -> impl IntoView {
                 view! { <p class="nothing">{t!("accounts.none_found")}</p> }.into_any()
             }
             Some(list) => {
-                let mine = me.get_value();
+                let mine = me.get();
                 view! {
                     // Scrolls inside its own box rather than pushing the page
                     // sideways. The bleed that lets a row's tint run past the text
@@ -927,7 +930,7 @@ fn Adding(
 /// Only an administrator ever sees it — the route says so — so nothing inside asks
 /// again.
 #[component]
-pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
+pub fn Detail(on_expired: Callback<()>) -> impl IntoView {
     let params = use_params_map();
     let navigate = use_navigate();
 
@@ -943,10 +946,10 @@ pub fn Detail(who: Identity, on_expired: Callback<()>) -> impl IntoView {
     // it missing. It is a redirect and not a branch because the URL should end up
     // saying where you are.
     {
-        let me = who.username.clone();
+        let me = expect_context::<crate::layout::Me>().username;
         let navigate = navigate.clone();
         Effect::new(move |_| {
-            if named() == me {
+            if named() == me.get() {
                 navigate(crate::layout::MINE_PATH, Default::default());
             }
         });
