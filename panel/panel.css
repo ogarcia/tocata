@@ -3365,9 +3365,17 @@ select.narrow { width: 12.5rem; }
  * four rows in one grid the columns would be filled across — clear, compact,
  * covers, check — and the pairs that belong together would end up in different
  * columns. */
+/* Two groups where there is room for two and one where there is not.
+ *
+ * `min(…, 100%)` and not the bare measure. A bare `minmax(27.5rem, 1fr)` is a floor
+ * the column keeps having no matter how narrow the screen gets: on a phone the one
+ * remaining column stays 440 pixels wide, and everything living at its right edge —
+ * which here is every run button — sits off the side of the screen. The `min` lets
+ * the floor give way once the space is smaller than it, which is the only case where
+ * the floor was doing harm. */
 .chores {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(27.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(27.5rem, 100%), 1fr));
   gap: 0 3.5rem;
 }
 
@@ -3499,10 +3507,15 @@ select.narrow { width: 12.5rem; }
 .astray {
   margin: 0;
   padding: 0;
-  min-width: 44rem;
   list-style: none;
 }
 
+/* The width the three columns need goes on the rows and never on the list, which
+ * is the same rule the roster follows and for a reason worth writing down: a list
+ * that is itself too wide makes the box around it too wide, and a box that cannot
+ * shrink stops being a scroll box and starts being a page that scrolls. Everything
+ * to the right of it on the screen goes with it, which is how the run buttons four
+ * rows up ended up past the edge. */
 .astray > li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 9rem minmax(11rem, auto);
@@ -3510,6 +3523,7 @@ select.narrow { width: 12.5rem; }
   padding: 0.6875rem 0;
   border-bottom: 1px solid var(--line);
   font-size: var(--control);
+  min-width: 41rem;
 }
 
 /* The heading row is the same grid so the columns line up, and quiet and small so
@@ -3552,6 +3566,34 @@ select.narrow { width: 12.5rem; }
 .moved {
   margin-top: 0.75rem;
   font-size: var(--aside);
+}
+
+/* Narrow enough that three columns cannot be read side by side, which is the same
+ * width at which the roster gives its own up and for the same reason: the scroll
+ * box is there so nothing breaks, not so that it gets dragged.
+ *
+ * What is left is the track, whole, and one line under it holding the two facts the
+ * columns held. Nothing is dropped — when it went and what it holds are the two
+ * things somebody is here to weigh, and a narrow screen is not a reason to make
+ * them tap through to either. */
+@media (max-width: 65rem) {
+  /* Headings over columns that are no longer there. */
+  .astray .astray-head { display: none; }
+
+  .astray > li {
+    min-width: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.375rem 0.875rem;
+  }
+
+  .astray .what { grid-area: 1 / 1 / 1 / 3; }
+
+  /* Side by side on the second line rather than stacked, so the row stays a row.
+   * When it went comes first because it is the shorter of the two and the one that
+   * is the same shape on every line. */
+  .astray .when { grid-area: 2 / 1; }
+
+  .astray .holds { grid-area: 2 / 2; }
 }
 
 /* What has been run lately: what happened on the left, when on the right. */
