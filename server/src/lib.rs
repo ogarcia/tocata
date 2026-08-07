@@ -112,23 +112,43 @@ macro_rules! album_is_visible {
     };
 }
 
-/// An artist credited on a track, or on an album that still has one.
+/// Whether a track is one of an artist's.
+///
+/// Two ways of being theirs, and a name only has to meet one: credited on the track,
+/// or signing the record the track is on. The second is not a technicality — it is
+/// how a file writes "Prince and The Revolution", who sign Purple Rain while every
+/// track on it credits Prince and The Revolution apart, and how it writes the name a
+/// compilation is filed under. Counting only the first leaves those names in the
+/// listing with nothing behind them.
+///
+/// `$track` is the alias the tracks table goes by, and `$artist` an expression for
+/// the artist's row id — which the condition names twice, so a caller binding it has
+/// to bind it twice.
+#[cfg(feature = "server")]
+macro_rules! track_is_theirs {
+    ($track:literal, $artist:literal) => {
+        concat!(
+            "(EXISTS (SELECT 1 FROM track_artists ta
+                       WHERE ta.track_id = ",
+            $track,
+            ".id AND ta.artist_id = ",
+            $artist,
+            ")
+              OR EXISTS (SELECT 1 FROM album_artists aa
+                          WHERE aa.album_id = ",
+            $track,
+            ".album_id AND aa.artist_id = ",
+            $artist,
+            "))"
+        )
+    };
+}
+
+/// An artist with a track of theirs still worth showing.
 #[cfg(feature = "server")]
 macro_rules! artist_is_visible {
     ($artist:literal) => {
-        concat!(
-            "(",
-            has_a_visible_track!(concat!(
-                "JOIN track_artists ta ON ta.track_id = t.id WHERE ta.artist_id = ",
-                $artist
-            )),
-            " OR ",
-            has_a_visible_track!(concat!(
-                "JOIN album_artists aa ON aa.album_id = t.album_id WHERE aa.artist_id = ",
-                $artist
-            )),
-            ")"
-        )
+        has_a_visible_track!(concat!("WHERE ", track_is_theirs!("t", $artist)))
     };
 }
 

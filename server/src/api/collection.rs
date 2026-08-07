@@ -819,13 +819,15 @@ pub async fn artists(
         visible_libraries_tail!(),
         "SELECT a.public_id, a.name, a.artwork_id IS NOT NULL AS image,
                 (SELECT count(DISTINCT t.album_id) FROM tracks t
-                   JOIN track_artists ta ON ta.track_id = t.id
-                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.missing_since IS NULL
                     AND t.album_id IS NOT NULL
                     AND t.library_id IN (SELECT id FROM visible_libraries)) AS albums,
                 (SELECT count(*) FROM tracks t
-                   JOIN track_artists ta ON ta.track_id = t.id
-                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.missing_since IS NULL
                     AND t.library_id IN (SELECT id FROM visible_libraries)) AS tracks
            FROM artists a
           WHERE ",
@@ -858,10 +860,10 @@ pub async fn artists(
 /// Their figures, their records, and what of theirs gets played — in one answer, like a
 /// record's.
 ///
-/// "Theirs" means every track they are credited on, which is what the listing counts
-/// too, so the panel and the row that opened it cannot disagree. It takes in the
-/// records they only guest on, which is the honest reading of what somebody is asking
-/// when they open a name.
+/// "Theirs" means every track credited to them and every track on a record they sign,
+/// which is what the listing counts too, so the panel and the row that opened it
+/// cannot disagree. It takes in the records they only guest on, which is the honest
+/// reading of what somebody is asking when they open a name.
 #[utoipa::path(
     get,
     path = "/artists/{id}/detail",
@@ -882,25 +884,29 @@ pub async fn artist(
 
     let row: Option<ArtistRow2> = sqlx::query_as(concat!(
         visible_libraries!(),
-        "SELECT a.public_id, a.name, a.artwork_id IS NOT NULL AS image,
+        "SELECT a.id, a.public_id, a.name, a.artwork_id IS NOT NULL AS image,
                 (SELECT group_concat(DISTINCT g.name)
                    FROM tracks t
-                   JOIN track_artists ta ON ta.track_id = t.id AND ta.artist_id = a.id
                    JOIN track_genres tg ON tg.track_id = t.id
                    JOIN genres g ON g.id = tg.genre_id
-                  WHERE t.library_id IN (SELECT id FROM visible_libraries)) AS genres,
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.library_id IN (SELECT id FROM visible_libraries)) AS genres,
                 (SELECT count(DISTINCT t.album_id) FROM tracks t
-                   JOIN track_artists ta ON ta.track_id = t.id
-                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.missing_since IS NULL
                     AND t.album_id IS NOT NULL
                     AND t.library_id IN (SELECT id FROM visible_libraries)) AS albums,
                 (SELECT count(*) FROM tracks t
-                   JOIN track_artists ta ON ta.track_id = t.id
-                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.missing_since IS NULL
                     AND t.library_id IN (SELECT id FROM visible_libraries)) AS tracks,
                 (SELECT sum(t.duration_ms) / 1000 FROM tracks t
-                   JOIN track_artists ta ON ta.track_id = t.id
-                  WHERE ta.artist_id = a.id AND t.missing_since IS NULL
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.missing_since IS NULL
                     AND t.library_id IN (SELECT id FROM visible_libraries)) AS duration,
                 -- Summed from the per-track counts and over everybody, which is the
                 -- only place it could come from: the artist stats table keeps a rating
@@ -908,9 +914,9 @@ pub async fn artist(
                 (SELECT coalesce(sum(s.play_count), 0)
                    FROM user_track_stats s
                    JOIN tracks t ON t.id = s.track_id
-                   JOIN track_artists ta ON ta.track_id = t.id
-                  WHERE ta.artist_id = a.id
-                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS plays
+                  WHERE ",
+        track_is_theirs!("t", "a.id"),
+        "    AND t.library_id IN (SELECT id FROM visible_libraries)) AS plays
            FROM artists a
           WHERE a.public_id = ? AND ",
         artist_is_visible!("a.id")
@@ -935,14 +941,14 @@ pub async fn artist(
                   WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration
            FROM albums al
           WHERE EXISTS (SELECT 1 FROM tracks t
-                          JOIN track_artists ta ON ta.track_id = t.id
-                          JOIN artists a ON a.id = ta.artist_id
-                         WHERE t.album_id = al.id AND a.public_id = ?
-                           AND t.library_id IN (SELECT id FROM visible_libraries))
+                         WHERE t.album_id = al.id AND ",
+        track_is_theirs!("t", "?"),
+        "              AND t.library_id IN (SELECT id FROM visible_libraries))
           ORDER BY al.year, al.name COLLATE NOCASE"
     ))
     .bind(who)
-    .bind(&id)
+    .bind(row.id)
+    .bind(row.id)
     .fetch_all(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "listing an artist's records"))?;
@@ -955,10 +961,10 @@ pub async fn artist(
                 sum(s.play_count) AS plays
            FROM user_track_stats s
            JOIN tracks t ON t.id = s.track_id
-           JOIN track_artists ta ON ta.track_id = t.id
-           JOIN artists a ON a.id = ta.artist_id
            LEFT JOIN albums al ON al.id = t.album_id
-          WHERE a.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)
+          WHERE ",
+        track_is_theirs!("t", "?"),
+        "   AND t.library_id IN (SELECT id FROM visible_libraries)
           GROUP BY t.id
          HAVING plays > 0
           ORDER BY plays DESC, t.title COLLATE NOCASE
@@ -966,7 +972,8 @@ pub async fn artist(
         most_played!()
     ))
     .bind(who)
-    .bind(&id)
+    .bind(row.id)
+    .bind(row.id)
     .fetch_all(&pool)
     .await
     .map_err(|e| ApiError::internal(e, "reading what of an artist's gets played"))?;
@@ -1485,6 +1492,10 @@ impl From<AlbumRow> for Album {
 /// record's is: the listing's row is read fifty at a time and this one is read once.
 #[derive(sqlx::FromRow)]
 struct ArtistRow2 {
+    /// The row's own, which the two statements after it are narrowed by. Read here
+    /// rather than looked up again because the public id would have to be bound
+    /// twice on each of them.
+    id: i64,
     public_id: String,
     name: String,
     genres: Option<String>,
@@ -2571,6 +2582,65 @@ mod tests {
         assert_eq!(found.total, 1);
         assert_eq!(found.artists[0].name, "Triana");
         assert_eq!(found.artists[0].albums, 2);
+    }
+
+    /// A name a record is filed under, with not one track crediting it — what a
+    /// compilation writes, and what Purple Rain writes when it is signed by "Prince
+    /// and The Revolution" while every track on it credits Prince and The Revolution
+    /// apart.
+    ///
+    /// The listing has always let such a name in, since that is what makes it an
+    /// artist at all, and it has to count what it let in the same way: a row reading
+    /// nought records and nought songs is a row that opens onto nothing.
+    #[tokio::test]
+    async fn a_name_a_record_is_filed_under_counts_that_record() {
+        let pool = a_collection().await;
+        let at = db::now();
+
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, sort_name, created_at, updated_at)
+             VALUES (2, 'ar2', 'Various Artists', 'Various Artists', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role, position)
+             VALUES (1, 2, 'albumartist', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let hers = somebody(&pool, false).await;
+        let Json(found) = artists(again(&hers), State(pool.clone()), nothing(), all_of_it())
+            .await
+            .unwrap();
+
+        let row = found
+            .artists
+            .iter()
+            .find(|a| a.name == "Various Artists")
+            .expect("a name a record is filed under is an artist");
+
+        assert_eq!(row.albums, 1, "the record they sign");
+        assert_eq!(row.tracks, 1, "what is on it and still there");
+
+        let Json(read) = artist(
+            again(&hers),
+            State(pool.clone()),
+            UrlPath("ar2".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(read.albums, 1);
+        assert_eq!(read.tracks, 1);
+        assert_eq!(read.genres.as_deref(), Some("Flamenco"));
+        assert_eq!(read.records.len(), 1, "the record opens from their page");
+        assert_eq!(read.records[0].name, "El Patio");
     }
 
     /// Asking for an artist means the songs somebody would say are theirs, which
