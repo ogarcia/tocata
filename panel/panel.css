@@ -252,6 +252,19 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+/* A value that opens something is still a value.
+ *
+ * `.link` is sized and shaped for where it usually appears — the quiet line under a
+ * control — so it arrives here at 13px in a column of 15px, and its `font: inherit`
+ * drops the tabular figures every other figure in this list is set in. Read down the
+ * column that is one row in a different typeface, which is the one thing a row of
+ * facts must not be. Both are given back; what it does to the colour is the part
+ * that says it opens. */
+.facts .link {
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
 /* An event and when it happened, which is the other way round: what is being read is
  * the list of events, and the times are what each one turns out to have been. */
 .facts li > :last-child {
