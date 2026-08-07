@@ -34,34 +34,41 @@ use crate::fixtures::write_wav;
 ///
 /// The words rather than lofty's keys, because every test here reads better for it,
 /// and ID3v2 because that is what a RIFF container will hold.
+///
+/// A release id goes in by the frame's name instead of by its key: lofty reads
+/// `ItemKey::MusicBrainzReleaseId` out of a file and does not write it into one, so
+/// asking for it that way puts nothing on disk — see `tag_file_naming_frames`.
 fn tag(path: &Path, items: &[(&str, &str)]) {
     use lofty::prelude::ItemKey;
 
-    let items: Vec<(ItemKey, &str)> = items
-        .iter()
-        .map(|(key, value)| {
-            let key = match *key {
-                "album" => ItemKey::AlbumTitle,
-                "albumartist" => ItemKey::AlbumArtist,
-                "artist" => ItemKey::TrackArtist,
-                "title" => ItemKey::TrackTitle,
-                // Written as a recording date, which is the field that survives a
-                // RIFF container.
-                "year" => ItemKey::RecordingDate,
-                "release" => ItemKey::MusicBrainzReleaseId,
-                "compilation" => ItemKey::FlagCompilation,
-                "artists" => ItemKey::TrackArtists,
-                "genre" => ItemKey::Genre,
-                "artist_mbid" => ItemKey::MusicBrainzArtistId,
-                "albumartist_mbid" => ItemKey::MusicBrainzReleaseArtistId,
-                other => panic!("unknown tag {other}"),
-            };
+    let mut keyed: Vec<(ItemKey, &str)> = Vec::new();
+    let mut named: Vec<(&str, &str)> = Vec::new();
 
-            (key, *value)
-        })
-        .collect();
+    for (key, value) in items {
+        let key = match *key {
+            "album" => ItemKey::AlbumTitle,
+            "albumartist" => ItemKey::AlbumArtist,
+            "artist" => ItemKey::TrackArtist,
+            "title" => ItemKey::TrackTitle,
+            // Written as a recording date, which is the field that survives a
+            // RIFF container.
+            "year" => ItemKey::RecordingDate,
+            "release" => {
+                named.push(("MusicBrainz Album Id", value));
+                continue;
+            }
+            "compilation" => ItemKey::FlagCompilation,
+            "artists" => ItemKey::TrackArtists,
+            "genre" => ItemKey::Genre,
+            "artist_mbid" => ItemKey::MusicBrainzArtistId,
+            "albumartist_mbid" => ItemKey::MusicBrainzReleaseArtistId,
+            other => panic!("unknown tag {other}"),
+        };
 
-    crate::fixtures::tag_file(path, lofty::tag::TagType::Id3v2, &items);
+        keyed.push((key, value));
+    }
+
+    crate::fixtures::tag_file_naming_frames(path, &keyed, &named);
 }
 
 fn temp_root(name: &str) -> PathBuf {
@@ -218,6 +225,25 @@ async fn a_release_id_and_a_compilation_survive_a_second_scan_too() {
 
     scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(count(&pool, "SELECT count(*) FROM albums").await, 2);
+
+    // Which paths they actually took, because the test cannot see it otherwise and
+    // spent a while not taking the first one: a release id that never reached the
+    // file left OK Computer filed under its artist and its title like any other
+    // record, and everything below still passed.
+    let filed: Vec<String> = sqlx::query_scalar("SELECT grouping_key FROM albums ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(
+        filed[0].starts_with("release\u{1f}"),
+        "the release id names the record: {}",
+        filed[0]
+    );
+    assert!(
+        filed[1].starts_with("compilation\u{1f}"),
+        "and the flag files it without regard to who is on it: {}",
+        filed[1]
+    );
 
     scan(&pool, id, &root, Mode::Full).await.unwrap();
     assert_eq!(
@@ -488,27 +514,28 @@ async fn a_record_that_already_existed_takes_the_corrected_tags() {
 /// tracks put back is what the files say. The quick pass may reread three songs of
 /// fifteen, and there it would throw away what the other twelve still hold.
 ///
-/// A compilation because the fixture needs the record to stay the same record: what
-/// an ordinary album is filed under includes whoever signs it, so renaming them
-/// there files a second record rather than correcting the first. The two shapes
-/// that group without regard to artist are this one and a release id, and lofty
-/// does not persist a release id into a RIFF container.
+/// A release id on the files, because it is what the record needs to stay the same
+/// record: what an ordinary album is filed under includes whoever signs it, so
+/// renaming them files a second record instead of correcting the first. It is also
+/// how this happens in the wild — the tagger that renames the band is the one that
+/// wrote the identifier.
 #[tokio::test]
 async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
     let root = temp_root("renamed-signer");
-    let songs = [("01", "Björk"), ("02", "Pulp")];
+    let release = "6bb7fcd3-fd2a-4cea-a0d0-05c16c6ef7c1";
+    let songs = ["01", "02"];
 
-    for (n, who) in songs {
-        let path = root.join(format!("Hits/{n}.wav"));
+    for n in songs {
+        let path = root.join(format!("Some Nights/{n}.wav"));
         write_wav(&path);
         tag(
             &path,
             &[
-                ("album", "Hits 96"),
-                ("artist", who),
-                ("albumartist", "V.A."),
-                ("genre", "Pop"),
-                ("compilation", "1"),
+                ("album", "Some Nights"),
+                ("artist", "fun."),
+                ("albumartist", "fun."),
+                ("genre", "Indie"),
+                ("release", release),
             ],
         );
     }
@@ -517,16 +544,16 @@ async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
     let id = library(&pool, &root).await;
     scan(&pool, id, &root, Mode::Incremental).await.unwrap();
 
-    // Somebody went through the record and wrote the name out in full.
-    for (n, who) in songs {
+    // Somebody decided the full stop was a typo, and retagged the whole record.
+    for n in songs {
         tag(
-            &root.join(format!("Hits/{n}.wav")),
+            &root.join(format!("Some Nights/{n}.wav")),
             &[
-                ("album", "Hits 96"),
-                ("artist", who),
-                ("albumartist", "Various Artists"),
-                ("genre", "Britpop"),
-                ("compilation", "1"),
+                ("album", "Some Nights"),
+                ("artist", "Fun"),
+                ("albumartist", "Fun"),
+                ("genre", "Indie Rock"),
+                ("release", release),
             ],
         );
     }
@@ -540,7 +567,7 @@ async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
     );
     assert_eq!(
         signers(&pool).await,
-        vec!["V.A.".to_string(), "Various Artists".to_string()],
+        vec!["Fun".to_string(), "fun.".to_string()],
         "the quick pass adds and does not take away, which is what it is for"
     );
 
@@ -548,7 +575,7 @@ async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
 
     assert_eq!(
         signers(&pool).await,
-        vec!["Various Artists".to_string()],
+        vec!["Fun".to_string()],
         "and the full pass, having read every file, leaves only what they say"
     );
     assert_eq!(
@@ -575,17 +602,17 @@ async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
 async fn two_libraries_holding_one_record_do_not_undo_each_other() {
     let pool = database().await;
 
-    for (n, who, signed) in [(1, "Björk", "V.A."), (2, "Pulp", "Various Artists")] {
+    for (n, signed) in [(1, "fun."), (2, "Fun")] {
         let root = temp_root(&format!("shared-record-{n}"));
-        let path = root.join(format!("Hits/{n:02}.wav"));
+        let path = root.join(format!("Some Nights/{n:02}.wav"));
         write_wav(&path);
         tag(
             &path,
             &[
-                ("album", "Hits 96"),
-                ("artist", who),
+                ("album", "Some Nights"),
+                ("artist", signed),
                 ("albumartist", signed),
-                ("compilation", "1"),
+                ("release", "6bb7fcd3-fd2a-4cea-a0d0-05c16c6ef7c1"),
             ],
         );
 
@@ -604,7 +631,7 @@ async fn two_libraries_holding_one_record_do_not_undo_each_other() {
     );
     assert_eq!(
         signers(&pool).await,
-        vec!["V.A.".to_string(), "Various Artists".to_string()],
+        vec!["Fun".to_string(), "fun.".to_string()],
         "and it says what both copies say, not what the last library read"
     );
 }

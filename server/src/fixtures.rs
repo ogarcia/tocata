@@ -62,11 +62,45 @@ pub fn write_wav(path: &Path) {
 /// something: three artists and the three identifiers that go with them. `push`
 /// rather than `insert`, since inserting the second one would replace the first.
 pub fn tag_file(path: &Path, kind: TagType, items: &[(ItemKey, &str)]) {
+    tagged(kind, items)
+        .save_to_path(path, Default::default())
+        .unwrap();
+}
+
+/// The same for ID3v2, plus the user-defined frames by the name they go by in the
+/// file.
+///
+/// Because lofty's conversion table reads more keys than it writes. It turns
+/// `ItemKey::MusicBrainzArtistId` into a `TXXX:MusicBrainz Artist Id` and drops
+/// `ItemKey::MusicBrainzReleaseId` on the way out, while reading both back happily —
+/// so a fixture that asks for a release id and then reads the file finds nothing,
+/// and a test written on top of that is testing a file without one.
+///
+/// Writing the frame by its name is not a way around lofty: it is what a tagger
+/// writes, and it is what the reader looks for.
+pub fn tag_file_naming_frames(path: &Path, items: &[(ItemKey, &str)], named: &[(&str, &str)]) {
+    use lofty::TextEncoding;
+    use lofty::id3::v2::{ExtendedTextFrame, Frame, Id3v2Tag};
+
+    let mut tag = Id3v2Tag::from(tagged(TagType::Id3v2, items));
+
+    for (name, value) in named {
+        tag.insert(Frame::UserText(ExtendedTextFrame::new(
+            TextEncoding::UTF8,
+            (*name).to_string(),
+            (*value).to_string(),
+        )));
+    }
+
+    tag.save_to_path(path, Default::default()).unwrap();
+}
+
+fn tagged(kind: TagType, items: &[(ItemKey, &str)]) -> Tag {
     let mut tag = Tag::new(kind);
 
     for (key, value) in items {
         tag.push(TagItem::new(*key, ItemValue::Text(value.to_string())));
     }
 
-    tag.save_to_path(path, Default::default()).unwrap();
+    tag
 }
