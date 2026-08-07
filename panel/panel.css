@@ -1639,6 +1639,38 @@ h1 {
 
 .figures .quiet { font-size: var(--aside); }
 
+/* The two figures that mean something is wrong open the screen that names what is
+ * wrong, and only while they are above zero — at zero they are tiles like the other
+ * two, because there is nothing to go and see.
+ *
+ * A tile that opens and not a tile that shouts. It reads exactly as its two
+ * neighbours do, colours included: a row of four figures where one is red and one is
+ * blue stops being a row of four figures. The whole of what says it opens is the
+ * arrow after its name, which is small, quiet and the only thing here that its
+ * neighbours do not have. */
+.figures .amiss {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* The name and the arrow on one line, the arrow set at the size of the word it
+ * follows and half a space off it. */
+.figures .opens {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--aside);
+  color: var(--quiet);
+}
+
+.figures .opens .icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
 @media (max-width: 46rem) {
   .figures { grid-template-columns: 1fr 1fr; }
 }

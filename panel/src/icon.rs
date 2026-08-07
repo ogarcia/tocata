@@ -21,6 +21,8 @@ pub enum Icon {
     Logo,
     Scan,
     Chevron,
+    /// Points at the screen a figure opens, on the two figures that open one.
+    Arrow,
     Songs,
     Albums,
     Artists,
@@ -66,6 +68,7 @@ impl Icon {
             Self::Logo => include_str!("../icons/logo.svg"),
             Self::Scan => include_str!("../icons/scan.svg"),
             Self::Chevron => include_str!("../icons/chevron.svg"),
+            Self::Arrow => include_str!("../icons/arrow.svg"),
             Self::Songs => include_str!("../icons/songs.svg"),
             Self::Albums => include_str!("../icons/albums.svg"),
             Self::Artists => include_str!("../icons/artists.svg"),

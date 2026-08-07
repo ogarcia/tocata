@@ -362,10 +362,12 @@ fn LastScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
                     <Figure
                         label=t!("scan.failed").to_string()
                         figure=Signal::derive(move || counted(done(), |status| status.failed))
+                        to=into_it(scan, |status| status.failed)
                     />
                     <Figure
                         label=t!("scan.gone").to_string()
                         figure=Signal::derive(move || counted(done(), |status| status.gone))
+                        to=into_it(scan, |status| status.gone)
                     />
                 </div>
             </section>
@@ -377,14 +379,56 @@ fn counted(status: Option<Status>, of: fn(&Status) -> u64) -> String {
     super::thousands(status.as_ref().map(of).unwrap_or_default() as i64)
 }
 
-/// One figure over its name.
+/// Where a figure of the last scan goes, while it is worth going there.
+///
+/// Only the two that mean something is wrong, and only above zero: at zero there is
+/// nothing to see, and a link onto an empty screen is a tap somebody does not get
+/// back. Read from the status rather than settled when the block is built, because
+/// the block is not built again when a scan finishes — the numbers in it change
+/// under it, and a link that did not would be a link about the scan before.
+fn into_it(
+    scan: ReadSignal<Option<Status>>,
+    of: fn(&Status) -> u64,
+) -> Signal<Option<&'static str>> {
+    Signal::derive(move || {
+        scan.get()
+            .filter(|status| status.finished_at.is_some() && of(status) > 0)
+            .map(|_| "/maintenance")
+    })
+}
+
+/// One figure over its name, and a way in where the figure names a problem.
+///
+/// The one that opens looks exactly like the three that do not, save for a small
+/// arrow after its name. A row of four figures with one of them coloured stops being
+/// a row of four figures — what is being read there is how the four compare, and a
+/// colour on one of them answers a question nobody was asking.
 #[component]
-fn Figure(label: String, figure: Signal<String>) -> impl IntoView {
-    view! {
-        <div>
-            <span class="figure">{move || figure.get()}</span>
-            <span class="quiet">{label}</span>
-        </div>
+fn Figure(
+    label: String,
+    figure: Signal<String>,
+    #[prop(optional)] to: Option<Signal<Option<&'static str>>>,
+) -> impl IntoView {
+    let label = StoredValue::new(label);
+
+    move || match to.and_then(|to| to.get()) {
+        None => view! {
+            <div>
+                <span class="figure">{move || figure.get()}</span>
+                <span class="quiet">{label.get_value()}</span>
+            </div>
+        }
+        .into_any(),
+        Some(to) => view! {
+            <A href=to attr:class="amiss">
+                <span class="figure">{move || figure.get()}</span>
+                <span class="opens">
+                    {label.get_value()}
+                    <Glyph icon=Icon::Arrow />
+                </span>
+            </A>
+        }
+        .into_any(),
     }
 }
 
