@@ -253,10 +253,20 @@ pub async fn scan_all(
     }
 
     let mut total = Outcome::default();
+
+    // The records this pass has written, kept across the libraries rather than
+    // inside each. A library is where files live; a record is not in any of them —
+    // one release id, or one compilation, gathers tracks from every library that
+    // holds a copy. Handing each library its own set would have the second one
+    // meet a record the first already wrote and treat it as untouched.
+    let mut rewritten = HashSet::new();
+
     for (id, path, name) in libraries {
         progress.entering(&name);
 
-        let Some(outcome) = scan_library(pool, id, Path::new(&path), mode, progress).await? else {
+        let Some(outcome) =
+            scan_library(pool, id, Path::new(&path), mode, progress, &mut rewritten).await?
+        else {
             return Ok(None);
         };
         info!(
@@ -284,6 +294,7 @@ async fn scan_library(
     root: &Path,
     mode: Mode,
     progress: &Progress,
+    rewritten: &mut HashSet<i64>,
 ) -> Result<Option<Outcome>> {
     // The run's own id is what marks the rows this scan touches.
     let scan: i64 = sqlx::query_scalar(
@@ -387,7 +398,7 @@ async fn scan_library(
         }
     });
 
-    let mut state = State::new(library_id, root.to_path_buf(), scan, mode);
+    let mut state = State::new(library_id, root.to_path_buf(), scan, mode, rewritten);
     let mut outcome = Outcome::default();
     let mut tx_db = db::writing(pool)
         .await
@@ -509,7 +520,7 @@ async fn scan_library(
 /// These maps are what keep the scan to one pass: without them, every track
 /// would need a SELECT per artist, album and genre to find out whether it
 /// exists yet.
-struct State {
+struct State<'a> {
     library_id: i64,
     /// The library's own directory. Every path written from here down is relative
     /// to it.
@@ -533,13 +544,25 @@ struct State {
     /// brought up to date once — by the first track of it that comes through —
     /// and not once per track, where the last file read would be the one that
     /// decided what the whole record says.
-    rewritten: HashSet<i64>,
+    ///
+    /// Borrowed from the pass rather than owned here, because "the first track of
+    /// it" has to mean the first in the whole scan. A record is not inside a
+    /// library: one release id gathers the copies in every library that holds one,
+    /// and a set per library would let the second library rewrite what the first
+    /// had already settled.
+    rewritten: &'a mut HashSet<i64>,
     genres: HashMap<String, i64>,
     timestamp: String,
 }
 
-impl State {
-    fn new(library_id: i64, root: PathBuf, scan: i64, mode: Mode) -> Self {
+impl<'a> State<'a> {
+    fn new(
+        library_id: i64,
+        root: PathBuf,
+        scan: i64,
+        mode: Mode,
+        rewritten: &'a mut HashSet<i64>,
+    ) -> Self {
         Self {
             library_id,
             root,
@@ -548,7 +571,7 @@ impl State {
             folders: HashMap::new(),
             artists: HashMap::new(),
             albums: AlbumsByKey::new(),
-            rewritten: HashSet::new(),
+            rewritten,
             genres: HashMap::new(),
             timestamp: db::now(),
         }
@@ -1391,11 +1414,11 @@ impl State {
     /// fifteen, and emptying the record there would throw away what the other twelve
     /// still hold and nobody has looked at.
     ///
-    /// One record can hold tracks from two libraries, which are scanned one after
-    /// another with a state each. Then the second library clears what the first
-    /// wrote, and the record is left saying what that library's copy says instead of
-    /// both. A rare shape — the same release filed twice, tagged differently — and
-    /// the answer is still one the files support.
+    /// Once per record and per pass, not per library: see `State::rewritten`. A
+    /// record whose copies live in two libraries is cleared by whichever track
+    /// reaches it first, and every track of it afterwards — from either library —
+    /// adds. So two copies that disagree about who signs the record end up saying
+    /// both, exactly as two tracks that disagree within one library do.
     async fn clear_credits(&self, tx: &mut Transaction<'_, Sqlite>, id: i64) -> Result<()> {
         if self.mode != Mode::Full {
             return Ok(());

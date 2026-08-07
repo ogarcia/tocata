@@ -71,9 +71,16 @@ fn temp_root(name: &str) -> PathBuf {
 /// A scan expected to run to the end, which is every one of these but the last.
 /// The interruption flag lives on `Progress`, so a fresh one never trips it.
 async fn scan(pool: &SqlitePool, id: i64, root: &Path, mode: Mode) -> Result<Outcome> {
-    Ok(scan_library(pool, id, root, mode, &Progress::default())
-        .await?
-        .expect("the scan ran to the end"))
+    Ok(scan_library(
+        pool,
+        id,
+        root,
+        mode,
+        &Progress::default(),
+        &mut HashSet::new(),
+    )
+    .await?
+    .expect("the scan ran to the end"))
 }
 
 async fn count(pool: &SqlitePool, sql: &'static str) -> i64 {
@@ -553,6 +560,52 @@ async fn renaming_who_signs_a_record_leaves_no_ghost_behind_a_full_scan() {
         count(&pool, "SELECT count(*) FROM albums").await,
         1,
         "and the record itself is the one it always was"
+    );
+}
+
+/// The clearing above is once per record and per scan, and a record is not inside
+/// a library: a compilation, or a release id, gathers the copies in every library
+/// that holds one. A set of written records per library would have the second
+/// library clear what the first had just put there, and the record would come out
+/// saying what that one copy says rather than what both do.
+///
+/// So the two copies here disagree about who signs the record, and the answer is
+/// both of them — the same answer two tracks that disagree inside one library get.
+#[tokio::test]
+async fn two_libraries_holding_one_record_do_not_undo_each_other() {
+    let pool = database().await;
+
+    for (n, who, signed) in [(1, "Björk", "V.A."), (2, "Pulp", "Various Artists")] {
+        let root = temp_root(&format!("shared-record-{n}"));
+        let path = root.join(format!("Hits/{n:02}.wav"));
+        write_wav(&path);
+        tag(
+            &path,
+            &[
+                ("album", "Hits 96"),
+                ("artist", who),
+                ("albumartist", signed),
+                ("compilation", "1"),
+            ],
+        );
+
+        library(&pool, &root).await;
+    }
+
+    scan_all(&pool, Mode::Full, &Progress::default())
+        .await
+        .unwrap()
+        .expect("the scan ran to the end");
+
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM albums").await,
+        1,
+        "one record, however many libraries hold a copy of it"
+    );
+    assert_eq!(
+        signers(&pool).await,
+        vec!["V.A.".to_string(), "Various Artists".to_string()],
+        "and it says what both copies say, not what the last library read"
     );
 }
 
@@ -1060,9 +1113,16 @@ async fn an_interrupted_scan_writes_nothing() {
     let progress = Progress::default();
     progress.cancel();
 
-    let outcome = scan_library(&pool, id, &root, Mode::Incremental, &progress)
-        .await
-        .unwrap();
+    let outcome = scan_library(
+        &pool,
+        id,
+        &root,
+        Mode::Incremental,
+        &progress,
+        &mut HashSet::new(),
+    )
+    .await
+    .unwrap();
 
     assert!(outcome.is_none(), "the scan gave up rather than finishing");
     assert_eq!(
@@ -1088,9 +1148,16 @@ async fn an_interrupted_scan_marks_nothing_missing() {
     // most of the library, and sweeping on the way out would call all of it gone.
     let progress = Progress::default();
     progress.cancel();
-    scan_library(&pool, id, &root, Mode::Incremental, &progress)
-        .await
-        .unwrap();
+    scan_library(
+        &pool,
+        id,
+        &root,
+        Mode::Incremental,
+        &progress,
+        &mut HashSet::new(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         count(
