@@ -3421,14 +3421,20 @@ select.narrow { width: 12.5rem; }
  * to make the column jump. */
 .chore .pill { white-space: nowrap; }
 
-/* The history stands off the jobs the way any second block stands off the first.
+/* Every block after the jobs stands off them the way any second block stands off
+ * the first.
  *
- * Said as the heading that follows the set, like the one that follows a Save, and
+ * Said as the headings that follow the set, like the one that follows a Save, and
  * for the same reason beyond the meaning: `.part` sets `margin` as a shorthand
  * further down this sheet, so a rule of one class would be overwritten by it
  * whatever this one asked for. Two classes outweigh it and the order stops
- * mattering. */
-.chores + .part { margin-top: 2.75rem; }
+ * mattering.
+ *
+ * A general sibling and not the next one. It was `+` while the history was the only
+ * thing under the jobs, and the day a second block landed between them the history
+ * lost its air without anything saying so — the rule still matched something, just
+ * not the thing it was written for. */
+.chores ~ .part { margin-top: 2.75rem; }
 
 /* --- the files a scan could not account for -------------------------------- */
 
@@ -3436,6 +3442,14 @@ select.narrow { width: 12.5rem; }
  * labels need to stand off what came before them without standing off as far as a
  * new section would. */
 .lettering + .quiet { margin-bottom: 0.75rem; }
+
+/* The second label, which is the only one that needs saying. The first sits under
+ * the section's lead and takes that paragraph's own space; this one sits against
+ * the bottom rule of the list above it, which is a line and gives nothing. What is
+ * above it is the tail of the first block either way — the list itself, or the line
+ * counting what did not fit. */
+.shut + .lettering,
+.elsewhere + .lettering { margin-top: 2rem; }
 
 /* The unreadable: a path, what it weighs, and why it will not open.
  *
