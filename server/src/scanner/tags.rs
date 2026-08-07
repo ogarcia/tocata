@@ -114,6 +114,34 @@ pub struct Metadata {
     pub channel_count: Option<i64>,
 }
 
+impl Metadata {
+    /// The credit, when it says something the names do not.
+    ///
+    /// It is what a listing shows for a track with more than one name on it, and it
+    /// is worth showing because it is the only place the relation between them is
+    /// written down: "Above & Beyond feat. Zoë Johnston" is a lead and a guest, and
+    /// the two names joined by a comma are two equals. Nothing can reconstruct the
+    /// first from the second — "feat." is the tagger's word, and so is "&", and so is
+    /// "con … y …".
+    ///
+    /// But most credits say nothing extra. One artist under their own name is the
+    /// common case, and a tagger that writes "Alice;Bob" into the same field has
+    /// written the list and not a sentence about it — kept, it would be shown with
+    /// its separator still in it, which is worse than the comma it was meant to
+    /// replace.
+    ///
+    /// So the test is not whether there is a credit but whether reading it the way
+    /// the names are read gives the names back. Same splitting, same slash witness:
+    /// if it comes apart into exactly what is already stored, it is a second copy of
+    /// the list, and only what survives that is a sentence.
+    pub fn credited_as(&self) -> Option<&str> {
+        let credit = self.artist_credit.as_deref()?;
+        let as_a_list = as_many_as(split_artists(Some(credit)), self.mbid_artists.len());
+
+        (as_a_list != self.artists).then_some(credit)
+    }
+}
+
 /// Reads one file, without its embedded artwork. Blocking: callers put this on a
 /// blocking task.
 ///
@@ -994,6 +1022,71 @@ mod tests {
         let metadata = read(&path).unwrap();
         assert_eq!(metadata.artists, ["AC/DC"]);
         assert_eq!(metadata.mbid_artists.len(), 1);
+    }
+
+    /// What is kept of the credit and what is thrown away, which is the whole of
+    /// what a listing shows for a track with more than one name on it.
+    ///
+    /// Only a sentence survives. The other three shapes here are the same list of
+    /// names written a different way, and keeping one would put its separator on
+    /// screen — a semicolon or a slash where the panel means to write a comma.
+    #[test]
+    fn only_a_credit_that_is_a_sentence_is_kept() {
+        // Taken from a real file: the credit says who is a guest, which the two
+        // names beside it cannot.
+        let feat = tagged_wav(
+            "feat",
+            &[
+                (ItemKey::TrackArtist, "Above & Beyond feat. Zoë Johnston"),
+                (ItemKey::TrackArtists, "Above & Beyond/Zoë Johnston"),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    "370bd5a3-4abf-4356-8576-3a8fc0c11d65/\
+                     5509e5eb-67a4-49e9-992a-07d895500deb",
+                ),
+            ],
+        );
+
+        let metadata = read(&feat).unwrap();
+        assert_eq!(metadata.artists, ["Above & Beyond", "Zoë Johnston"]);
+        assert_eq!(
+            metadata.credited_as(),
+            Some("Above & Beyond feat. Zoë Johnston")
+        );
+
+        // The same record, a track with nobody on it but the band. The credit is the
+        // name, so there is nothing to say twice.
+        let alone = tagged_wav("alone", &[(ItemKey::TrackArtist, "Above & Beyond")]);
+        assert_eq!(read(&alone).unwrap().credited_as(), None);
+
+        // A tagger writing the list into the credit field. It is the list, so the
+        // names answer for it — kept, it would be shown as "David Bowie; Queen".
+        let listed = wav_with_lists(
+            "listed",
+            &[(ItemKey::TrackArtist, vec!["David Bowie; Queen"])],
+        );
+        let metadata = read(&listed).unwrap();
+        assert_eq!(metadata.artists, ["David Bowie", "Queen"]);
+        assert_eq!(metadata.credited_as(), None);
+
+        // And the same in ID3v2.3, where the divider is a slash and the identifiers
+        // are what says so. Read the way the names are read it gives the names back,
+        // which is what makes it a list and not a sentence.
+        let divided = tagged_wav(
+            "divided",
+            &[
+                (ItemKey::TrackArtist, "Above & Beyond/Zoë Johnston"),
+                (
+                    ItemKey::MusicBrainzArtistId,
+                    "370bd5a3-4abf-4356-8576-3a8fc0c11d65/\
+                     5509e5eb-67a4-49e9-992a-07d895500deb",
+                ),
+            ],
+        );
+
+        let metadata = read(&divided).unwrap();
+        assert_eq!(metadata.artists, ["Above & Beyond", "Zoë Johnston"]);
+        assert_eq!(metadata.credited_as(), None);
     }
 
     /// And with nothing to check it against, a slash is left where it is. There is

@@ -48,12 +48,20 @@ const PAGE: i64 = 50;
 /// The credits are read through their role, and the roles are the ones the scanner
 /// writes: `artist` on a track and `albumartist` on a record. Anything else comes
 /// back null in silence.
+///
+/// How the file credits them wins over the names joined by commas, and the names are
+/// what answers when it does not say. The two are not the same fact: the credit is
+/// where "Above & Beyond feat. Zoë Johnston" is written down, and nothing joining a
+/// list back together can invent the word between them. The column is only filled
+/// when it says something the names do not, so the `coalesce` needs no condition of
+/// its own — see `Metadata::credited_as`.
 macro_rules! a_tracks_row {
     () => {
         "SELECT t.public_id, t.title,
-                (SELECT group_concat(a.name, ', ')
-                   FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
-                  WHERE ta.track_id = t.id AND ta.role = 'artist') AS artists,
+                coalesce(t.artist_credit,
+                  (SELECT group_concat(a.name, ', ')
+                     FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+                    WHERE ta.track_id = t.id AND ta.role = 'artist')) AS artists,
                 al.name AS album, al.public_id AS album_id,
                 (SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
                   WHERE tg.track_id = t.id ORDER BY g.name LIMIT 1) AS genre,
@@ -317,10 +325,13 @@ pub async fn detail(
 ) -> Result<Json<TrackDetail>, ApiError> {
     let row: Option<DetailRow> = sqlx::query_as(concat!(
         visible_libraries!(),
+        // The credit over the names where there is one, the same as the listing: the
+        // panel that opens over a row must not disagree with the row it opened from.
         "SELECT t.public_id, t.title,
-                (SELECT group_concat(a.name, ', ')
-                   FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
-                  WHERE ta.track_id = t.id AND ta.role = 'artist') AS artists,
+                coalesce(t.artist_credit,
+                  (SELECT group_concat(a.name, ', ')
+                     FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+                    WHERE ta.track_id = t.id AND ta.role = 'artist')) AS artists,
                 al.name AS album, al.public_id AS album_id,
                 (SELECT group_concat(a.name, ', ')
                    FROM album_artists aa JOIN artists a ON a.id = aa.artist_id
@@ -2270,6 +2281,93 @@ mod tests {
         assert!(
             matches!(refused, Err(ApiError::NotFound)),
             "a track in a library you may not see is not a track you may know exists"
+        );
+    }
+
+    /// A guest on a track is read the way the record credits them, and everywhere
+    /// the track is read.
+    ///
+    /// "Above & Beyond feat. Zoë Johnston" is the file's own sentence and the two
+    /// names joined by a comma are two equals: the word between them is the fact,
+    /// and nothing joining a list back together can put it back. So the credit wins
+    /// where there is one — and where there is not, which is most tracks, the names
+    /// answer exactly as they did.
+    ///
+    /// Both readings are checked because they are two statements in two places, and
+    /// a row that disagreed with the panel opened over it would be the same song
+    /// under two names.
+    #[tokio::test]
+    async fn a_credit_is_read_over_the_names_wherever_the_track_is_read() {
+        let pool = a_collection().await;
+        let at = db::now();
+
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, sort_name, created_at, updated_at)
+             VALUES (2, 'ar2', 'Zoë Johnston', 'Johnston, Zoë', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // The first track of the first record gains a guest and the sentence about
+        // her. Everything else on the fixture keeps its one name and no credit,
+        // which is the other half of what this checks.
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role, position)
+             VALUES (10, 2, 'artist', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE tracks SET artist_credit = ? WHERE id = 10")
+            .bind("Triana feat. Zoë Johnston")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let ana = somebody(&pool, false).await;
+        let ana_again = again(&ana);
+
+        let Json(listed) = tracks(ana, State(pool.clone()), nothing(), all_of_it())
+            .await
+            .unwrap();
+
+        let guested = listed
+            .tracks
+            .iter()
+            .find(|track| track.id == "t10")
+            .expect("the fixture numbers its tracks by their record");
+
+        assert_eq!(
+            guested.artists.as_deref(),
+            Some("Triana feat. Zoë Johnston"),
+            "the sentence the record uses, not the two names with a comma between"
+        );
+
+        let plain = listed
+            .tracks
+            .iter()
+            .find(|track| track.id != "t10")
+            .expect("the fixture has more than one");
+
+        assert_eq!(
+            plain.artists.as_deref(),
+            Some("Triana"),
+            "and a track that says nothing extra is still read from its names"
+        );
+
+        // The panel that opens over the row, which asks a different statement the
+        // same question.
+        let Json(opened) = detail(ana_again, State(pool.clone()), UrlPath("t10".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            opened.artists.as_deref(),
+            Some("Triana feat. Zoë Johnston"),
+            "the row and the panel over it are the same song"
         );
     }
 

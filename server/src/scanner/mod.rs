@@ -736,14 +736,9 @@ impl State {
         .bind(extension)
         .bind(&title)
         .bind(&metadata.sort_title)
-        // Only when it says something the names do not. One artist credited under
-        // their own name needs no second copy of it, and most files are that.
-        .bind(
-            metadata
-                .artist_credit
-                .as_deref()
-                .filter(|credit| !matches!(metadata.artists.as_slice(), [only] if only == credit)),
-        )
+        // Only when it says something the names do not, which is what decides it —
+        // see `Metadata::credited_as`.
+        .bind(metadata.credited_as())
         .bind(metadata.track_number)
         .bind(metadata.disc_number)
         .bind(metadata.year)
