@@ -230,6 +230,21 @@ CREATE TABLE tracks (
     -- Not the same as missing. A missing file is not there; this one is there and
     -- will not open. Both can be true at once and neither implies the other.
     unreadable_since TEXT,
+    -- And why, as the last attempt put it. Null whenever the column above is.
+    --
+    -- Kept because the alternative is what it replaced: the reason went to a warning
+    -- in the log and nowhere else, so a collection with four files it cannot read
+    -- said four and would not say which, let alone what to do about them. What a
+    -- reader says is often cryptic, and it is still the only true answer there is —
+    -- so it is stored as given, and only turned into plain words where we genuinely
+    -- know what happened.
+    --
+    -- Overwritten on every failed attempt rather than kept from the first, which is
+    -- the opposite of the column above and deliberate: since when is a fact about
+    -- how long this has been going on, and why is a fact about the state of the file
+    -- now. A permission restored and a tag corrupted in the same week is one file
+    -- that never opened and two different things to do about it.
+    unreadable_error TEXT,
     -- Which scan last saw this file, stamped on every pass whether or not the
     -- file changed. What a scan did not touch is what has gone away, which is
     -- one statement at the end instead of a set of paths held in memory.

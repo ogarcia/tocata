@@ -23,6 +23,7 @@ type Counts = (
     i64,
     i64,
     i64,
+    i64,
     Option<i64>,
     Option<i64>,
 );
@@ -52,6 +53,10 @@ pub async fn stats(
                 (SELECT count(*) FROM albums),
                 (SELECT count(*) FROM tracks WHERE missing_since IS NULL),
                 (SELECT count(*) FROM tracks WHERE missing_since IS NOT NULL),
+                -- Counted apart from the figure the last scan reports, which is
+                -- about that scan: scanning one library says nothing about what
+                -- another one still cannot read.
+                (SELECT count(*) FROM tracks WHERE unreadable_since IS NOT NULL),
                 (SELECT count(*) FROM genres),
                 (SELECT count(*) FROM playlists),
                 (SELECT count(*) FROM users),
@@ -69,6 +74,7 @@ pub async fn stats(
         albums,
         tracks,
         missing,
+        unreadable,
         genres,
         playlists,
         users,
@@ -84,6 +90,7 @@ pub async fn stats(
         albums,
         tracks,
         missing,
+        unreadable,
         genres,
         playlists,
         users,

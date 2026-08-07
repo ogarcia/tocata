@@ -13,12 +13,12 @@
 //! one in front of this one.
 
 use crate::api::{self, Failure};
-use crate::pages::{bytes, said, since, thousands};
+use crate::pages::{bytes, elapsed, on_day, said, since, thousands};
 use leptos::html::Dialog;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
-use tocata::types::{Job, JobState, Loss, Maintenance, Run};
+use tocata::types::{Job, JobState, Loss, Maintenance, MissingTrack, NeedingAttention, Run};
 
 #[component]
 pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
@@ -115,6 +115,7 @@ pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
                             .collect_view()}
                     </div>
 
+                    <Attention on_expired />
                     <Lately runs=state.lately />
                 }
                     .into_any()
@@ -218,6 +219,235 @@ fn Lately(runs: Vec<Run>) -> impl IntoView {
             }
                 .into_any()
         }}
+    }
+}
+
+/// The files a scan could not account for, named.
+///
+/// Both counts existed before this did and neither could be opened: the last scan
+/// says how many would not read and the collection says how many are gone, and
+/// somebody who wanted to do something about either had to go to the log. A count
+/// that names a problem should be a way into it.
+///
+/// Two lists rather than one, because they look alike in a count and are opposite
+/// problems. An unreadable file is on the disk and its music is not in the
+/// collection: the row leads with the path, because the path is where somebody is
+/// going next, and it owes an explanation. A missing track is in the collection and
+/// its file is not on the disk: the row leads with the track, because Tocata still
+/// remembers it, and what makes the decision hard is what would go with it — so that
+/// is a column and not small print inside a confirmation.
+///
+/// Nothing here has a button. Fixing an unreadable file happens outside Tocata and
+/// the next scan picks it up on its own; forgetting the missing ones is the purge,
+/// which is four rows further up this same screen and asks first.
+///
+/// Loaded on its own rather than with the jobs. It is the slower of the two answers
+/// and the one further down the screen, and a screen that waits for it is a screen
+/// that waits to show the buttons.
+#[component]
+fn Attention(on_expired: Callback<()>) -> impl IntoView {
+    let (found, set_found) = signal(Option::<NeedingAttention>::None);
+
+    spawn_local(async move {
+        match api::needing_attention().await {
+            Ok(fresh) => set_found.set(Some(fresh)),
+            Err(Failure::Unauthenticated) => on_expired.run(()),
+            // Silent, and the only place in this file that is. The jobs above are
+            // the screen; this is an extra that appears when there is something to
+            // say, and a red line about a listing nobody asked for would be the
+            // loudest thing on a screen where nothing is wrong.
+            Err(_) => {}
+        }
+    });
+
+    view! {
+        {move || {
+            // Absent entirely while there is nothing wrong. A heading over two empty
+            // lists is a screen inviting somebody to look for a problem they do not
+            // have.
+            let Some(found) = found.get().filter(|found| {
+                found.unreadable_total.is_positive() || found.missing_total.is_positive()
+            }) else {
+                return ().into_any();
+            };
+
+            let NeedingAttention {
+                unreadable,
+                missing,
+                unreadable_total,
+                missing_total,
+                grace_days,
+            } = found;
+
+            let all = unreadable_total + missing_total;
+
+            view! {
+                <h2 class="part">{t!("attention.heading")}</h2>
+                <p class="quiet lead">{t!("attention.lead", count = all)}</p>
+
+                {unreadable_total
+                    .is_positive()
+                    .then(|| view! { <Unreadable files=unreadable total=unreadable_total /> })}
+
+                {missing_total
+                    .is_positive()
+                    .then(|| {
+                        view! { <Astray tracks=missing total=missing_total grace=grace_days /> }
+                    })}
+            }
+                .into_any()
+        }}
+    }
+}
+
+/// The files that would not open: path, size, and why.
+#[component]
+fn Unreadable(files: Vec<tocata::types::UnreadableFile>, total: i64) -> impl IntoView {
+    let shown = files.len() as i64;
+
+    view! {
+        <p class="lettering">{t!("attention.unreadable", count = total)}</p>
+        <p class="quiet">{t!("attention.unreadable_why")}</p>
+
+        <ul class="shut">
+            {files
+                .into_iter()
+                .map(|file| {
+                    // The reason and how long it has been going on, in one sentence.
+                    // Two lines would put the date on a line of its own, where it
+                    // reads as a fact about the file rather than about the failure.
+                    let failing = t!("attention.failing_since", when = on_day(&file.since));
+                    let said = match file.why {
+                        Some(why) => format!("{why}. {failing}"),
+                        None => failing.to_string(),
+                    };
+
+                    view! {
+                        <li>
+                            <span class="path">{file.path}</span>
+                            <span class="weighs">{bytes(file.size)}</span>
+                            <span class="wrong">{said}</span>
+                        </li>
+                    }
+                })
+                .collect_view()}
+        </ul>
+
+        <Rest shown total />
+    }
+}
+
+/// The tracks whose files are gone: what they are, when they went, and what they
+/// hold.
+#[component]
+fn Astray(tracks: Vec<MissingTrack>, total: i64, grace: Option<i64>) -> impl IntoView {
+    let shown = tracks.len() as i64;
+
+    view! {
+        <p class="lettering">{t!("attention.astray", count = total)}</p>
+        <p class="quiet">{t!("attention.astray_why")}</p>
+
+        // Scrolls inside its own box rather than pushing the page sideways, like
+        // every other run of rows in this panel that cannot narrow any further.
+        <div class="scrolls">
+            <ul class="astray">
+                <li class="astray-head">
+                    <span>{t!("attention.track")}</span>
+                    <span>{t!("attention.last_seen")}</span>
+                    <span>{t!("attention.held")}</span>
+                </li>
+                {tracks
+                    .into_iter()
+                    .map(|track| view! { <Gone track grace /> })
+                    .collect_view()}
+            </ul>
+        </div>
+
+        <Rest shown total />
+
+        // The line that prevents the expensive mistake. A collection that was moved
+        // looks exactly like a collection that was deleted, and the difference is one
+        // scan away.
+        <p class="quiet moved">{t!("attention.moved")}</p>
+    }
+}
+
+/// One track that is no longer where it was.
+#[component]
+fn Gone(track: MissingTrack, grace: Option<i64>) -> impl IntoView {
+    // What it would take with it, in the terms somebody weighs: plays are everybody's
+    // added up, because on a server with more than one account there is no other
+    // honest number, and a rating is said as how many people wrote one rather than as
+    // a score that would be one of theirs.
+    let mut held = Vec::new();
+    if track.plays > 0 {
+        held.push(t!("attention.plays", count = thousands(track.plays)).to_string());
+    }
+    if track.raters > 0 {
+        held.push(t!("attention.rated_by", count = track.raters).to_string());
+    }
+    if track.playlists > 0 {
+        held.push(t!("attention.in_playlists", count = track.playlists).to_string());
+    }
+
+    // Nothing rather than an empty cell: a track nobody ever played is the easy case
+    // and the row should say so out loud.
+    let held = if held.is_empty() {
+        t!("attention.held_nothing").to_string()
+    } else {
+        held.join(" · ")
+    };
+
+    // How long is left before a scan clears it out, where a limit is set at all. Days
+    // and not hours: the setting is in days, and an hour's precision on a month-long
+    // wait is precision nobody asked for.
+    let leaving = grace.and_then(|days| {
+        let gone_for = elapsed(&track.since)? / 86_400.0;
+        let left = (days as f64 - gone_for).ceil();
+
+        Some(if left <= 0.0 {
+            t!("attention.dropped_next_scan").to_string()
+        } else {
+            t!("attention.dropped_in", count = left).to_string()
+        })
+    });
+
+    let by = [track.artist, track.album, track.year.map(|y| y.to_string())]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
+
+    view! {
+        <li>
+            <span class="what">
+                <span class="titling">{track.title}</span>
+                <span class="quiet by">{by}</span>
+                <span class="quiet path">{track.path}</span>
+            </span>
+            <span class="when">
+                {since(&track.since)}
+                {leaving.map(|soon| view! { <span class="soon">{soon}</span> })}
+            </span>
+            <span class="quiet holds">{held}</span>
+        </li>
+    }
+}
+
+/// How many did not fit, where any did not.
+///
+/// The lists are cut short on purpose and a list that quietly stopped at fifty would
+/// read as a collection with exactly fifty problems.
+#[component]
+fn Rest(shown: i64, total: i64) -> impl IntoView {
+    let more = total - shown;
+
+    view! {
+        <Show when=move || more.is_positive()>
+            <p class="quiet elsewhere">
+                {move || t!("attention.and_more", count = more).to_string()}
+            </p>
+        </Show>
     }
 }
 

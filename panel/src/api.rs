@@ -353,6 +353,13 @@ pub async fn loss() -> Result<tocata::types::Loss, Failure> {
     read(get("/purge")?).await
 }
 
+/// The files a scan could not account for, named: the ones that would not open and
+/// the ones that are no longer there. Two lists in one call, because the screen
+/// showing them shows both or neither.
+pub async fn needing_attention() -> Result<tocata::types::NeedingAttention, Failure> {
+    read(get("/attention")?).await
+}
+
 /// A window of the collection's tracks, narrowed by whatever has been typed.
 ///
 /// The window is asked for rather than left to the server's own default, because

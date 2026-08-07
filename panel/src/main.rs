@@ -325,7 +325,7 @@ mod tests {
     /// library and the play glyph over a track number, `named` was a link in the roster
     /// and the title block of the opened player. The way out of those is a different
     /// word, never a line here.
-    const SHARED: [&str; 72] = [
+    const SHARED: [&str; 73] = [
         // How something reads, wherever it is.
         "quiet",
         "lead",
@@ -373,6 +373,12 @@ mod tests {
         "options",
         "forms",
         "pane",
+        // A box that takes its own sideways scrolling rather than handing it to the
+        // page. One rule, `overflow-x: auto`, and it means exactly that wherever it
+        // is worn — the roster of accounts and the list of files that have gone
+        // astray are both too wide to narrow any further and neither may push the
+        // whole panel sideways.
+        "scrolls",
         // The chrome of a drawer, which is one shape whichever thing it is about: the
         // body that scrolls, a name against a value, a note under what it explains,
         // the actions at the foot and the one of them that is the point, and the block

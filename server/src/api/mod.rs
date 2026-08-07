@@ -17,6 +17,7 @@
 //! Neither has a contract that can evolve, so numbering them would only promise
 //! a second one that is never coming.
 
+mod attention;
 mod collection;
 mod error;
 mod events;
@@ -94,6 +95,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "resources", description = "What the server is costing the machine"),
         (name = "purge", description = "What removing what a scan marked would cost"),
         (name = "jobs", description = "The maintenance jobs, and running one"),
+        (name = "maintenance", description = "The files a scan could not account for"),
         (name = "collection", description = "Browsing what has been scanned"),
     )
 )]
@@ -143,6 +145,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(stats::stats))
         .routes(routes!(resources::read))
         .routes(routes!(purge::preview))
+        .routes(routes!(attention::needing_attention))
         .routes(routes!(collection::tracks))
         .routes(routes!(collection::track))
         .routes(routes!(collection::detail))

@@ -317,7 +317,7 @@ pub fn lapse(iso: &str) -> String {
 /// Never negative. A clock a few seconds ahead of the server's would otherwise turn
 /// "just now" into a span into the future, which reads as a mistake because it is
 /// one — just not the reader's.
-fn elapsed(iso: &str) -> Option<f64> {
+pub fn elapsed(iso: &str) -> Option<f64> {
     let then = js_sys::Date::parse(iso);
 
     (!then.is_nan()).then(|| ((js_sys::Date::now() - then) / 1000.0).max(0.0))

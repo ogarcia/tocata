@@ -3430,6 +3430,116 @@ select.narrow { width: 12.5rem; }
  * mattering. */
 .chores + .part { margin-top: 2.75rem; }
 
+/* --- the files a scan could not account for -------------------------------- */
+
+/* Both lists sit under one heading and each has its own label over it, so the
+ * labels need to stand off what came before them without standing off as far as a
+ * new section would. */
+.lettering + .quiet { margin-bottom: 0.75rem; }
+
+/* The unreadable: a path, what it weighs, and why it will not open.
+ *
+ * Two lines and not three columns. The path is the long one and the only one worth
+ * reading first, so it takes the line; the size rides at its end, where it is a
+ * footnote to it rather than a column of its own; and the reason goes underneath,
+ * because it is a sentence and sentences do not fit in cells. */
+.shut {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.shut > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 1rem;
+  padding: 0.6875rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Monospace, because this is a path somebody is about to compare against one in a
+ * terminal, and a proportional font makes two similar paths look alike. */
+.shut .path {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.shut .weighs {
+  color: var(--quiet);
+  font-size: var(--aside);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.shut .wrong {
+  grid-area: 2 / 1 / 2 / 3;
+  margin-top: 0.25rem;
+  font-size: var(--aside);
+  color: var(--alarm);
+}
+
+/* The missing: what it is, when it went, and what it holds. Three columns, and the
+ * first one takes whatever is left because it is three lines of text and the other
+ * two are a phrase each. */
+.astray {
+  margin: 0;
+  padding: 0;
+  min-width: 44rem;
+  list-style: none;
+}
+
+.astray > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9rem minmax(11rem, auto);
+  gap: 1rem;
+  padding: 0.6875rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--control);
+}
+
+/* The heading row is the same grid so the columns line up, and quiet and small so
+ * it reads as a label rather than as the first row. */
+.astray .astray-head {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--quiet);
+  font-size: var(--aside);
+}
+
+.astray .what { display: grid; }
+
+.astray .titling { font-weight: 500; }
+
+.astray .by,
+.astray .path {
+  font-size: var(--aside);
+  overflow-wrap: anywhere;
+}
+
+.astray .when {
+  display: grid;
+  color: var(--quiet);
+  white-space: nowrap;
+}
+
+/* A row the server is about to clear out by itself. The reader can act before it
+ * does, which is the only reason to say it at all. */
+.astray .soon {
+  font-size: var(--aside);
+  color: var(--alarm);
+}
+
+.astray .holds { font-size: var(--aside); }
+
+/* How many did not fit, and the line about a collection that was moved. Both are
+ * afterwords to the list above them rather than parts of it. */
+.elsewhere,
+.moved {
+  margin-top: 0.75rem;
+  font-size: var(--aside);
+}
+
 /* What has been run lately: what happened on the left, when on the right. */
 .lately {
   margin: 0.875rem 0 0;

@@ -69,7 +69,7 @@ home:
   size: Size
   duration: Length
   playlists: Playlists
-  missing: Missing
+  attention: Needing attention
   version: Version
   last_scan: Last scan
   libraries: Libraries
@@ -557,6 +557,26 @@ access:
   password: "Your password"
   password_changed: "Changed %{when}"
   change_password: "Change it in Profile"
+
+attention:
+  heading: Files needing attention
+  lead: "%{count} files the last scan could not account for. Nothing here has been deleted from your disks: Tocata only ever reads them."
+  unreadable: "Unreadable · %{count}"
+  unreadable_why: "The file is there and Tocata cannot read it, so none of its music is in the collection. Each one says what went wrong, in the words of whatever tried; the next scan tries again on its own."
+  failing_since: Failing since %{when}.
+  astray: "Gone missing · %{count}"
+  astray_why: "The music is still in the collection and the file is no longer where it was. Its ratings, its play counts and its places in playlists are all still here, waiting: put the file back and the next scan picks it up as if nothing happened."
+  track: Track
+  last_seen: Last seen
+  held: Held
+  plays: "%{count} plays"
+  rated_by: "rated by %{count}"
+  in_playlists: "in %{count} playlists"
+  held_nothing: nothing
+  dropped_in: "dropped in %{count} d"
+  dropped_next_scan: dropped on the next scan
+  moved: "Moved the collection somewhere else? Scan again before forgetting anything: a file that turns up under a new path stops being missing on its own."
+  and_more: and %{count} more
 
 chores:
   lead: "Jobs you run when something is off. Each one says when it last ran and what it found."

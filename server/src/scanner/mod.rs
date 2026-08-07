@@ -205,7 +205,12 @@ enum Scanned {
         extension: String,
         size: u64,
         modified: i64,
-        metadata: Option<Box<Metadata>>,
+        /// What the file said, or why it would not say it.
+        ///
+        /// The reason travels beside the failure rather than being logged and
+        /// dropped, which is what it was: a collection with four files it cannot
+        /// read said four and would not say which, let alone what to do.
+        read: Result<Box<Metadata>, String>,
     },
 }
 
@@ -355,11 +360,12 @@ async fn scan_library(
                     if unchanged {
                         Scanned::Unchanged { path }
                     } else {
-                        let metadata = match tags::read(&path) {
-                            Ok(metadata) => Some(Box::new(metadata)),
+                        let read = match tags::read(&path) {
+                            Ok(metadata) => Ok(Box::new(metadata)),
                             Err(e) => {
-                                warn!("could not read tags from {}: {e:#}", path.display());
-                                None
+                                let why = why_it_would_not_read(&path, &e);
+                                warn!("could not read tags from {}: {why}", path.display());
+                                Err(why)
                             }
                         };
                         Scanned::Track {
@@ -368,7 +374,7 @@ async fn scan_library(
                             extension,
                             size,
                             modified,
-                            metadata,
+                            read,
                         }
                     }
                 }
@@ -430,19 +436,17 @@ async fn scan_library(
                 extension,
                 size,
                 modified,
-                metadata,
+                read,
             } => {
-                let readable = metadata.is_some();
+                let readable = read.is_ok();
                 if !readable {
                     outcome.failed += 1;
                 }
                 if !known {
-                    state
-                        .reclaim_moved(&mut tx_db, &path, size, &metadata)
-                        .await?;
+                    state.reclaim_moved(&mut tx_db, &path, size, &read).await?;
                 }
                 state
-                    .insert_track(&mut tx_db, &path, &extension, size, modified, metadata)
+                    .insert_track(&mut tx_db, &path, &extension, size, modified, read)
                     .await?;
                 outcome.tracks += 1;
                 progress.observed(Item::Track { readable }, &path);
@@ -612,7 +616,7 @@ impl State {
         extension: &str,
         size: u64,
         modified: i64,
-        metadata: Option<Box<Metadata>>,
+        read: Result<Box<Metadata>, String>,
     ) -> Result<()> {
         let Some(folder_id) = path.parent().and_then(|p| self.folders.get(p)).copied() else {
             // Only reachable if the walk handed us a file before its directory,
@@ -632,14 +636,15 @@ impl State {
         // What is written instead is what can be seen without opening the file — how
         // big it is, when it changed — and the note that it could not be read, which
         // is what brings the next quick scan back to it.
-        let unreadable = metadata.is_none();
+        let unreadable = read.as_ref().err().cloned();
 
-        if unreadable {
+        if let Some(why) = &unreadable {
             let kept = sqlx::query(
                 "UPDATE tracks
                     SET file_size = ?, file_modified_at = ?, content_type = ?, suffix = ?,
                         missing_since = NULL,
                         unreadable_since = coalesce(unreadable_since, ?),
+                        unreadable_error = ?,
                         last_seen_scan = ?, updated_at = ?
                   WHERE library_id = ? AND path = ?",
             )
@@ -650,6 +655,10 @@ impl State {
             // The first scan that could not read it, kept through the ones after:
             // "unreadable since Tuesday" is worth more than "unreadable just now".
             .bind(&self.timestamp)
+            // The reason, unlike the date, is whatever the last attempt found. A
+            // permission restored and a tag corrupted in the same week is one file
+            // that never opened and two different things to go and do.
+            .bind(why)
             .bind(self.scan)
             .bind(&self.timestamp)
             .bind(self.library_id)
@@ -667,7 +676,7 @@ impl State {
             // that hides a problem — with its name for a title and the note on it.
         }
 
-        let metadata = metadata.map(|m| *m).unwrap_or_default();
+        let metadata = read.map(|m| *m).unwrap_or_default();
 
         // The key is kept beside the record it found rather than consumed: it
         // decides which record this is, and it also decides who that record is
@@ -690,9 +699,9 @@ impl State {
                  artist_credit, track_number, disc_number, year, duration_ms, bit_rate,
                  bit_depth, sampling_rate, channel_count, bpm, comment,
                  mbid_recording, mbid_track, isrc, rg_track_gain, rg_track_peak,
-                 unreadable_since, last_seen_scan, created_at, updated_at
+                 unreadable_since, unreadable_error, last_seen_scan, created_at, updated_at
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (library_id, path) DO UPDATE SET
                  folder_id = excluded.folder_id,
                  album_id = excluded.album_id,
@@ -721,6 +730,7 @@ impl State {
                  missing_since = NULL,
                  -- Read this time, so whatever was wrong with it before is over.
                  unreadable_since = excluded.unreadable_since,
+                 unreadable_error = excluded.unreadable_error,
                  last_seen_scan = excluded.last_seen_scan,
                  updated_at = excluded.updated_at
              RETURNING id",
@@ -756,7 +766,8 @@ impl State {
         .bind(metadata.rg_track_peak)
         // Only reached with nothing read when the file is new: everything already
         // known took the shorter road above.
-        .bind(unreadable.then(|| self.timestamp.clone()))
+        .bind(unreadable.as_ref().map(|_| self.timestamp.clone()))
+        .bind(&unreadable)
         .bind(self.scan)
         .bind(&self.timestamp)
         .bind(&self.timestamp)
@@ -813,9 +824,9 @@ impl State {
         tx: &mut Transaction<'_, Sqlite>,
         path: &Path,
         size: u64,
-        metadata: &Option<Box<Metadata>>,
+        read: &Result<Box<Metadata>, String>,
     ) -> Result<()> {
-        let Some(metadata) = metadata else {
+        let Ok(metadata) = read else {
             return Ok(());
         };
 
@@ -1391,6 +1402,71 @@ impl State {
 
         Ok(())
     }
+}
+
+/// Why a file would not open, in the plainest words that are still true.
+///
+/// The reader's own message is kept for everything it is the best answer to, which
+/// is most of the time: "Encountered an invalid item size" is cryptic and it is
+/// still exactly what happened, and rewriting it into a fluent sentence about
+/// damaged blocks would be us inventing a diagnosis we do not have.
+///
+/// The one case worth saying in words is the one it is worst at. A file the server
+/// may not open arrives here as a parse failure like any other, and the thing to go
+/// and do about it — a `chmod`, a `chown`, a container mounted with the wrong
+/// mapping — has nothing to do with tags at all. So the failure path pays for one
+/// extra `open`, which is cheap because it only ever runs on files that already
+/// failed, and says plainly what it found.
+///
+/// The owner is a number and not a name deliberately. Resolving one needs
+/// `getpwuid`, and this ships as a static musl binary, where that quietly answers
+/// nothing — a blank where the useful half of the sentence was. A number is always
+/// true, and `stat` says the same number.
+fn why_it_would_not_read(path: &Path, e: &anyhow::Error) -> String {
+    let Err(open) = std::fs::File::open(path) else {
+        // It opens. Whatever went wrong is about what is inside it, and the reader
+        // is the only thing that knows.
+        //
+        // The innermost cause and not the whole chain: everything wrapped around it
+        // on the way here says which file this was, and the row that shows this
+        // leads with the path already.
+        return format!("{}", e.root_cause());
+    };
+
+    match open.kind() {
+        std::io::ErrorKind::PermissionDenied => match owner_and_mode(path) {
+            Some((uid, mode)) => format!(
+                "Tocata is not allowed to read this file. \
+                 It belongs to uid {uid} and its permissions are {mode:04o}"
+            ),
+            // Not even its directory can be listed, so there is nothing more to say
+            // than that it is shut.
+            None => "Tocata is not allowed to read this file".to_string(),
+        },
+        // It was there a moment ago, when the walk found it. Somebody is moving
+        // things about while the scan runs, and the next one will settle it.
+        std::io::ErrorKind::NotFound => "The file went away while it was being read".to_string(),
+        _ => format!("{open}"),
+    }
+}
+
+/// Who owns a file and what it allows, or nothing where the platform does not say.
+#[cfg(unix)]
+fn owner_and_mode(path: &Path) -> Option<(u32, u32)> {
+    use std::os::unix::fs::MetadataExt;
+
+    // `symlink_metadata`, so a link pointing somewhere unreadable reports the link
+    // rather than following it into a second failure.
+    let about = std::fs::symlink_metadata(path).ok()?;
+
+    // The permission bits alone. The rest of the mode says what kind of thing it is,
+    // which is not what somebody reading "0644" expects to see.
+    Some((about.uid(), about.mode() & 0o7777))
+}
+
+#[cfg(not(unix))]
+fn owner_and_mode(_path: &Path) -> Option<(u32, u32)> {
+    None
 }
 
 /// A file with no readable title is still a track: the file name is a better

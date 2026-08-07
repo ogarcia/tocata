@@ -65,7 +65,7 @@ home:
   size: Tamaño
   duration: Duración
   playlists: Listas de reproducción
-  missing: Ausentes
+  attention: Piden atención
   version: Versión
   last_scan: Último escaneo
   libraries: Bibliotecas
@@ -554,6 +554,26 @@ access:
   password: "Tu contraseña"
   password_changed: "Cambiada %{when}"
   change_password: "Cambiarla en Perfil"
+
+attention:
+  heading: Ficheros que piden atención
+  lead: "%{count} ficheros que el último escaneo no pudo cuadrar. Nada de esto se ha borrado de tus discos: Tocata solo los lee."
+  unreadable: "Ilegibles · %{count}"
+  unreadable_why: "El fichero está ahí y Tocata no puede leerlo, así que nada de su música está en la colección. Cada uno dice qué pasó, con las palabras de quien lo intentó; el próximo escaneo lo vuelve a intentar solo."
+  failing_since: Fallando desde el %{when}.
+  astray: "Desaparecidos · %{count}"
+  astray_why: "La música sigue en la colección y el fichero ya no está donde estaba. Sus valoraciones, sus reproducciones y sus sitios en las listas siguen aquí esperando: vuelve a poner el fichero y el próximo escaneo lo recoge como si nada."
+  track: Pista
+  last_seen: Visto por última vez
+  held: Guardado
+  plays: "%{count} reproducciones"
+  rated_by: "valorada por %{count}"
+  in_playlists: "en %{count} listas"
+  held_nothing: nada
+  dropped_in: "se va en %{count} d"
+  dropped_next_scan: se va en el próximo escaneo
+  moved: "¿Has movido la colección de sitio? Escanea antes de olvidar nada: un fichero que aparece bajo otra ruta deja de faltar solo."
+  and_more: y %{count} más
 
 chores:
   lead: "Trabajos que ejecutas cuando algo va mal. Cada uno dice cuándo se ejecutó por última vez y qué encontró."

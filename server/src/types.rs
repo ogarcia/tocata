@@ -634,6 +634,14 @@ pub struct Stats {
     pub tracks: i64,
     /// Tracks recorded but no longer on disk. What a purge would remove.
     pub missing: i64,
+    /// Tracks whose file is on disk and would not open, so nothing about the music
+    /// in them is in the collection.
+    ///
+    /// The other half of the same pair and the opposite problem: this one is a file
+    /// there is nothing to delete about, only something to go and fix. Not the same
+    /// figure as the one the last scan reports — that one counts what that scan
+    /// tried, and this one counts what the collection is holding.
+    pub unreadable: i64,
     pub genres: i64,
     pub playlists: i64,
     pub users: i64,
@@ -649,6 +657,66 @@ pub struct Stats {
     /// Bytes the database takes, its write-ahead log included, since during
     /// normal running that is where a good part of it lives.
     pub database_size: i64,
+}
+
+/// The files a scan could not account for, in two lists.
+///
+/// Two and not one filtered list, because they look alike in a count and are
+/// opposite problems. An unreadable file is on the disk and its music is not in the
+/// collection: there is nothing to delete, only something to go and fix. A missing
+/// track is in the collection and its file is not on the disk: there is nothing to
+/// fix, only something to decide about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeedingAttention {
+    pub unreadable: Vec<UnreadableFile>,
+    pub missing: Vec<MissingTrack>,
+    /// How many there are in all. The lists are cut short — a collection with five
+    /// hundred unreadable files has one problem and not five hundred, and the count
+    /// says it better than five hundred rows would.
+    pub unreadable_total: i64,
+    pub missing_total: i64,
+    /// Days a track may stay missing before a scan clears it out, or nothing where
+    /// nobody set a limit. What lets a row say it is about to go.
+    pub grace_days: Option<i64>,
+}
+
+/// A file that is there and will not open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadableFile {
+    /// Where it is, whole. Everywhere else a path is relative to its library,
+    /// because that is how a library survives being moved — but this is a path
+    /// somebody is about to type at a shell, and half of one is no use there.
+    pub path: String,
+    pub library: String,
+    pub size: i64,
+    /// Since when it has been failing.
+    pub since: String,
+    /// Why, as the last attempt put it. English, and often the reader's own words:
+    /// see `unreadable_error` in the schema.
+    pub why: Option<String>,
+}
+
+/// A track whose file is no longer where it was.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingTrack {
+    pub id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub year: Option<i32>,
+    /// Where it last was, whole, for the same reason as above.
+    pub path: String,
+    pub since: String,
+    /// Everybody's plays added up. There is no such thing as one number of plays on
+    /// a server with more than one account, and the sum is the honest one.
+    pub plays: i64,
+    /// And how many people rated it, for the same reason: a single score out of
+    /// five would be somebody's, and the row does not say whose.
+    pub raters: i64,
+    pub playlists: i64,
 }
 
 /// What a purge would take, in the terms that matter.

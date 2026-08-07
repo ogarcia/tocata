@@ -1320,6 +1320,75 @@ mod a_file_that_will_not_open {
         assert_eq!(since, None, "and the note is gone");
     }
 
+    /// And why, which is the half that used to go to the log and nowhere else.
+    ///
+    /// Two shapes, because they are answered by two different things. A file the
+    /// server may not open is said in words, with what to change, and the reader is
+    /// never asked — it would have called it a parse failure like any other, which
+    /// is the least useful thing anybody could be told about a `chmod`. A file that
+    /// opens and will not parse is the reader's own sentence, cryptic and true and
+    /// not ours to rewrite.
+    #[tokio::test]
+    async fn it_says_why_and_stops_saying_it_when_the_file_reads() {
+        let root = temp_root("unreadable-why");
+        let shut = root.join("Album/shut.wav");
+        let damaged = root.join("Album/damaged.wav");
+        write_wav(&shut);
+
+        // Not audio at all. lofty opens it, finds no container it knows and says so,
+        // which is the ordinary shape of everything that is not about permissions.
+        fs::create_dir_all(damaged.parent().unwrap()).unwrap();
+        fs::write(&damaged, b"this is not a wav file").unwrap();
+
+        let pool = database().await;
+        let id = library(&pool, &root).await;
+
+        readable(&shut, false);
+        let first = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+        readable(&shut, true);
+
+        assert_eq!(first.failed, 2, "neither of them read");
+
+        let why = |name: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT unreadable_error FROM tracks WHERE path = ?",
+                )
+                .bind(format!("Album/{name}"))
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+
+        let shut_says = why("shut.wav").await.expect("it says why");
+        assert!(
+            shut_says.starts_with("Tocata is not allowed to read this file"),
+            "said in words, not as whatever the tag reader made of it: {shut_says}"
+        );
+        assert!(
+            shut_says.contains("permissions are 0000"),
+            "with the thing to go and change in it: {shut_says}"
+        );
+
+        let damaged_says = why("damaged.wav").await.expect("it says why");
+        assert!(
+            !damaged_says.contains(&root.display().to_string()),
+            "the innermost cause and not the chain around it, which repeats the path \
+             the row already leads with: {damaged_says}"
+        );
+
+        // Read this time, so there is nothing left to explain.
+        let again = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+        assert_eq!(again.failed, 1, "only the one that is genuinely not audio");
+        assert_eq!(
+            why("shut.wav").await,
+            None,
+            "a reason left behind on a file that reads is a reason that lies"
+        );
+    }
+
     /// And the optimisation it must not cost: a file that was read fine and has not
     /// changed is still not opened again. Losing this would mean rereading a whole
     /// library on every quick scan.

@@ -22,6 +22,7 @@ use crate::api::{self, Failure};
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 use rust_i18n::t;
 use tocata::types::{Resources, Stats, Status};
 
@@ -121,7 +122,22 @@ fn Figures(
                     <Row label=t!("home.size").to_string() value=super::bytes(stats.total_size) />
                     <Row label=t!("home.duration").to_string() value=length(stats.total_duration) />
                     <Row label=t!("home.playlists").to_string() value=super::thousands(stats.playlists) />
-                    <Row label=t!("home.missing").to_string() value=super::thousands(stats.missing) />
+                    // The two problems in one row, and one row because the two panes
+                    // carry the same number of them on purpose — see the note at the
+                    // head of this file. They are halves of the same idea anyway:
+                    // files the last scan could not account for, one sort there and
+                    // not in the collection, the other in the collection and not
+                    // there. The screen that can afford to tell them apart is the one
+                    // this goes to.
+                    //
+                    // A count that names a problem is a way into it, so above zero it
+                    // opens. At zero it is plain like everything around it, because
+                    // there is nothing to go and see.
+                    <Row
+                        label=t!("home.attention").to_string()
+                        value=super::thousands(stats.missing + stats.unreadable)
+                        to=(stats.missing + stats.unreadable > 0).then_some("/maintenance")
+                    />
                     <Row label=t!("home.libraries").to_string() value=super::thousands(stats.libraries) />
                 </dl>
             </section>
@@ -169,12 +185,27 @@ fn Count(figure: i64, label: String, icon: Icon) -> impl IntoView {
 }
 
 /// A name and a value, apart from each other on a line of their own.
+///
+/// The value opens something where it is given somewhere to go, which is only ever
+/// where the figure means something is wrong. Drawn as a link and not with an arrow
+/// of its own: a link is already what this panel means by "this opens", and one
+/// glyph appearing on one row of ten reads as a decoration rather than as an
+/// affordance.
 #[component]
-fn Row(label: String, value: String) -> impl IntoView {
+fn Row(
+    label: String,
+    value: String,
+    #[prop(optional_no_strip)] to: Option<&'static str>,
+) -> impl IntoView {
     view! {
         <div>
             <dt>{label}</dt>
-            <dd>{value}</dd>
+            <dd>
+                {match to {
+                    None => value.into_any(),
+                    Some(to) => view! { <A href=to attr:class="link">{value}</A> }.into_any(),
+                }}
+            </dd>
         </div>
     }
 }
