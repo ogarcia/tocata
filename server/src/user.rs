@@ -241,12 +241,42 @@ pub async fn seen(pool: &SqlitePool, user_id: i64) {
 ///
 /// A courtesy write like [`seen`], and it does not fail the request either: the key
 /// authenticated, and whether we managed to write down that it did is our problem.
+///
+/// **And it asks before it writes, for the reason spelled out on [`seen`].** This
+/// one was left writing on every request, which was the same mistake in the same
+/// file: a column deliberately kept to the nearest five minutes, taking SQLite's
+/// one write lock every time a client asked for anything. It went unnoticed for as
+/// long as it did because the path reaching it was reached only after a password
+/// had already failed — now that a key is recognised first, this runs on every
+/// request of every client that uses one.
 async fn record_api_key_use(pool: &SqlitePool, key_id: i64) {
-    let noted = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
-        .bind(now())
-        .bind(key_id)
-        .in_turn(pool)
-        .await;
+    let stale = crate::db::from_now(-chrono::Duration::minutes(SEEN_RESOLUTION_MINUTES));
+
+    let fresh: Result<Option<i64>, _> =
+        sqlx::query_scalar("SELECT 1 FROM api_keys WHERE id = ? AND last_used_at >= ?")
+            .bind(key_id)
+            .bind(&stale)
+            .fetch_optional(pool)
+            .await;
+
+    match fresh {
+        // Noted recently enough, which is the answer almost every time.
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(e) => return warn!("could not read when an API key was last used: {e}"),
+    }
+
+    let noted = sqlx::query(
+        "UPDATE api_keys SET last_used_at = ?
+          WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
+    )
+    .bind(now())
+    .bind(key_id)
+    // In the statement as well as in the question above, so two requests that both
+    // read "stale" do not both write the same instant.
+    .bind(&stale)
+    .in_turn(pool)
+    .await;
 
     if let Err(e) = noted {
         warn!("could not record that an API key was used: {e}");
@@ -273,29 +303,39 @@ pub async fn authenticate_api_key(pool: &SqlitePool, key: &str) -> Result<Option
 /// accepted where the password goes — the same accommodation LMS makes. That
 /// is what gives the other seven a credential which can be revoked on its own,
 /// instead of a password whose change logs every client out at once.
+///
+/// **The key is tried first**, and that ordering earns a paragraph. Recognising a
+/// key costs a digest and one indexed lookup; verifying a password costs argon2,
+/// which is slow on purpose. Asked the other way round, a client that pasted its
+/// key where the password goes — the accommodation above, and what almost every
+/// client does — paid for a failed argon2 on every request it ever made, and a
+/// failure is deliberately never remembered.
+///
+/// Nobody gets in who did not get in before, and nothing new is given away. A
+/// secret that is neither this account's key nor its password still reaches
+/// argon2, so a name that exists costs what a name that does not costs, which is
+/// what keeps this from answering who has an account here. What returns early is
+/// a credential that was already valid, and a valid credential tells its holder
+/// nothing they did not have.
 pub async fn authenticate_password_or_api_key(
     pool: &SqlitePool,
     username: &str,
     secret: &str,
 ) -> Result<Option<User>> {
-    if let Some(user) = authenticate_password(pool, username, secret).await? {
+    // A key already says whose it is, so one belonging to somebody else opens
+    // nothing here. Falling through rather than refusing: what was offered is not
+    // this account's key, and it may still be this account's password — which is
+    // what the old order, password first, did.
+    if let Some((key_id, user)) = lookup_api_key(pool, secret).await?
+        && user.username == username
+    {
+        record_api_key_use(pool, key_id).await;
+        seen(pool, user.id).await;
+
         return Ok(Some(user));
     }
 
-    // A key already says whose it is, so one belonging to somebody else is a
-    // mistake to reject rather than an invitation to log in as them.
-    let Some((key_id, user)) = lookup_api_key(pool, secret).await? else {
-        return Ok(None);
-    };
-
-    if user.username != username {
-        return Ok(None);
-    }
-
-    record_api_key_use(pool, key_id).await;
-    seen(pool, user.id).await;
-
-    Ok(Some(user))
+    authenticate_password(pool, username, secret).await
 }
 
 /// Creates the first account when the database has no users, returning the
@@ -884,6 +924,102 @@ mod tests {
         assert!(
             last_used(&pool, "bob's key").await.is_none(),
             "a key that opened nothing was not used"
+        );
+    }
+
+    /// Guarded the same way the account's own note is, and for the same reason —
+    /// which this one had to learn twice. It was written on every request, and it
+    /// went unnoticed because nothing reached it until a password had already
+    /// failed. Now that a key is recognised before the password is tried, it runs
+    /// on every request of every client that carries one.
+    ///
+    /// What this proves is that the column is left alone, which is not the same as
+    /// proving no write was attempted — and the write lock is taken by the attempt,
+    /// not by the page. Removing the question and leaving only the guard inside the
+    /// `UPDATE` passes this test, because the statement then matches no row. That
+    /// distinction is the entire point of asking first and there is no way to see it
+    /// from here; it would need the lock itself counted.
+    #[tokio::test]
+    async fn a_key_noted_a_moment_ago_is_not_written_again() {
+        let pool = two_users_with_keys().await;
+
+        // A moment inside the resolution, distinctive enough to recognise.
+        let recent = crate::db::from_now(-chrono::Duration::minutes(1));
+        sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?")
+            .bind(&recent)
+            .bind(auth::hash_secret("ana's key"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        authenticate_password_or_api_key(&pool, "ana", "ana's key")
+            .await
+            .unwrap()
+            .expect("the key still opens the account");
+
+        assert_eq!(
+            last_used(&pool, "ana's key").await.as_deref(),
+            Some(recent.as_str()),
+            "left alone, because it was noted a minute ago"
+        );
+
+        // And once it has gone stale it moves again.
+        sqlx::query("UPDATE api_keys SET last_used_at = '2020-01-01T00:00:00Z' WHERE key_hash = ?")
+            .bind(auth::hash_secret("ana's key"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        authenticate_password_or_api_key(&pool, "ana", "ana's key")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_ne!(
+            last_used(&pool, "ana's key").await.as_deref(),
+            Some("2020-01-01T00:00:00Z"),
+            "a note this old is worth replacing"
+        );
+    }
+
+    /// A name nobody carries costs what a name somebody carries costs.
+    ///
+    /// Without that, the time an answer takes says which accounts exist, and the
+    /// login screen is written not to say (see the panel's own reasoning). It is
+    /// held up by one line — a verification against a hash of nothing — which reads
+    /// like waste and is the whole defence.
+    ///
+    /// A timing assertion, so the margin is wide on purpose: what it must catch is
+    /// that line being deleted, which turns hundreds of milliseconds into none, and
+    /// a busy machine cannot make an argon2 cheap enough to fool it.
+    #[tokio::test]
+    async fn a_name_that_does_not_exist_costs_what_one_that_does_costs() {
+        let pool = two_users_with_keys().await;
+
+        // A wrong password against a real account: never remembered, so this is a
+        // full argon2 every time it is asked.
+        let start = std::time::Instant::now();
+        assert!(
+            authenticate_password(&pool, "ana", "not her password")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let real = start.elapsed();
+
+        let start = std::time::Instant::now();
+        assert!(
+            authenticate_password(&pool, "nobody at all", "not her password")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let absent = start.elapsed();
+
+        assert!(
+            absent * 2 > real,
+            "a name nobody carries answered in {absent:?} against {real:?} for one \
+             somebody does, which is the difference that tells an attacker where to look"
         );
     }
 
