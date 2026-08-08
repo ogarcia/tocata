@@ -121,25 +121,34 @@ macro_rules! album_is_visible {
 /// compilation is filed under. Counting only the first leaves those names in the
 /// listing with nothing behind them.
 ///
+/// Membership of a set gathered from the artist rather than a pair of questions
+/// asked of a track, and the two say exactly the same thing at very different
+/// prices. Asked of a track, the artist is named in another table, so no index
+/// reaches the condition and answering it means reading every track once per
+/// artist — a page of fifty names over eleven thousand tracks measured at seven
+/// seconds on a slow machine. Gathered from the artist, each branch is an index
+/// lookup on them, and a track that is theirs both ways lands in both branches
+/// without counting twice, because this asks whether a track is in the set and
+/// not how often.
+///
 /// `$track` is the alias the tracks table goes by, and `$artist` an expression for
-/// the artist's row id — which the condition names twice, so a caller binding it has
-/// to bind it twice.
+/// the artist's row id — which the set names twice, so a caller binding it has to
+/// bind it twice.
 #[cfg(feature = "server")]
 macro_rules! track_is_theirs {
     ($track:literal, $artist:literal) => {
         concat!(
-            "(EXISTS (SELECT 1 FROM track_artists ta
-                       WHERE ta.track_id = ",
             $track,
-            ".id AND ta.artist_id = ",
+            ".id IN (SELECT ta.track_id FROM track_artists ta
+                      WHERE ta.artist_id = ",
             $artist,
-            ")
-              OR EXISTS (SELECT 1 FROM album_artists aa
-                          WHERE aa.album_id = ",
-            $track,
-            ".album_id AND aa.artist_id = ",
+            "
+                     UNION
+                     SELECT tt.id FROM album_artists aa
+                       JOIN tracks tt ON tt.album_id = aa.album_id
+                      WHERE aa.artist_id = ",
             $artist,
-            "))"
+            ")"
         )
     };
 }

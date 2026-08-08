@@ -330,22 +330,29 @@ impl From<ArtistRow> for ArtistId3 {
 /// A macro rather than a constant so `concat!` can build each full statement at
 /// compile time: sqlx will not take SQL assembled at runtime, and it is right
 /// not to.
+///
+/// The count gathers the albums the artist is named on and then asks which of
+/// those are visible, rather than walking the albums asking which are theirs.
+/// Same answer, and the difference is everything: written the other way round the
+/// filter sits in a table other than the one being walked, so no index can serve
+/// it and every album is examined once per artist — 736 artists over 1078 albums
+/// measured at ten seconds on a slow machine, for the first call every client
+/// makes. Read this way each branch of the union is an index lookup on the
+/// artist.
 macro_rules! artist_columns_head {
     () => {
         concat!(
             "
     SELECT a.id, a.public_id, a.name, a.sort_name, a.mbid,
-           (SELECT count(*) FROM albums al
-             WHERE (EXISTS (
-                        SELECT 1 FROM album_artists aa
-                         WHERE aa.album_id = al.id AND aa.artist_id = a.id
-                    )
-                 OR EXISTS (
-                        SELECT 1 FROM track_artists ta
-                          JOIN tracks t ON t.id = ta.track_id
-                         WHERE t.album_id = al.id AND ta.artist_id = a.id
-                    ))
-               AND ",
+           (SELECT count(*) FROM (
+                       SELECT aa.album_id AS id FROM album_artists aa
+                        WHERE aa.artist_id = a.id
+                       UNION
+                       SELECT t.album_id FROM track_artists ta
+                         JOIN tracks t ON t.id = ta.track_id
+                        WHERE ta.artist_id = a.id
+                   ) al
+             WHERE ",
             album_is_visible!("al.id"),
             ") AS album_count,
            s.starred_at
@@ -1585,6 +1592,87 @@ mod visibility_tests {
             .unwrap();
 
         (pool, users[0], users[1], vec![1, 2])
+    }
+
+    /// Both ways an album is an artist's, since the count gathers them as two
+    /// branches and losing either is quiet: the name stays in the listing and
+    /// reports nothing behind it, which is what a client shows as an empty shelf.
+    #[tokio::test]
+    async fn an_album_counts_for_who_signs_it_and_for_who_plays_on_it() {
+        let (pool, everybody, _, _) = two_libraries().await;
+        let at = db::now();
+
+        // A name that only ever signs: album artist of the first album, credited
+        // on no track of it — which is how a file writes a compilation.
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+             VALUES (3, 'art3', 'Various Artists', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role)
+             VALUES (1, 3, 'albumartist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // And a second record of theirs with nothing left in it, so the count has
+        // something it must leave out.
+        sqlx::query(
+            "INSERT INTO albums (id, public_id, grouping_key, name, created_at, updated_at)
+             VALUES (3, 'alb3', 'album gone', 'Album Gone', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role)
+             VALUES (3, 3, 'albumartist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
+                                 file_size, file_modified_at, content_type, suffix, title,
+                                 missing_since, last_seen_scan, created_at, updated_at)
+             VALUES (3, 'trk3', 1, 1, 3, '/a/gone.wav', 1, ?, 'audio/wav', 'wav', 'Gone',
+                     '2026-08-01T09:00:00Z', 1, ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let artists = load_artists(&pool, everybody).await.unwrap();
+        let of = |name: &str| {
+            artists
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap_or_else(|| panic!("{name} is missing from the listing"))
+                .album_count
+        };
+
+        assert_eq!(
+            of("Various Artists"),
+            Some(1),
+            "the record they sign, though they play on none of it — and not the one \
+             whose files are gone"
+        );
+        assert_eq!(
+            of("Artist a"),
+            Some(1),
+            "the record they play on, though somebody else signs it"
+        );
     }
 
     /// The loaders that take a list of identifiers are assembled by a
