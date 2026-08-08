@@ -4,7 +4,9 @@
 use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
-use sqlx::sqlite::{SqliteArguments, SqliteConnectOptions, SqliteJournalMode, SqliteQueryResult};
+use sqlx::sqlite::{
+    SqliteArguments, SqliteConnectOptions, SqliteJournalMode, SqliteQueryResult, SqliteSynchronous,
+};
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -280,6 +282,23 @@ pub async fn connect(path: &Path) -> Result<SqlitePool> {
         // Readers do not block the writer, which matters while a scan is
         // running and clients keep browsing.
         .journal_mode(SqliteJournalMode::Wal)
+        // The log is flushed at checkpoints rather than on every commit, which
+        // is the setting written for the mode above.
+        //
+        // SQLite defaults to FULL, meaning an fsync per transaction, and that is
+        // the right default for a database whose every row is somebody's money.
+        // Ours holds what was read off files that are still there to be read
+        // again: a star, a play counted, a note that an album carries no cover.
+        // Paid for at FULL, one such note cost 1.2 seconds on an old disk busy
+        // reading music — for a write of one row.
+        //
+        // What NORMAL gives up is narrow and worth naming exactly. The database
+        // is never corrupted; that guarantee belongs to the log, not to the
+        // flush. Nothing is lost if this program crashes or is stopped, because
+        // the writing already reached the system. Only the machine losing power
+        // or the kernel going down can take the last commits with it, and what
+        // they would take is a handful of seconds of the small things above.
+        .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(BUSY_TIMEOUT);
 
     let pool = SqlitePool::connect_with(options)
@@ -297,6 +316,43 @@ pub async fn connect(path: &Path) -> Result<SqlitePool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two settings a database of ours is opened with, read back from the
+    /// database itself.
+    ///
+    /// Both are deliberate and neither is visible in how the program behaves
+    /// until the day it matters: turn the log off and readers start blocking on
+    /// the writer, put the flush back on every commit and a write of one row
+    /// costs an fsync. A pragma nobody reads back is a pragma that quietly
+    /// returns to its default the next time these options are rewritten.
+    ///
+    /// Opened as a file rather than in memory on purpose. A database in memory
+    /// has no log to keep and nothing to flush, so it answers whatever it likes
+    /// and would agree with any expectation put to it.
+    #[tokio::test]
+    async fn a_database_is_opened_with_the_log_on_and_the_flush_off() {
+        let directory = std::env::temp_dir().join("tocata-pragmas");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+
+        let pool = connect(&directory.join("tocata.db")).await.unwrap();
+
+        let journal: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(journal, "wal", "readers must not block the writer");
+
+        // 0 is OFF, 1 NORMAL, 2 FULL, 3 EXTRA.
+        let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            synchronous, 1,
+            "flushed at checkpoints, not once for every row written"
+        );
+    }
 
     /// The reason this function exists rather than the string being stored as
     /// given: text comparison is what decides whether a moment has passed, so an
