@@ -141,6 +141,20 @@ CREATE INDEX albums_name_idx      ON albums (name);
 CREATE INDEX albums_sort_name_idx ON albums (sort_name);
 CREATE INDEX albums_mbid_idx      ON albums (mbid_release);
 
+-- The three orders getAlbumList is asked for, so that a page of twenty is twenty
+-- rows read and not the whole catalogue read, sorted in a temporary table and
+-- then thrown away twenty at a time. Without them, "the newest twenty" walks
+-- every album there is; with them SQLite reads the index in order and stops.
+--
+-- The third indexes the expression the name is sorted by rather than a column,
+-- because the name a record files under is its sort name when it has one and its
+-- own name when it has not, and an index on either column alone cannot answer
+-- for that. The collation belongs in the index for the same reason: an index
+-- ordered one way cannot serve an ORDER BY that asks for another.
+CREATE INDEX albums_created_idx ON albums (created_at);
+CREATE INDEX albums_year_idx    ON albums (year);
+CREATE INDEX albums_alpha_idx   ON albums (coalesce(sort_name, name) COLLATE NOCASE);
+
 -- Per-disc titles, for the discTitles field OpenSubsonic adds to AlbumID3.
 CREATE TABLE album_discs (
     album_id    INTEGER NOT NULL REFERENCES albums (id) ON DELETE CASCADE,
@@ -271,6 +285,29 @@ CREATE INDEX tracks_missing_idx ON tracks (missing_since)
 
 -- Drives the sweep that marks what a scan did not see.
 CREATE INDEX tracks_last_seen_idx ON tracks (library_id, last_seen_scan);
+
+-- Whether a record has anything left to play, which is asked of every album in
+-- every listing and is therefore the most repeated question in the database.
+--
+-- Both columns are in it so the question is answered inside the index: the album
+-- narrows it and the library decides it, and neither costs a visit to the track
+-- itself. `tracks_album_idx` above cannot do that — it finds the tracks of an
+-- album and then has to read each one to learn which library it is in and
+-- whether its file is still there. It stays, because plenty of statements want
+-- an album's tracks whether they are missing or not.
+--
+-- Partial for the same reason the missing index is, and the opposite way round:
+-- a listing never wants a track whose file is gone, so they are better left out
+-- of the index than filtered out of it.
+CREATE INDEX tracks_present_idx ON tracks (album_id, library_id)
+    WHERE missing_since IS NULL;
+
+-- Picking songs at random, which cannot avoid considering every song that could
+-- be picked but can avoid reading them. Library, year and identity are what the
+-- choosing needs, so it is all here and the table is never opened for the ones
+-- not chosen.
+CREATE INDEX tracks_pick_idx ON tracks (library_id, year, id)
+    WHERE missing_since IS NULL;
 
 -- Credits carry a role and a position. The role covers artist, albumartist,
 -- composer, performer and whatever else a tag throws at us without adding a

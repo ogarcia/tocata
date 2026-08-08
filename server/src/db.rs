@@ -361,6 +361,114 @@ mod tests {
         assert!(!Arc::ptr_eq(&queue_for(&hers), &queue_for(&his)));
     }
 
+    /// The orders a listing is asked for are orders the schema can read in, and
+    /// the question every listing asks of every record is one it can answer
+    /// without opening the record.
+    ///
+    /// Nothing in the program names these indexes, which is what makes them easy
+    /// to tidy away as unused, and losing one is silent: every answer stays
+    /// right and a page of twenty goes from twenty rows read to the whole
+    /// catalogue read, sorted into a temporary table and thrown away. On a slow
+    /// machine that is the difference between an eyeblink and two seconds, and
+    /// it was measured at four hundred and thirty times the work.
+    ///
+    /// So what is checked is the plan rather than a duration, which would only
+    /// say how fast this machine is today. "USE TEMP B-TREE" is SQLite saying it
+    /// had to gather everything before it could give back the first row; a SCAN
+    /// of a table is it saying it read the table through. Neither belongs in a
+    /// listing that ends in LIMIT.
+    /// How SQLite says it would answer, as one line. The plan comes back a row
+    /// per step, and the step's own words are its last column.
+    async fn explain(pool: &SqlitePool, statement: &'static str) -> String {
+        let steps: Vec<(i64, i64, i64, String)> =
+            sqlx::query_as(statement).fetch_all(pool).await.unwrap();
+
+        steps
+            .into_iter()
+            .map(|(_, _, _, detail)| detail)
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    #[tokio::test]
+    async fn a_listing_is_read_in_order_rather_than_gathered_and_sorted() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        // How each kind of album list orders itself, in the words the statements
+        // use — a different expression is a different index, and `coalesce` with
+        // the collation spelled out is the one the alphabetical lists ask for.
+        //
+        // Written out whole rather than assembled around the ordering, because
+        // sqlx takes SQL it can read at compile time and nothing else — which is
+        // the rule that keeps a statement from ever being built out of anything
+        // that came from outside.
+        for (what, statement) in [
+            (
+                "newest",
+                "EXPLAIN QUERY PLAN
+                 SELECT id FROM albums ORDER BY created_at DESC LIMIT 20",
+            ),
+            (
+                "by year",
+                "EXPLAIN QUERY PLAN
+                 SELECT id FROM albums ORDER BY year LIMIT 20",
+            ),
+            (
+                "alphabetical",
+                "EXPLAIN QUERY PLAN
+                 SELECT id FROM albums
+                  ORDER BY coalesce(sort_name, name) COLLATE NOCASE LIMIT 20",
+            ),
+        ] {
+            let plan = explain(&pool, statement).await;
+
+            assert!(
+                !plan.contains("TEMP B-TREE"),
+                "the {what} listing sorts the whole catalogue to hand back twenty: {plan}"
+            );
+        }
+
+        // And whether a record has anything left to play, which is asked of every
+        // record in every one of those listings.
+        let plan = explain(
+            &pool,
+            "EXPLAIN QUERY PLAN
+             SELECT 1 FROM tracks t
+              WHERE t.album_id = 1 AND t.missing_since IS NULL AND t.library_id = 1",
+        )
+        .await;
+
+        // Both columns inside the search is the whole point: the album narrows it
+        // and the library settles it, without the track ever being opened. Found
+        // by the album alone — which is what the older index offers — every
+        // candidate has to be read to learn which library it is in, and that is
+        // the walk this is here to keep out.
+        assert!(
+            plan.contains("tracks_present_idx (album_id=? AND library_id=?)"),
+            "asking whether a record still has anything on it opens the tracks \
+             themselves: {plan}"
+        );
+
+        // Picking songs at random has to consider every song that could be
+        // picked — there is no ordering that lets it stop early — so the whole of
+        // what it saves is not reading them. Library and year are what the
+        // choosing asks about, and they are both in the index.
+        let plan = explain(
+            &pool,
+            "EXPLAIN QUERY PLAN
+             SELECT t.id FROM tracks t
+              WHERE t.missing_since IS NULL AND t.library_id = 1 AND t.year >= 1990
+              ORDER BY random() LIMIT 10",
+        )
+        .await;
+
+        assert!(
+            plan.contains("tracks_pick_idx (library_id=? AND year>?)"),
+            "picking ten songs at random reads every song there is: {plan}"
+        );
+    }
+
     /// The two settings a database of ours is opened with, read back from the
     /// database itself.
     ///
