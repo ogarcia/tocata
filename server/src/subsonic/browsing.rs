@@ -472,21 +472,32 @@ async fn load_albums_of_artist(
 ) -> Result<Vec<AlbumId3>, sqlx::Error> {
     // Credited as album artist, or simply holding tracks by them: an album with
     // no album artist tagged would otherwise be invisible from its artist.
+    //
+    // Gathered from the artist rather than asked of each album, for the reason
+    // spelled out at `track_is_theirs!` one level down. Asked of each album —
+    // `WHERE EXISTS (…this album is hers…)` — the catalogue is walked record by
+    // record and her tracks are looked up again for every one of them: four
+    // hundred thousand page reads to answer with five records, on a collection of
+    // three and a half thousand. Gathered from her, both branches start at a
+    // lookup of one row by its unique name, nothing is walked, and the same five
+    // records cost eight hundred.
+    //
+    // The two branches say different things about visibility on purpose, and this
+    // keeps what they said. A record she signs is hers whether or not anything on
+    // it can still be played, which is what puts a discography on screen when the
+    // files are away. A record she merely plays on has to have a track of hers
+    // that is still there to be played.
     let rows: Vec<AlbumRow> = sqlx::query_as(concat!(
         album_columns!(),
-        "
-         WHERE EXISTS (
-                   SELECT 1 FROM album_artists aa
-                     JOIN artists ar ON ar.id = aa.artist_id
-                    WHERE aa.album_id = al.id AND ar.public_id = ?
-               )
-            OR EXISTS (
-                   SELECT 1 FROM tracks t
+        " WHERE al.id IN (
+                   SELECT signed.album_id FROM album_artists signed
+                    WHERE signed.artist_id = (SELECT id FROM artists WHERE public_id = ?)
+                   UNION
+                   SELECT t.album_id FROM tracks t
                      JOIN track_artists ta ON ta.track_id = t.id
-                     JOIN artists ar ON ar.id = ta.artist_id
-                    WHERE t.album_id = al.id AND t.missing_since IS NULL
+                    WHERE ta.artist_id = (SELECT id FROM artists WHERE public_id = ?)
+                      AND t.missing_since IS NULL
                       AND t.library_id IN (SELECT id FROM visible_libraries)
-                      AND ar.public_id = ?
                )
          ORDER BY al.year, coalesce(al.sort_name, al.name) COLLATE NOCASE"
     ))
@@ -1672,6 +1683,154 @@ mod visibility_tests {
             of("Artist a"),
             Some(1),
             "the record they play on, though somebody else signs it"
+        );
+    }
+
+    /// A discography holds every record that is theirs, and the two ways of being
+    /// theirs do not ask the same thing about what is left to play.
+    ///
+    /// A record they sign is theirs whether or not its files are still there:
+    /// that is what keeps a discography on screen when a disk is unmounted, and
+    /// dropping it is how a name ends up in the listing with an empty shelf
+    /// behind it. A record they only play on has to have a track of theirs that
+    /// can still be played, and one in a library this person may not open is not
+    /// theirs to see.
+    ///
+    /// Worth pinning here because the statement gathers those records from the
+    /// artist rather than asking each record about them, and a set gathered
+    /// wrongly is quiet — the answer comes back short, never wrong-looking.
+    #[tokio::test]
+    async fn a_discography_holds_what_they_sign_and_what_they_can_still_be_heard_on() {
+        let (pool, everybody, restricted, _) = two_libraries().await;
+        let at = db::now();
+
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+             VALUES (3, 'art3', 'Her', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Four records: what she signs, what she plays on, and the two that are
+        // hers only in a way this person cannot reach.
+        for (album, name) in [
+            (10, "Signed, Every File Away"),
+            (11, "Plays On It"),
+            (12, "Plays On It, File Away"),
+            (13, "Plays On It, Other Library"),
+        ] {
+            sqlx::query(
+                "INSERT INTO albums (id, public_id, grouping_key, name, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(album)
+            .bind(format!("alb{album}"))
+            .bind(name)
+            .bind(name)
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // She signs the first one and nothing else. The others carry somebody
+        // else's signature, so they can only be hers through a track.
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role) VALUES (10, 3, 'albumartist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        for album in [11, 12, 13] {
+            sqlx::query(
+                "INSERT INTO album_artists (album_id, artist_id, role) VALUES (?, 1, 'albumartist')",
+            )
+            .bind(album)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        for (track, album, library, gone) in [
+            (10, 10, 1, true),
+            (11, 11, 1, false),
+            (12, 12, 1, true),
+            (13, 13, 2, false),
+        ] {
+            sqlx::query(
+                "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
+                                     file_size, file_modified_at, content_type, suffix, title,
+                                     missing_since, last_seen_scan, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'audio/wav', 'wav', 'Song', ?, 1, ?, ?)",
+            )
+            .bind(track)
+            .bind(format!("trk{track}"))
+            .bind(library)
+            .bind(library)
+            .bind(album)
+            .bind(format!("/{track}.wav"))
+            .bind(&at)
+            .bind(gone.then(|| at.clone()))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, 3, 'artist')",
+            )
+            .bind(track)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let named = |albums: &[AlbumId3]| {
+            let mut names: Vec<String> = albums.iter().map(|a| a.name.clone()).collect();
+            names.sort();
+            names
+        };
+
+        assert_eq!(
+            named(
+                &load_albums_of_artist(&pool, everybody, "art3")
+                    .await
+                    .unwrap()
+            ),
+            vec![
+                "Plays On It".to_string(),
+                "Plays On It, Other Library".to_string(),
+                "Signed, Every File Away".to_string(),
+            ],
+            "what she signs stays whatever became of its files; what she only \
+             plays on needs a track of hers still there"
+        );
+
+        assert_eq!(
+            named(
+                &load_albums_of_artist(&pool, restricted, "art3")
+                    .await
+                    .unwrap()
+            ),
+            vec![
+                "Plays On It".to_string(),
+                "Signed, Every File Away".to_string(),
+            ],
+            "a record she plays on in a library this person may not open is not \
+             theirs to see"
+        );
+
+        assert!(
+            load_albums_of_artist(&pool, everybody, "nobody-by-this-name")
+                .await
+                .unwrap()
+                .is_empty(),
+            "a name that is not there owns nothing"
         );
     }
 

@@ -940,10 +940,18 @@ pub async fn artist(
                 (SELECT sum(t.duration_ms) / 1000 FROM tracks t
                   WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration
            FROM albums al
-          WHERE EXISTS (SELECT 1 FROM tracks t
-                         WHERE t.album_id = al.id AND ",
+          -- Which records are hers is settled once, from her, rather than asked
+          -- of every record there is. The two say the same thing — a record is
+          -- hers when it holds a track of hers this person may see — but asked of
+          -- each record the whole catalogue is walked and her tracks are found
+          -- again for every one of it, which measured at four hundred thousand
+          -- page reads against three and a half thousand records. This is two
+          -- thousand. The reasoning is the one at `track_is_theirs!`, applied a
+          -- level up.
+          WHERE al.id IN (SELECT t.album_id FROM tracks t
+                           WHERE ",
         track_is_theirs!("t", "?"),
-        "              AND t.library_id IN (SELECT id FROM visible_libraries))
+        "                  AND t.library_id IN (SELECT id FROM visible_libraries))
           ORDER BY al.year, al.name COLLATE NOCASE"
     ))
     .bind(who)
@@ -2020,6 +2028,54 @@ mod tests {
         assert_eq!(
             read.records[0].missing, 1,
             "and one of them has a hole in it"
+        );
+    }
+
+    /// A discography stops at the wall, like everything else does.
+    ///
+    /// The statement behind it gathers her records from her rather than asking
+    /// every record in the catalogue whether it is hers, and the visibility
+    /// condition rides along inside that set. Which is exactly where it is easy
+    /// to drop while rearranging the statement, and dropping it is silent: the
+    /// panel simply lists one record more than it should, named and dated, from
+    /// a library this account was walled off from.
+    #[tokio::test]
+    async fn an_artists_records_stop_at_the_wall() {
+        let pool = a_collection().await;
+
+        let titles = |records: &[ArtistAlbum]| {
+            let mut names: Vec<String> = records.iter().map(|r| r.name.clone()).collect();
+            names.sort();
+            names
+        };
+
+        let Json(everything) = artist(
+            somebody(&pool, false).await,
+            State(pool.clone()),
+            UrlPath("ar1".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            titles(&everything.records),
+            vec!["El Patio".to_string(), "Hijos del Agobio".to_string()],
+            "she signs both, and both are hers to see"
+        );
+
+        let Json(walled) = artist(
+            somebody_else(&pool).await,
+            State(pool.clone()),
+            UrlPath("ar1".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            titles(&walled.records),
+            vec!["El Patio".to_string()],
+            "the record in the library she may not open is not one she may learn \
+             the name of"
         );
     }
 
