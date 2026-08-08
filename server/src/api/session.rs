@@ -256,3 +256,247 @@ pub async fn current(
         .await
         .map(Json)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{auth, db, settings};
+
+    const PASSWORD: &str = "the one she chose";
+
+    /// One account, and the settings a login reads to know how long to last.
+    async fn a_server() -> (SqlitePool, Arc<Attempts>) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        settings::seed(&pool, &[]).await.unwrap();
+
+        let at = db::now();
+        sqlx::query(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', ?, 0, ?, ?)",
+        )
+        .bind(auth::hash_password(PASSWORD).unwrap())
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        (pool, Arc::new(Attempts::new()))
+    }
+
+    fn from(address: &str) -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::new(address.parse().unwrap(), 51000))
+    }
+
+    fn credentials(password: &str, remember: bool) -> Json<Credentials> {
+        Json(Credentials {
+            username: "ana".to_string(),
+            password: password.to_string(),
+            remember,
+        })
+    }
+
+    /// What a `Set-Cookie` header said, if there was one.
+    fn cookie(response: &Response) -> Option<String> {
+        response
+            .headers()
+            .get(SET_COOKIE)
+            .map(|value| value.to_str().unwrap().to_string())
+    }
+
+    /// The token inside it, which is what a session is.
+    fn token(response: &Response) -> String {
+        let cookie = cookie(response).expect("a login hands back a cookie");
+        cookie
+            .split(';')
+            .next()
+            .unwrap()
+            .trim_start_matches(&format!("{COOKIE_NAME}="))
+            .to_string()
+    }
+
+    /// The right password opens a session that can then be used.
+    #[tokio::test]
+    async fn logging_in_hands_back_a_way_in_that_works() {
+        let (pool, attempts) = a_server().await;
+
+        let response = log_in(
+            State(pool.clone()),
+            State(attempts),
+            from("203.0.113.7"),
+            credentials(PASSWORD, true),
+        )
+        .await
+        .expect("the password is hers");
+
+        let session = session::resolve(&pool, &token(&response))
+            .await
+            .unwrap()
+            .expect("the cookie names a session that exists");
+        assert_eq!(session.user.username, "ana");
+    }
+
+    /// Whether the browser keeps the way in after it closes is the whole of what
+    /// "remember me" means here, and it is one attribute of one header. The row
+    /// lives just as long either way, which is why this is worth pinning: nothing
+    /// else in the answer changes.
+    #[tokio::test]
+    async fn remembering_is_the_only_difference_between_the_two_logins() {
+        let (pool, attempts) = a_server().await;
+
+        let kept = log_in(
+            State(pool.clone()),
+            State(attempts.clone()),
+            from("203.0.113.7"),
+            credentials(PASSWORD, true),
+        )
+        .await
+        .unwrap();
+        assert!(
+            cookie(&kept).unwrap().contains("Max-Age="),
+            "asked to be remembered, the cookie outlives the browser"
+        );
+
+        let forgotten = log_in(
+            State(pool.clone()),
+            State(attempts),
+            from("203.0.113.7"),
+            credentials(PASSWORD, false),
+        )
+        .await
+        .unwrap();
+        assert!(
+            !cookie(&forgotten).unwrap().contains("Max-Age="),
+            "not asked, the browser drops it when it closes"
+        );
+
+        assert!(
+            session::resolve(&pool, &token(&forgotten))
+                .await
+                .unwrap()
+                .is_some(),
+            "and the session itself is there either way"
+        );
+    }
+
+    /// A wrong password hands back nothing at all — no cookie, and so no session
+    /// to try.
+    #[tokio::test]
+    async fn a_wrong_password_opens_nothing() {
+        let (pool, attempts) = a_server().await;
+
+        let refused = log_in(
+            State(pool.clone()),
+            State(attempts),
+            from("203.0.113.7"),
+            credentials("not hers", true),
+        )
+        .await
+        .expect_err("a wrong password is refused");
+
+        assert!(matches!(refused, ApiError::WrongCredentials));
+
+        let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(sessions, 0, "nothing was opened");
+    }
+
+    /// Guessing is stopped before the password is hashed, and stopped for the
+    /// place the guesses come from rather than for the account — otherwise anybody
+    /// could lock anybody else out by getting their password wrong on purpose.
+    #[tokio::test]
+    async fn guessing_is_barred_by_where_it_comes_from() {
+        let (pool, attempts) = a_server().await;
+
+        for _ in 0..6 {
+            let _ = log_in(
+                State(pool.clone()),
+                State(attempts.clone()),
+                from("203.0.113.7"),
+                credentials("not hers", true),
+            )
+            .await;
+        }
+
+        let barred = log_in(
+            State(pool.clone()),
+            State(attempts.clone()),
+            from("203.0.113.7"),
+            credentials(PASSWORD, true),
+        )
+        .await
+        .expect_err("even the right password waits now");
+        assert!(matches!(barred, ApiError::TooManyAttempts));
+
+        log_in(
+            State(pool.clone()),
+            State(attempts),
+            from("198.51.100.4"),
+            credentials(PASSWORD, true),
+        )
+        .await
+        .expect("and she can still log in from anywhere else");
+    }
+
+    /// Logging out ends this session and no others, and clears the cookie the only
+    /// way a cookie can be cleared.
+    #[tokio::test]
+    async fn logging_out_ends_this_session_and_leaves_the_others() {
+        let (pool, attempts) = a_server().await;
+
+        let first = token(
+            &log_in(
+                State(pool.clone()),
+                State(attempts.clone()),
+                from("203.0.113.7"),
+                credentials(PASSWORD, true),
+            )
+            .await
+            .unwrap(),
+        );
+        let elsewhere = token(
+            &log_in(
+                State(pool.clone()),
+                State(attempts),
+                from("198.51.100.4"),
+                credentials(PASSWORD, true),
+            )
+            .await
+            .unwrap(),
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(COOKIE, format!("{COOKIE_NAME}={first}").parse().unwrap());
+
+        let response = log_out(State(pool.clone()), headers).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            cookie(&response).unwrap().contains("Max-Age=0"),
+            "a cookie is removed by being expired, since there is no delete"
+        );
+
+        assert!(
+            session::resolve(&pool, &first).await.unwrap().is_none(),
+            "this one is over"
+        );
+        assert!(
+            session::resolve(&pool, &elsewhere).await.unwrap().is_some(),
+            "the browser at the other end of the house is left alone"
+        );
+    }
+
+    /// Documented to answer the same with or without one, because a panel that has
+    /// already forgotten its cookie still has a Log out button to press.
+    #[tokio::test]
+    async fn logging_out_without_a_session_is_still_logging_out() {
+        let (pool, _) = a_server().await;
+
+        let response = log_out(State(pool), HeaderMap::new()).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(cookie(&response).unwrap().contains("Max-Age=0"));
+    }
+}
