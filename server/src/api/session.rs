@@ -41,6 +41,24 @@ pub struct Panel {
     pub expires_at: String,
 }
 
+impl Panel {
+    /// A second handle on the same session, for a test that calls more than one
+    /// handler with it. Not `Clone`, because outside a test there is one request
+    /// and one session and copying it would mean something went wrong.
+    #[cfg(test)]
+    pub(crate) fn clone_for_test(&self) -> Self {
+        Self {
+            id: self.id,
+            user: crate::user::User {
+                id: self.user.id,
+                username: self.user.username.clone(),
+                is_admin: self.user.is_admin,
+            },
+            expires_at: self.expires_at.clone(),
+        }
+    }
+}
+
 impl<S> FromRequestParts<S> for Panel
 where
     SqlitePool: FromRef<S>,

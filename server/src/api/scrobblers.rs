@@ -400,3 +400,260 @@ fn read(row: Row) -> Option<Scrobbler> {
         last_error,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::user::User;
+
+    /// An account with a destination already set up, and one listen waiting to go
+    /// out that has been pushed a long way into the future by failures.
+    async fn a_destination() -> (SqlitePool, Panel) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let at = db::now();
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO scrobblers
+                  (user_id, service, url, token, remote_name, enabled, created_at, updated_at)
+             VALUES (?, 'listenbrainz', 'https://api.listenbrainz.org', 'a token', 'ana', 1, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO scrobble_queue
+                  (user_id, service, played_at, title, artist, attempts, next_try_at,
+                   last_error, created_at)
+             VALUES (?, 'listenbrainz', ?, 'Song', 'Artist', 4, '2999-01-01T00:00:00Z', 'no', ?)",
+        )
+        .bind(user_id)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let panel = Panel {
+            id: 1,
+            user: User {
+                id: user_id,
+                username: "ana".to_string(),
+                is_admin: false,
+            },
+            expires_at: "2999-01-01T00:00:00Z".to_string(),
+        };
+
+        (pool, panel)
+    }
+
+    async fn waiting_until(pool: &SqlitePool) -> String {
+        sqlx::query_scalar("SELECT next_try_at FROM scrobble_queue")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// A name no service answers to is a miss, and it is checked before anything
+    /// else — so a request naming one neither writes nor asks the network.
+    #[tokio::test]
+    async fn a_service_nobody_offers_is_a_miss_on_all_three_calls() {
+        let (pool, panel) = a_destination().await;
+
+        assert!(matches!(
+            switch(
+                panel.clone_for_test(),
+                State(pool.clone()),
+                UrlPath("spotify".to_string()),
+                Json(Switch { enabled: true }),
+            )
+            .await
+            .expect_err("no such service"),
+            ApiError::NotFound
+        ));
+
+        assert!(matches!(
+            remove(
+                panel.clone_for_test(),
+                State(pool.clone()),
+                UrlPath("spotify".to_string()),
+            )
+            .await
+            .expect_err("no such service"),
+            ApiError::NotFound
+        ));
+
+        assert!(matches!(
+            set(
+                panel,
+                State(pool.clone()),
+                State(Net::new()),
+                UrlPath("spotify".to_string()),
+                Json(NewScrobbler {
+                    url: None,
+                    token: "a token".to_string(),
+                    enabled: None,
+                }),
+            )
+            .await
+            .expect_err("no such service"),
+            ApiError::NotFound
+        ));
+    }
+
+    /// The two ways a request to set one up is refused before the network is
+    /// touched at all, which is what keeps a refused token from leaving a row
+    /// behind to wonder about.
+    #[tokio::test]
+    async fn a_destination_that_cannot_be_reached_for_is_refused_before_asking() {
+        let (pool, panel) = a_destination().await;
+
+        let no_token = set(
+            panel.clone_for_test(),
+            State(pool.clone()),
+            State(Net::new()),
+            UrlPath("listenbrainz".to_string()),
+            Json(NewScrobbler {
+                url: None,
+                token: "   ".to_string(),
+                enabled: None,
+            }),
+        )
+        .await
+        .expect_err("whitespace is not a token");
+        assert!(matches!(no_token, ApiError::Invalid(_)));
+
+        // Koito runs on somebody's own machine, so it has no address of its own and
+        // one has to be given.
+        let no_address = set(
+            panel,
+            State(pool.clone()),
+            State(Net::new()),
+            UrlPath("koito".to_string()),
+            Json(NewScrobbler {
+                url: Some("kitchen.lan:4110".to_string()),
+                token: "a token".to_string(),
+                enabled: None,
+            }),
+        )
+        .await
+        .expect_err("an address has to say how to reach it");
+        assert!(matches!(no_address, ApiError::Invalid(_)));
+
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM scrobblers")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 1, "neither left anything behind");
+    }
+
+    /// Switching one back on says "go on then", and what was waiting is due now.
+    ///
+    /// Found by doing it: a token typed wrongly pushes the queue further out with
+    /// every failure, and after a few that is hours. Without this, correcting the
+    /// destination is answered by nothing happening for the rest of that wait.
+    #[tokio::test]
+    async fn switching_a_destination_on_makes_what_was_waiting_due_now() {
+        let (pool, panel) = a_destination().await;
+
+        let _ = switch(
+            panel.clone_for_test(),
+            State(pool.clone()),
+            UrlPath("listenbrainz".to_string()),
+            Json(Switch { enabled: false }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            waiting_until(&pool).await,
+            "2999-01-01T00:00:00Z",
+            "switching it off is not an invitation to try again"
+        );
+
+        let Json(back) = switch(
+            panel,
+            State(pool.clone()),
+            UrlPath("listenbrainz".to_string()),
+            Json(Switch { enabled: true }),
+        )
+        .await
+        .unwrap();
+
+        assert!(back.enabled);
+        assert!(
+            waiting_until(&pool).await.as_str() < "2999-01-01T00:00:00Z",
+            "and switching it on brings the wait back to now"
+        );
+    }
+
+    /// Removing one that is not set up is a miss rather than a silent success, so
+    /// a panel showing a destination that is not there finds out.
+    #[tokio::test]
+    async fn removing_a_destination_takes_it_and_missing_one_says_so() {
+        let (pool, panel) = a_destination().await;
+
+        assert_eq!(
+            remove(
+                panel.clone_for_test(),
+                State(pool.clone()),
+                UrlPath("listenbrainz".to_string()),
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM scrobblers")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 0);
+
+        let again = remove(
+            panel,
+            State(pool.clone()),
+            UrlPath("listenbrainz".to_string()),
+        )
+        .await
+        .expect_err("it is gone already");
+        assert!(matches!(again, ApiError::NotFound));
+    }
+
+    /// Switching one this account never set up is a miss too, and not a row
+    /// quietly created.
+    #[tokio::test]
+    async fn switching_a_destination_that_was_never_set_up_is_a_miss() {
+        let (pool, panel) = a_destination().await;
+
+        let missed = switch(
+            panel,
+            State(pool.clone()),
+            UrlPath("koito".to_string()),
+            Json(Switch { enabled: true }),
+        )
+        .await
+        .expect_err("she never set Koito up");
+        assert!(matches!(missed, ApiError::NotFound));
+
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM scrobblers")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 1, "and nothing was created by asking");
+    }
+}
