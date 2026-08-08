@@ -102,16 +102,27 @@ const SCALAR_HTML: &str = r#"<!doctype html>
 struct Reference;
 
 pub fn router(state: AppState) -> Router {
-    let (router, reference) = OpenApiRouter::with_openapi(Reference::openapi())
-        // Not nested, so this one declares its whole path rather than a path
-        // relative to a version it does not belong to.
-        .routes(routes!(health::health))
-        .nest("/api/v1", v1())
-        .split_for_parts();
+    let (router, reference) = assemble();
 
     router
         .merge(Scalar::with_url(DOCS_PATH, reference).custom_html(SCALAR_HTML))
         .with_state(state)
+}
+
+/// The routes and the document describing them, which are the same thing said
+/// twice by the same builder.
+///
+/// Apart from [`router`] so a test can have the document as well. That is what
+/// lets it call every path this API serves without keeping a list of its own —
+/// a list which would be right on the day it was written and wrong on the day
+/// somebody adds an endpoint.
+fn assemble() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(Reference::openapi())
+        // Not nested, so this one declares its whole path rather than a path
+        // relative to a version it does not belong to.
+        .routes(routes!(health::health))
+        .nest("/api/v1", v1())
+        .split_for_parts()
 }
 
 /// The one version there is. Paths are declared relative to it, so moving the
@@ -164,4 +175,132 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(media::portrait))
         .routes(routes!(jobs::list))
         .routes(routes!(jobs::start))
+}
+
+#[cfg(test)]
+mod every_endpoint {
+    use super::*;
+    use crate::config::Config;
+    use crate::{attempts, auth, db, net, resources, scanner, session, settings};
+    use axum::body::Body;
+    use axum::http::Request;
+    use sqlx::SqlitePool;
+    use std::sync::Arc;
+    use tokio::sync::watch;
+    use tower::ServiceExt;
+
+    const WHO: &str = "ana";
+
+    /// A server with an administrator logged in, and nothing else in it.
+    ///
+    /// Empty for the same reason the other walk is: a collection with nothing in
+    /// it is where a statement that cannot run still has to run, and that is the
+    /// fault this is looking for.
+    async fn a_server() -> (Router, String) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        settings::seed(&pool, &[]).await.unwrap();
+
+        let at = db::now();
+        let user: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES (?, ?, 1, ?, ?) RETURNING id",
+        )
+        .bind(WHO)
+        .bind(auth::hash_password("unused").unwrap())
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let (token, _) = session::create(&pool, user, 1).await.unwrap();
+
+        // The sender is dropped here on purpose. The event stream ends when the
+        // server says it is stopping, and a dropped sender says exactly that —
+        // otherwise that one path would hold this test open for ever.
+        let shutdown = watch::channel(false).1;
+
+        let state = AppState {
+            pool,
+            scan: Arc::new(scanner::Progress::default()),
+            attempts: Arc::new(attempts::Attempts::new()),
+            config: Arc::new(Config::for_tests(
+                std::env::temp_dir().join("tocata-panel-endpoints"),
+            )),
+            meter: Arc::new(resources::Meter::new().unwrap()),
+            net: net::Net::new(),
+            shutdown,
+        };
+
+        (router(state), format!("tocata_session={token}"))
+    }
+
+    /// Every path that can be asked for is asked for, and none of them answers
+    /// with our own mistake.
+    ///
+    /// Reading only, which is the honest limit of a walk like this: a request
+    /// with no body is turned away by the extractor before the handler runs, so
+    /// sweeping the ones that write would prove nothing about them. They need
+    /// tests of their own, and most already have them.
+    ///
+    /// A 404 is a pass and not a hole. Where a path names something, it is asked
+    /// about something that is not there — the statement still runs, which is the
+    /// whole point, and running is what the favourites of the other API could not
+    /// do.
+    #[tokio::test]
+    async fn every_path_that_reads_answers_without_a_fault_of_ours() {
+        let (router, cookie) = a_server().await;
+        let (_, reference) = assemble();
+
+        let mut asked = 0;
+        let mut broken = Vec::new();
+
+        for (path, item) in reference.paths.paths.iter() {
+            if item.get.is_none() {
+                continue;
+            }
+
+            // Somebody real where a name is wanted, so those paths answer about
+            // an account instead of about nothing.
+            let uri = path
+                .replace("{username}", WHO)
+                .replace("{id}", "nothing-by-this-name");
+
+            asked += 1;
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(&uri)
+                        .header("cookie", &cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap();
+
+            if status.is_server_error() {
+                broken.push(format!(
+                    "{uri}: {status} {}",
+                    String::from_utf8_lossy(&body).replace('\n', " ")
+                ));
+            }
+        }
+
+        assert!(
+            broken.is_empty(),
+            "paths answering with a fault of ours:\n  {}",
+            broken.join("\n  ")
+        );
+        assert!(
+            asked > 25,
+            "only {asked} paths walked; the document is thin"
+        );
+    }
 }
