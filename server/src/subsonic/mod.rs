@@ -25,19 +25,30 @@ use axum::routing::get;
 
 /// Registers each endpoint twice, because clients are free to append `.view`
 /// to any of them and plenty do.
+///
+/// It writes down the names as well as registering them, so [`REGISTERED`] and
+/// the router come out of the same list. A second list kept by hand is a list
+/// that falls behind the first the day somebody adds an endpoint, and the whole
+/// value of walking them in a test is that the walk cannot miss one.
 macro_rules! endpoints {
     ($($path:literal => $handler:path),* $(,)?) => {
-        Router::new()
-            $(
-                .route(concat!("/", $path), get($handler))
-                .route(concat!("/", $path, ".view"), get($handler))
-            )*
+        pub fn router(state: AppState) -> Router {
+            Router::new()
+                $(
+                    .route(concat!("/", $path), get($handler))
+                    .route(concat!("/", $path, ".view"), get($handler))
+                )*
+                .with_state(state)
+        }
+
+        /// Every name this API answers to, for the test that calls them all.
+        #[cfg(test)]
+        const REGISTERED: &[&str] = &[$($path),*];
     };
 }
 
-pub fn router(state: AppState) -> Router {
-    endpoints! {
-        "ping" => system::ping,
+endpoints! {
+    "ping" => system::ping,
         "getLicense" => system::get_license,
         "getOpenSubsonicExtensions" => system::get_open_subsonic_extensions,
         "getScanStatus" => system::get_scan_status,
@@ -103,6 +114,133 @@ pub fn router(state: AppState) -> Router {
         "getSimilarSongs" => unsupported::not_found,
         "getSimilarSongs2" => unsupported::not_found,
         "getTopSongs" => unsupported::not_found,
+}
+
+#[cfg(test)]
+mod every_endpoint {
+    use super::*;
+    use crate::{attempts, auth, config::Config, db, net, resources, scanner, settings};
+    use axum::body::Body;
+    use axum::http::Request;
+    use sqlx::SqlitePool;
+    use std::sync::Arc;
+    use tokio::sync::watch;
+    use tower::ServiceExt;
+
+    /// A key rather than a password, and the reason is the clock: a password is
+    /// verified with argon2, which is deliberately slow, and sixty-three requests
+    /// of it turned this one test into seventeen seconds — four times the whole
+    /// suite. A key is checked against a digest. Both reach the same extractor,
+    /// which is all this test is trying to get past.
+    const KEY: &str = "a-key-for-the-test";
+
+    /// A server with somebody who may use it, and nothing else.
+    ///
+    /// Empty on purpose. A listing with nothing in it is the state every server
+    /// passes through on its first day, and it is the one where a statement that
+    /// cannot run still has to run: what this catches is SQL that is wrong
+    /// whatever the data, which is what the favourites were.
+    async fn a_server() -> (axum::Router, String) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        settings::seed(&pool, &[]).await.unwrap();
+
+        let at = db::now();
+        sqlx::query(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', ?, 1, ?, ?)",
+        )
+        .bind(auth::hash_password("unused").unwrap())
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO api_keys (user_id, key_hash, label, created_at)
+             VALUES (1, ?, 'the test', ?)",
+        )
+        .bind(auth::hash_secret(KEY))
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = AppState {
+            pool,
+            scan: Arc::new(scanner::Progress::default()),
+            attempts: Arc::new(attempts::Attempts::new()),
+            config: Arc::new(Config::for_tests(
+                std::env::temp_dir().join("tocata-every-endpoint"),
+            )),
+            meter: Arc::new(resources::Meter::new().unwrap()),
+            net: net::Net::new(),
+            shutdown: watch::channel(false).1,
+        };
+
+        // The extension is explicit that a key travels alone, so no `u` beside it.
+        let credentials = format!("apiKey={KEY}&c=test&v=1.16.1");
+
+        (router(state), credentials)
     }
-    .with_state(state)
+
+    /// Every endpoint answers, and none of them answers with our own mistake.
+    ///
+    /// It says nothing about whether the answers are right — that is what the
+    /// tests beside each handler are for. It says the statement runs, which is
+    /// not a low bar: getStarred and getStarred2 named a table that only exists
+    /// when the expression defining it is carried along, and every client asking
+    /// for its favourites got error 0 back for as long as the endpoint existed.
+    /// Nothing here knew, because nothing here called them.
+    ///
+    /// Walking [`REGISTERED`] rather than a list written out again is what makes
+    /// this cover the endpoint somebody adds next month without them doing
+    /// anything.
+    #[tokio::test]
+    async fn answers_without_a_fault_of_ours() {
+        let (router, credentials) = a_server().await;
+
+        let mut broken = Vec::new();
+
+        // Both shapes, because the trouble travels inside the body and each
+        // format spells it differently — a check written for one of them reads
+        // the other as a success. XML is what a client that asked for nothing
+        // gets, so it is not the exotic case.
+        for (format, generic) in [("json", r#""code":0"#), ("xml", r#"code="0""#)] {
+            for name in REGISTERED {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("/{name}?{credentials}&f={format}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                let status = response.status();
+                let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+                    .await
+                    .unwrap();
+                let body = String::from_utf8_lossy(&body).replace('\n', " ");
+
+                // OpenSubsonic answers 200 whatever happened and puts the trouble
+                // in the body, so the status alone would call every failure a
+                // success. Code 0 is the generic one, which is how a statement
+                // that will not run comes back — never how a wrong request does,
+                // since those have codes of their own.
+                if status.is_server_error() || body.contains(generic) {
+                    broken.push(format!("{name} as {format}: {status} {body}"));
+                }
+            }
+        }
+
+        assert!(
+            broken.is_empty(),
+            "endpoints answering with a fault of ours:\n  {}",
+            broken.join("\n  ")
+        );
+    }
 }

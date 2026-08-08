@@ -61,3 +61,10 @@ server = [
     "dep:tracing", "dep:tracing-subscriber", "dep:utoipa-axum",
     "dep:utoipa-scalar", "dep:walkdir",
 ]
+
+[dev-dependencies]
+# Only to call the router the way axum does, with `ServiceExt::oneshot`, in the
+# test that walks every endpoint. Not a new dependency in any real sense: axum
+# already pulls tower in with the `util` feature this needs, so declaring it here
+# adds no crate and no feature — it only makes the name reachable from a test.
+tower = { version = "0.5", default-features = false, features = ["util"] }

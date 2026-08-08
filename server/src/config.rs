@@ -79,6 +79,26 @@ impl Config {
         })
     }
 
+    /// The same, for a test that needs a whole server rather than a pool.
+    ///
+    /// Not read from the environment, and that is the point: the environment
+    /// belongs to the process, so a test that set a variable would be setting it
+    /// for every test running beside it. Only the directory is asked for, because
+    /// it is the only field a handler reads — the rest describe how the program
+    /// was started, which is not a thing a test starts.
+    #[cfg(test)]
+    pub fn for_tests(data_dir: PathBuf) -> Self {
+        Self {
+            data_dir,
+            port: DEFAULT_PORT,
+            library_paths: Vec::new(),
+            ignored_articles: DEFAULT_IGNORED_ARTICLES
+                .split_whitespace()
+                .map(str::to_string)
+                .collect(),
+        }
+    }
+
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
