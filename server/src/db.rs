@@ -9,7 +9,7 @@ use sqlx::sqlite::{
 };
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -77,22 +77,30 @@ pub async fn writing(pool: &SqlitePool) -> sqlx::Result<Writing> {
 /// each other — and made to, they do worse than wait: the test suite opens hundreds
 /// of databases in one process, and a single global permit had them queueing behind
 /// whichever one was slowest, turning four seconds into thirty-six and hanging
-/// outright about one run in three. Keyed by the pool, which is an `Arc` inside, so
-/// its address identifies the database as long as anybody holds it.
-static WRITING: Mutex<BTreeMap<usize, Arc<Semaphore>>> = Mutex::new(BTreeMap::new());
+/// outright about one run in three.
+///
+/// **Keyed by the file, because the lock belongs to the file.** Two pools onto one
+/// database are two ways to the same write lock and have every reason to take
+/// turns; two pools onto two databases have none. A database held in memory has a
+/// name of its own here too — sqlx numbers them — so the tests get a queue each
+/// without asking for one.
+///
+/// It was keyed by the address of the pool's options before, which looked like an
+/// identity and is not one: an address only names what lives there. Sixty pools
+/// opened and closed in turn all landed on the same address, every time and not
+/// now and then, so a database inherited the queue of one that no longer existed
+/// along with whatever that queue was in the middle of. A name is a name whether
+/// or not anybody is holding it.
+static WRITING: Mutex<BTreeMap<PathBuf, Arc<Semaphore>>> = Mutex::new(BTreeMap::new());
 
 /// The queue for one database, made the first time it is written to.
 fn queue_for(pool: &SqlitePool) -> Arc<Semaphore> {
-    // The pool holds its options behind an `Arc` and hands out clones of it, so the
-    // address is the same for the life of the pool and different for every other —
-    // which is exactly what identifies the database without sqlx offering a handle
-    // for it.
-    let key = Arc::as_ptr(&pool.connect_options()) as usize;
+    let name = pool.connect_options().get_filename().to_path_buf();
 
     WRITING
         .lock()
         .expect("the write queue registry is never poisoned")
-        .entry(key)
+        .entry(name)
         .or_insert_with(|| Arc::new(Semaphore::new(1)))
         .clone()
 }
@@ -316,6 +324,42 @@ pub async fn connect(path: &Path) -> Result<SqlitePool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One queue per database: shared by two ways into the same one, and never
+    /// shared between two different ones.
+    ///
+    /// Both halves matter and they pull opposite ways. Miss the first and two pools
+    /// onto one file race for a lock neither knows the other wants, which is the
+    /// whole thing this queue exists to prevent. Miss the second and every database
+    /// in the process waits behind whichever is slowest — measured once at four
+    /// seconds becoming thirty-six, with about one run in three not finishing.
+    #[tokio::test]
+    async fn a_write_queue_belongs_to_a_database_and_is_shared_by_every_way_into_it() {
+        let directory = std::env::temp_dir().join("tocata-one-queue");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = directory.join("tocata.db");
+
+        let one = connect(&file).await.unwrap();
+        let another = connect(&file).await.unwrap();
+
+        assert!(
+            Arc::ptr_eq(&queue_for(&one), &queue_for(&another)),
+            "two pools onto one file are two ways to one write lock"
+        );
+
+        let elsewhere = connect(&directory.join("other.db")).await.unwrap();
+        assert!(
+            !Arc::ptr_eq(&queue_for(&one), &queue_for(&elsewhere)),
+            "and a different file is a different lock, with nothing to wait for"
+        );
+
+        // The databases the tests use are held in memory, and sqlx gives each one a
+        // name of its own — so they get a queue each without anybody arranging it.
+        let hers = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let his = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        assert!(!Arc::ptr_eq(&queue_for(&hers), &queue_for(&his)));
+    }
 
     /// The two settings a database of ours is opened with, read back from the
     /// database itself.
