@@ -1782,6 +1782,17 @@ impl Progress {
         }
     }
 
+    /// Says a scan is running, for the handlers that refuse while one is.
+    ///
+    /// Claiming the right to scan is [`Progress::begin`] and belongs to the
+    /// scanner, which is why it is private and stays that way. Two handlers
+    /// nonetheless answer differently depending on this flag, and running an
+    /// actual scan to set it would be testing the scanner to reach them.
+    #[cfg(test)]
+    pub(crate) fn pretend_a_scan_is_running(&self) {
+        self.scanning.store(true, Ordering::Release);
+    }
+
     /// Asks the scan in flight to give up, whether because somebody pressed a
     /// button or because the process is going away.
     ///

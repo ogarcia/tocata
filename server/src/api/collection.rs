@@ -2643,6 +2643,92 @@ mod tests {
         assert_eq!(read.records[0].name, "El Patio");
     }
 
+    /// What the panel is playing shows up as the panel's, kept apart from the same
+    /// person listening on a phone, and a second song replaces the first rather
+    /// than joining it.
+    #[tokio::test]
+    async fn what_the_panel_plays_is_noted_as_one_thing_at_a_time() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+
+        let ids: Vec<String> = sqlx::query_scalar("SELECT public_id FROM tracks ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            playing(
+                again(&hers),
+                State(pool.clone()),
+                State(crate::net::Net::new()),
+                UrlPath(ids[0].clone()),
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        let listening: Vec<(String, i64)> =
+            sqlx::query_as("SELECT client, track_id FROM now_playing")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(listening.len(), 1);
+        assert_eq!(listening[0].0, PANEL_AS_A_PLAYER, "named as the panel");
+
+        let _ = playing(
+            again(&hers),
+            State(pool.clone()),
+            State(crate::net::Net::new()),
+            UrlPath(ids[1].clone()),
+        )
+        .await
+        .unwrap();
+
+        let second: i64 = sqlx::query_scalar("SELECT id FROM tracks WHERE public_id = ?")
+            .bind(&ids[1])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let listening: Vec<i64> = sqlx::query_scalar("SELECT track_id FROM now_playing")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            listening,
+            vec![second],
+            "the next song replaces the one before it rather than joining it or \
+             being ignored beside it"
+        );
+    }
+
+    /// A track nobody has is not worth an error: the panel is telling us what it
+    /// started, not asking for anything, and the answer is the same either way.
+    #[tokio::test]
+    async fn playing_something_that_is_not_here_notes_nothing_and_says_so_quietly() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+
+        assert_eq!(
+            playing(
+                again(&hers),
+                State(pool.clone()),
+                State(crate::net::Net::new()),
+                UrlPath("nothing-by-this-name".to_string()),
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        let noted: i64 = sqlx::query_scalar("SELECT count(*) FROM now_playing")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(noted, 0);
+    }
+
     /// Asking for an artist means the songs somebody would say are theirs, which
     /// includes the ones on their records that credit only the band.
     #[tokio::test]

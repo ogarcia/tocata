@@ -116,3 +116,108 @@ pub async fn start(
         .map(Json)
         .map_err(|e| ApiError::internal(e, "running a job"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::AppState;
+    use crate::user::User;
+    use crate::{attempts, net, resources, scanner, settings};
+    use tokio::sync::watch;
+
+    async fn a_server() -> AppState {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        settings::seed(&pool, &[]).await.unwrap();
+
+        let data_dir = std::env::temp_dir().join("tocata-jobs-api");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        AppState {
+            pool,
+            scan: Arc::new(scanner::Progress::default()),
+            attempts: Arc::new(attempts::Attempts::new()),
+            config: Arc::new(Config::for_tests(data_dir)),
+            meter: Arc::new(resources::Meter::new().unwrap()),
+            net: net::Net::new(),
+            shutdown: watch::channel(false).1,
+        }
+    }
+
+    fn an_administrator() -> Administrator {
+        Administrator {
+            user: User {
+                id: 1,
+                username: "ana".to_string(),
+                is_admin: true,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn a_job_nobody_offers_is_a_miss() {
+        let state = a_server().await;
+
+        let missed = start(
+            an_administrator(),
+            State(state),
+            Path("polish the covers".to_string()),
+        )
+        .await
+        .expect_err("no such job");
+        assert!(matches!(missed, ApiError::NotFound));
+    }
+
+    /// Every one of these either reads the whole database or rewrites it, and a
+    /// scan is writing the catalogue and deciding what is absent. None of them is
+    /// urgent enough to be worth doing to a moving target.
+    #[tokio::test]
+    async fn a_job_will_not_start_while_a_scan_is_running() {
+        let state = a_server().await;
+        state.scan.pretend_a_scan_is_running();
+
+        let refused = start(
+            an_administrator(),
+            State(state.clone()),
+            Path("check".to_string()),
+        )
+        .await
+        .expect_err("a scan is running");
+        assert!(matches!(refused, ApiError::Conflict(_)));
+
+        let runs: i64 = sqlx::query_scalar("SELECT count(*) FROM job_runs")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        assert_eq!(runs, 0, "and nothing was started");
+    }
+
+    /// The run is written down as it happens, which is what the panel reads to say
+    /// when a job last ran and how it went.
+    #[tokio::test]
+    async fn a_job_that_runs_leaves_its_run_behind() {
+        let state = a_server().await;
+
+        let Json(run) = start(
+            an_administrator(),
+            State(state.clone()),
+            Path("check".to_string()),
+        )
+        .await
+        .expect("nothing is in its way");
+
+        assert!(run.finished);
+        assert!(run.error.is_none(), "a fresh database checks out clean");
+
+        let (job, finished): (String, Option<String>) =
+            sqlx::query_as("SELECT job, finished_at FROM job_runs")
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(job, "check");
+        assert!(
+            finished.is_some(),
+            "written down as finished, not just begun"
+        );
+    }
+}

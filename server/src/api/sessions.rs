@@ -240,6 +240,96 @@ mod tests {
         assert!(left[0].current, "and it is the one still being used");
     }
 
+    /// A session id belonging to somebody else is a miss and not a way to throw a
+    /// stranger out of the panel — the id alone would be enough if the account in
+    /// the path were not part of the question.
+    #[tokio::test]
+    async fn a_session_of_another_account_cannot_be_closed_through_this_one() {
+        let (pool, panel) = logged_in_thrice().await;
+
+        let timestamp = crate::db::now();
+        let other: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('beto', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        session::create(&pool, other, A_MONTH).await.unwrap();
+
+        let his: i64 = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
+            .bind(other)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        // His id, asked for under her name, which is the shape that would work if
+        // the account in the path were decoration.
+        let missed = close(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), his)),
+        )
+        .await
+        .expect_err("his session is not hers to close");
+        assert!(matches!(missed, ApiError::NotFound));
+
+        // And asked for under his name, by her, which is the other way to try it.
+        let refused = close(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("beto".to_string(), his)),
+        )
+        .await
+        .expect_err("and she is not an administrator");
+        assert!(matches!(refused, ApiError::NotAuthorized));
+
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE user_id = ?")
+            .bind(other)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 1, "he is still logged in");
+    }
+
+    /// Her own, which is what the screen is for.
+    #[tokio::test]
+    async fn closing_one_of_her_own_sessions_closes_that_one() {
+        let (pool, panel) = logged_in_thrice().await;
+
+        let another: i64 = sqlx::query_scalar(
+            "SELECT id FROM sessions WHERE user_id = ? AND id != ? ORDER BY id LIMIT 1",
+        )
+        .bind(panel.user.id)
+        .bind(panel.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            close(
+                panel_like(&panel),
+                State(pool.clone()),
+                Path(("ana".to_string(), another)),
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM sessions ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left.len(), 2, "the one closed and no others");
+        assert!(
+            left.contains(&panel.id),
+            "including the one she is asking from"
+        );
+    }
+
     fn panel_like(panel: &Panel) -> Panel {
         Panel {
             id: panel.id,

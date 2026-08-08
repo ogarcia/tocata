@@ -137,3 +137,74 @@ pub async fn cancel(_admin: Administrator, State(progress): State<Arc<Progress>>
     progress.cancel();
     StatusCode::NO_CONTENT
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::user::User;
+    use crate::{attempts, net, resources, settings};
+    use sqlx::SqlitePool;
+    use tokio::sync::watch;
+
+    fn an_administrator() -> Administrator {
+        Administrator {
+            user: User {
+                id: 1,
+                username: "ana".to_string(),
+                is_admin: true,
+            },
+        }
+    }
+
+    /// Asked before anything is spawned, so the answer is honest.
+    ///
+    /// The scanner refuses a second run of its own accord, but it does so after
+    /// the task has been created — and by then this handler has already replied
+    /// that it accepted one.
+    #[tokio::test]
+    async fn a_second_scan_is_refused_rather_than_accepted_and_dropped() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        settings::seed(&pool, &[]).await.unwrap();
+
+        let state = AppState {
+            pool,
+            scan: Arc::new(Progress::default()),
+            attempts: Arc::new(attempts::Attempts::new()),
+            config: Arc::new(Config::for_tests(
+                std::env::temp_dir().join("tocata-scan-api"),
+            )),
+            meter: Arc::new(resources::Meter::new().unwrap()),
+            net: net::Net::new(),
+            shutdown: watch::channel(false).1,
+        };
+        state.scan.pretend_a_scan_is_running();
+
+        let refused = start(
+            an_administrator(),
+            State(state.clone()),
+            Query(StartQuery { full: false }),
+        )
+        .await
+        .expect_err("one is already running");
+        assert!(matches!(refused, ApiError::Conflict(_)));
+    }
+
+    /// Cancelling answers whether or not there is anything to cancel — the button
+    /// is there and pressing it twice is not an error. What it does to a scan in
+    /// flight belongs to the scanner and is tested beside it.
+    #[tokio::test]
+    async fn cancelling_answers_even_with_nothing_to_cancel() {
+        let progress = Arc::new(Progress::default());
+
+        assert_eq!(
+            cancel(an_administrator(), State(progress.clone())).await,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            cancel(an_administrator(), State(progress)).await,
+            StatusCode::NO_CONTENT
+        );
+    }
+}
