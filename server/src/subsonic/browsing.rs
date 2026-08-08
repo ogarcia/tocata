@@ -339,22 +339,60 @@ impl From<ArtistRow> for ArtistId3 {
 /// measured at ten seconds on a slow machine, for the first call every client
 /// makes. Read this way each branch of the union is an index lookup on the
 /// artist.
+/// The records that are an artist's, as a set gathered from the artist.
+///
+/// One expression because there is one answer, and it is asked for twice: once
+/// as a figure beside the name in a listing, once as the records themselves when
+/// somebody opens that name. Written twice they drifted, and drifted quietly —
+/// the figure said one record and the discography under it held four, with no
+/// way for a client to tell which of the two was lying.
+///
+/// Two ways of being theirs, and they ask different things about what is left to
+/// play. A record they **sign** is theirs however its files are doing, which is
+/// what keeps a discography on screen when a disk is unmounted. A record they
+/// merely **play on** needs a track of theirs still there to be played.
+///
+/// What they do not differ on is the wall. Both ask that the record be somewhere
+/// this person may look — a file that is away is the disk's doing, and a library
+/// walled off is an administrator's decision about what an account may know.
+///
+/// `album_id` is nullable, and a track filed under no record must not be counted
+/// as one, so the branch that reaches records through tracks says so. As a
+/// condition on `al.id` a null simply never matched; as a row to count it would
+/// have been a record that is not there.
+///
+/// `$artist` is an expression for the artist's row id, named twice.
+macro_rules! records_of_artist {
+    ($artist:literal) => {
+        concat!(
+            "SELECT signed.album_id AS id FROM album_artists signed
+              WHERE signed.artist_id = ",
+            $artist,
+            "
+                AND EXISTS (SELECT 1 FROM tracks t
+                             WHERE t.album_id = signed.album_id
+                               AND t.library_id IN (SELECT id FROM visible_libraries))
+             UNION
+             SELECT t.album_id FROM tracks t
+               JOIN track_artists ta ON ta.track_id = t.id
+              WHERE ta.artist_id = ",
+            $artist,
+            "
+                AND t.album_id IS NOT NULL
+                AND t.missing_since IS NULL
+                AND t.library_id IN (SELECT id FROM visible_libraries)"
+        )
+    };
+}
+
 macro_rules! artist_columns_head {
     () => {
         concat!(
             "
     SELECT a.id, a.public_id, a.name, a.sort_name, a.mbid,
-           (SELECT count(*) FROM (
-                       SELECT aa.album_id AS id FROM album_artists aa
-                        WHERE aa.artist_id = a.id
-                       UNION
-                       SELECT t.album_id FROM track_artists ta
-                         JOIN tracks t ON t.id = ta.track_id
-                        WHERE ta.artist_id = a.id
-                   ) al
-             WHERE ",
-            album_is_visible!("al.id"),
-            ") AS album_count,
+           (SELECT count(*) FROM (",
+            records_of_artist!("a.id"),
+            ")) AS album_count,
            s.starred_at
       FROM artists a
       LEFT JOIN user_artist_stats s ON s.artist_id = a.id AND s.user_id = "
@@ -470,52 +508,22 @@ async fn load_albums_of_artist(
     user_id: i64,
     artist_public_id: &str,
 ) -> Result<Vec<AlbumId3>, sqlx::Error> {
-    // Credited as album artist, or simply holding tracks by them: an album with
-    // no album artist tagged would otherwise be invisible from its artist.
+    // The same set the figure beside the name is counted from, said once — see
+    // `records_of_artist!` for which records are hers and why the two ways of
+    // being hers ask different things.
     //
-    // Gathered from the artist rather than asked of each album, for the reason
-    // spelled out at `track_is_theirs!` one level down. Asked of each album —
-    // `WHERE EXISTS (…this album is hers…)` — the catalogue is walked record by
-    // record and her tracks are looked up again for every one of them: four
-    // hundred thousand page reads to answer with five records, on a collection of
-    // three and a half thousand. Gathered from her, both branches start at a
-    // lookup of one row by its unique name, nothing is walked, and the same five
-    // records cost eight hundred.
-    //
-    // The two branches say different things on purpose. A record she signs is
-    // hers whether or not anything on it can still be played, which is what puts
-    // a discography on screen when the files are away. A record she merely plays
-    // on has to have a track of hers that is still there to be played.
-    //
-    // Where they must not differ is the wall, and they used to. The signing
-    // branch asked nothing about libraries at all, so a record she signs in a
-    // library this account was walled off from came back with its title and its
-    // year — the album could not be opened, its cover was refused and its songs
-    // came back empty, but the name of a record somebody was not to know about
-    // had already been handed over.
-    //
-    // The two are not the same thing and were being treated as one. A file that
-    // is away is an accident of the disk: the record is still theirs and will
-    // play again when it comes back. A library that is walled off is a decision
-    // an administrator made about what this account may know. So the branch still
-    // asks nothing about files, and now asks about the library — a record of hers
-    // is one with a track, present or not, somewhere she may look.
+    // The name is turned into a row id by the set rather than joined to on every
+    // candidate, which is what lets an index reach it. Asked of each album
+    // instead — `WHERE EXISTS (…this album is hers…)` — the catalogue is walked
+    // record by record and her tracks are looked up again for every one of them:
+    // four hundred thousand page reads to answer with five records, on a
+    // collection of three and a half thousand. Gathered from her it is nine
+    // hundred, and nothing is walked.
     let rows: Vec<AlbumRow> = sqlx::query_as(concat!(
         album_columns!(),
-        " WHERE al.id IN (
-                   SELECT signed.album_id FROM album_artists signed
-                    WHERE signed.artist_id = (SELECT id FROM artists WHERE public_id = ?)
-                      AND EXISTS (SELECT 1 FROM tracks t
-                                   WHERE t.album_id = signed.album_id
-                                     AND t.library_id IN (SELECT id FROM visible_libraries))
-                   UNION
-                   SELECT t.album_id FROM tracks t
-                     JOIN track_artists ta ON ta.track_id = t.id
-                    WHERE ta.artist_id = (SELECT id FROM artists WHERE public_id = ?)
-                      AND t.missing_since IS NULL
-                      AND t.library_id IN (SELECT id FROM visible_libraries)
-               )
-         ORDER BY al.year, coalesce(al.sort_name, al.name) COLLATE NOCASE"
+        " WHERE al.id IN (",
+        records_of_artist!("(SELECT id FROM artists WHERE public_id = ?)"),
+        ") ORDER BY al.year, coalesce(al.sort_name, al.name) COLLATE NOCASE"
     ))
     .bind(user_id)
     .bind(user_id)
@@ -1691,15 +1699,34 @@ mod visibility_tests {
 
         assert_eq!(
             of("Various Artists"),
-            Some(1),
-            "the record they sign, though they play on none of it — and not the one \
-             whose files are gone"
+            Some(2),
+            "both records they sign, though they play on neither and one of them \
+             has no file left: a record somebody signs is theirs however its files \
+             are doing"
         );
         assert_eq!(
             of("Artist a"),
             Some(1),
             "the record they play on, though somebody else signs it"
         );
+
+        // And the figure is the length of the list it stands for. They are one
+        // expression precisely so this holds; written twice they drifted, and the
+        // drift showed up as a client printing "1 album" over a shelf of four.
+        for name in ["Various Artists", "Artist a"] {
+            let public_id = &artists.iter().find(|a| a.name == name).unwrap().id;
+            let records = load_albums_of_artist(&pool, everybody, public_id)
+                .await
+                .unwrap();
+
+            assert_eq!(
+                of(name),
+                Some(records.len() as i64),
+                "{name} is counted for {:?} records and opens onto {}",
+                of(name),
+                records.len()
+            );
+        }
     }
 
     /// A discography holds every record that is theirs, and the two ways of being
@@ -1867,6 +1894,28 @@ mod visibility_tests {
                 .is_empty(),
             "a name that is not there owns nothing"
         );
+
+        // The figure a listing prints beside the name counts this same set, for
+        // whoever is asking — including the one who is walled off, whose figure
+        // must come down with her list rather than stay at what somebody else
+        // can see.
+        for (who, whom) in [("everybody", everybody), ("the restricted one", restricted)] {
+            let listed = load_artists(&pool, whom)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|a| a.id == "art3")
+                .expect("she is on both listings");
+            let records = load_albums_of_artist(&pool, whom, "art3").await.unwrap();
+
+            assert_eq!(
+                listed.album_count,
+                Some(records.len() as i64),
+                "{who} is told {:?} records and opens onto {}",
+                listed.album_count,
+                records.len()
+            );
+        }
     }
 
     /// The loaders that take a list of identifiers are assembled by a

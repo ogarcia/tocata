@@ -34,6 +34,34 @@ use serde::Deserialize;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use utoipa::IntoParams;
 
+/// The records that are an artist's, here where a record that has lost its files is
+/// something to look at rather than something to hide.
+///
+/// That is the whole of what makes this different from the set OpenSubsonic answers
+/// with: a client is browsing music to play, and this is where somebody comes to find
+/// out what is gone. So a record of theirs is one holding a track of theirs in a
+/// library this account may look in, present or not — and every record here carries
+/// its own count of what is missing, which is the point.
+///
+/// One expression, used by the figure and by the list under it, because they are one
+/// answer. Written twice they drifted: the count asked that the files still be there
+/// and the list did not, so unmounting a disk left the panel reading "1 record" above
+/// two of them.
+///
+/// `$artist` is an expression for the artist's row id, named twice by the set inside.
+macro_rules! records_of_artist {
+    ($artist:literal) => {
+        concat!(
+            "SELECT t.album_id AS id FROM tracks t
+              WHERE ",
+            track_is_theirs!("t", $artist),
+            "
+                AND t.album_id IS NOT NULL
+                AND t.library_id IN (SELECT id FROM visible_libraries)"
+        )
+    };
+}
+
 /// How many rows a page holds when nobody says. Enough to fill a tall window
 /// once, so the first screenful takes one request.
 const PAGE: i64 = 50;
@@ -818,12 +846,9 @@ pub async fn artists(
     builder.push(concat!(
         visible_libraries_tail!(),
         "SELECT a.public_id, a.name, a.artwork_id IS NOT NULL AS image,
-                (SELECT count(DISTINCT t.album_id) FROM tracks t
-                  WHERE ",
-        track_is_theirs!("t", "a.id"),
-        "    AND t.missing_since IS NULL
-                    AND t.album_id IS NOT NULL
-                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS albums,
+                (SELECT count(DISTINCT id) FROM (",
+        records_of_artist!("a.id"),
+        ")) AS albums,
                 (SELECT count(*) FROM tracks t
                   WHERE ",
         track_is_theirs!("t", "a.id"),
@@ -892,12 +917,9 @@ pub async fn artist(
                   WHERE ",
         track_is_theirs!("t", "a.id"),
         "    AND t.library_id IN (SELECT id FROM visible_libraries)) AS genres,
-                (SELECT count(DISTINCT t.album_id) FROM tracks t
-                  WHERE ",
-        track_is_theirs!("t", "a.id"),
-        "    AND t.missing_since IS NULL
-                    AND t.album_id IS NOT NULL
-                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS albums,
+                (SELECT count(DISTINCT id) FROM (",
+        records_of_artist!("a.id"),
+        ")) AS albums,
                 (SELECT count(*) FROM tracks t
                   WHERE ",
         track_is_theirs!("t", "a.id"),
@@ -940,19 +962,17 @@ pub async fn artist(
                 (SELECT sum(t.duration_ms) / 1000 FROM tracks t
                   WHERE t.album_id = al.id AND t.missing_since IS NULL) AS duration
            FROM albums al
-          -- Which records are hers is settled once, from her, rather than asked
-          -- of every record there is. The two say the same thing — a record is
-          -- hers when it holds a track of hers this person may see — but asked of
+          -- The same set the figure above these records is counted from, said
+          -- once: see `records_of_artist!`.
+          --
+          -- Settled from her rather than asked of every record there is. Asked of
           -- each record the whole catalogue is walked and her tracks are found
-          -- again for every one of it, which measured at four hundred thousand
+          -- again for every one of them, which measured at four hundred thousand
           -- page reads against three and a half thousand records. This is two
-          -- thousand. The reasoning is the one at `track_is_theirs!`, applied a
-          -- level up.
-          WHERE al.id IN (SELECT t.album_id FROM tracks t
-                           WHERE ",
-        track_is_theirs!("t", "?"),
-        "                  AND t.library_id IN (SELECT id FROM visible_libraries))
-          ORDER BY al.year, al.name COLLATE NOCASE"
+          -- thousand and a half.
+          WHERE al.id IN (",
+        records_of_artist!("?"),
+        ") ORDER BY al.year, al.name COLLATE NOCASE"
     ))
     .bind(who)
     .bind(row.id)
@@ -2076,6 +2096,73 @@ mod tests {
             vec!["El Patio".to_string()],
             "the record in the library she may not open is not one she may learn \
              the name of"
+        );
+
+        assert_eq!(
+            (everything.albums, walled.albums),
+            (2, 1),
+            "and the figure moves with the list it stands for, for each of them"
+        );
+    }
+
+    /// The figure above an artist's records counts those records, whatever became
+    /// of their files.
+    ///
+    /// A disk that fails to mount is the case this is really about, and it used to
+    /// read badly: the count asked that the files still be there and the list did
+    /// not, so the panel printed "1 record" over two of them, and with the whole
+    /// collection away it printed none over all of them. They are one expression
+    /// now, and this is what says so — a count and a list written apart drift
+    /// quietly, and it is the client who ends up looking wrong.
+    ///
+    /// The listing that opened the panel counts the same set too, so the row and
+    /// the page it leads to cannot disagree either.
+    #[tokio::test]
+    async fn the_count_of_an_artists_records_survives_the_files_going_away() {
+        let pool = a_collection().await;
+
+        // Every file of the second record goes away, as an unmounted disk does it:
+        // the rows stay, the files do not.
+        sqlx::query("UPDATE tracks SET missing_since = ? WHERE album_id = 2")
+            .bind(db::now())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let Json(read) = artist(
+            somebody(&pool, false).await,
+            State(pool.clone()),
+            UrlPath("ar1".to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            read.records.len(),
+            2,
+            "a record whose files are away is exactly what this panel is for"
+        );
+        assert_eq!(read.albums, 2, "so the figure above them says two, not one");
+
+        let Json(listed) = artists(
+            somebody_else(&pool).await,
+            State(pool.clone()),
+            Query(Filter::default()),
+            all_of_it(),
+        )
+        .await
+        .unwrap();
+
+        let her = listed
+            .artists
+            .iter()
+            .find(|a| a.name == "Triana")
+            .expect("she is on the listing");
+
+        assert_eq!(
+            her.albums, 1,
+            "the row that opens the panel counts what the panel will show, and \
+             this account may open only one of the two libraries"
         );
     }
 
