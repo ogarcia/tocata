@@ -447,6 +447,15 @@ enum Starred_ {
     Artists,
 }
 
+/// What somebody has starred, of one kind, newest first.
+///
+/// Only what they starred: whether they may still see it is the loader's to
+/// decide, and it does, for all three kinds alike. Half-deciding it here is what
+/// broke this — the statement for songs named `visible_libraries` without the
+/// expression that defines it, which SQLite answers with `no such table`, so
+/// every client asking for its favourites got an error where a list should be.
+/// The condition was not even needed: the loader drops what is missing and what
+/// belongs to a library this person may not see.
 async fn starred_ids(
     pool: &SqlitePool,
     user_id: i64,
@@ -456,10 +465,7 @@ async fn starred_ids(
     let query = match what {
         Starred_::Tracks => {
             "SELECT s.track_id FROM user_track_stats s
-               JOIN tracks t ON t.id = s.track_id
               WHERE s.user_id = ? AND s.starred_at IS NOT NULL
-                AND t.missing_since IS NULL
-                AND t.library_id IN (SELECT id FROM visible_libraries)
               ORDER BY s.starred_at DESC"
         }
         Starred_::Albums => {
@@ -699,6 +705,179 @@ mod tests {
         assert_eq!(value["value"], "Rock");
         assert_eq!(value["songCount"], 3);
         assert_eq!(value["albumCount"], 1);
+    }
+}
+
+#[cfg(test)]
+mod starred_tests {
+    use super::*;
+    use crate::db;
+
+    /// Two libraries holding a song, a record and a name each, all six starred,
+    /// and somebody allowed only the first library.
+    async fn a_favourite_of_each_kind_in_each_library() -> (SqlitePool, i64) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let at = db::now();
+
+        for (id, name) in [(1, "kept"), (2, "hidden")] {
+            sqlx::query(
+                "INSERT INTO libraries (id, name, path, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(name)
+            .bind(format!("/{name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO folders (id, public_id, library_id, name, path, last_seen_scan)
+                 VALUES (?, ?, ?, ?, '', 1)",
+            )
+            .bind(id)
+            .bind(format!("f{id}"))
+            .bind(id)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO albums (id, public_id, grouping_key, name, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("alb{id}"))
+            .bind(format!("key {name}"))
+            .bind(format!("Album {name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("art{id}"))
+            .bind(format!("Artist {name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
+                                     file_size, file_modified_at, content_type, suffix, title,
+                                     last_seen_scan, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'audio/wav', 'wav', ?, 1, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("trk{id}"))
+            .bind(id)
+            .bind(id)
+            .bind(id)
+            .bind(format!("/{name}/one.wav"))
+            .bind(&at)
+            .bind(format!("Song {name}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO track_artists (track_id, artist_id, role) VALUES (?, ?, 'artist')",
+            )
+            .bind(id)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let user: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('ana', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&at)
+        .bind(&at)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, 1)")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // The one in the library they may not see was starred later, so it comes
+        // first and a list that stopped filtering would show it at the top.
+        for (id, when) in [(1, "2026-01-01T00:00:00Z"), (2, "2026-02-01T00:00:00Z")] {
+            for statement in [
+                "INSERT INTO user_track_stats (user_id, track_id, starred_at) VALUES (?, ?, ?)",
+                "INSERT INTO user_album_stats (user_id, album_id, starred_at) VALUES (?, ?, ?)",
+                "INSERT INTO user_artist_stats (user_id, artist_id, starred_at) VALUES (?, ?, ?)",
+            ] {
+                sqlx::query(statement)
+                    .bind(user)
+                    .bind(id)
+                    .bind(when)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        (pool, user)
+    }
+
+    /// Every kind of favourite comes back, and only what this person may see.
+    ///
+    /// The statement for songs used to name `visible_libraries` without carrying
+    /// the expression that defines it. SQLite answers that with `no such table`,
+    /// and the endpoint hands back an error rather than a shorter list — so
+    /// getStarred and getStarred2 were broken outright for every client while
+    /// looking perfectly reasonable in the source.
+    #[tokio::test]
+    async fn every_kind_of_favourite_is_listed_and_none_of_a_library_barred() {
+        let (pool, user) = a_favourite_of_each_kind_in_each_library().await;
+
+        let songs = starred_ids(&pool, user, Starred_::Tracks).await.unwrap();
+        let albums = starred_ids(&pool, user, Starred_::Albums).await.unwrap();
+        let artists = starred_ids(&pool, user, Starred_::Artists).await.unwrap();
+
+        assert_eq!(songs, vec![2, 1], "what they starred, newest first");
+        assert_eq!(albums, vec![2, 1]);
+        assert_eq!(artists, vec![2, 1]);
+
+        // And the loaders are where being allowed to see it is decided.
+        let songs = browsing::load_tracks_by_ids(&pool, user, &songs)
+            .await
+            .unwrap();
+        assert_eq!(songs.len(), 1, "the song of the library they may see");
+        assert_eq!(songs[0].title, "Song kept");
+
+        let albums = browsing::load_albums_by_ids(&pool, user, &albums)
+            .await
+            .unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].name, "Album kept");
+
+        let artists = browsing::load_artists_by_ids(&pool, user, &artists)
+            .await
+            .unwrap();
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].name, "Artist kept");
     }
 }
 
