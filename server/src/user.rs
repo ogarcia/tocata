@@ -110,7 +110,11 @@ pub async fn authenticate_password(
 
     match row {
         Some((id, username, is_admin, hash)) => {
-            if auth::verify_password(password, &hash) {
+            // Remembering rather than plain verifying, because this runs on every
+            // OpenSubsonic request. The account is still read from the database
+            // every time, so what it may do is never remembered — only that this
+            // password goes with that stored hash.
+            if auth::verify_password_remembering(password, &hash) {
                 seen(pool, id).await;
 
                 Ok(Some(User {
