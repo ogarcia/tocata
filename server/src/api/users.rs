@@ -756,6 +756,221 @@ mod tests {
     use crate::session::A_MONTH;
     use crate::user::User;
 
+    fn an_administrator(username: &str) -> Administrator {
+        Administrator {
+            user: User {
+                id: 1,
+                username: username.to_string(),
+                is_admin: true,
+            },
+        }
+    }
+
+    /// There has to be somebody left who can administer the server, and the rule
+    /// that guarantees it is that nobody removes themselves. Anybody else, with
+    /// enough administrators, can be removed by one of the others.
+    #[tokio::test]
+    async fn an_administrator_cannot_delete_their_own_account() {
+        let (pool, _, _) = logged_in_thrice(true).await;
+
+        let refused = delete(
+            an_administrator("ana"),
+            State(pool.clone()),
+            Path("ana".to_string()),
+        )
+        .await
+        .expect_err("her own account");
+        assert!(matches!(refused, ApiError::Conflict(_)));
+
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE username = 'ana'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 1, "and she is still there");
+    }
+
+    /// Deleting an account takes everything hanging off it, which is what the
+    /// schema's cascades are for — a session left behind would be a way in to an
+    /// account that no longer exists.
+    #[tokio::test]
+    async fn deleting_an_account_takes_what_hangs_off_it() {
+        let (pool, user_id, sessions) = logged_in_thrice(false).await;
+        assert_eq!(sessions.len(), 3, "she is logged in from three browsers");
+
+        sqlx::query(
+            "INSERT INTO api_keys (user_id, key_hash, label, created_at)
+             VALUES (?, 'a hash', 'her phone', ?)",
+        )
+        .bind(user_id)
+        .bind(db::now())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            delete(
+                an_administrator("someone else"),
+                State(pool.clone()),
+                Path("ana".to_string()),
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        // Counted in one statement rather than in a loop over table names, since
+        // sqlx will not take SQL assembled at runtime — and is right not to, in a
+        // test as much as anywhere else.
+        let left: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM users),
+                    (SELECT count(*) FROM sessions),
+                    (SELECT count(*) FROM api_keys)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            left,
+            (0, 0, 0),
+            "the account, the browsers she was logged in from, and her key"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_an_account_that_is_not_there_is_a_miss() {
+        let (pool, _, _) = logged_in_thrice(true).await;
+
+        let missed = delete(
+            an_administrator("ana"),
+            State(pool),
+            Path("nobody".to_string()),
+        )
+        .await
+        .expect_err("no such account");
+        assert!(matches!(missed, ApiError::NotFound));
+    }
+
+    /// A restriction is replaced whole and not added to, so two calls cannot
+    /// disagree about what it is, and an empty list lifts it rather than hiding
+    /// everything — an account with no restriction sees every library there is.
+    #[tokio::test]
+    async fn a_restriction_is_replaced_whole_and_an_empty_one_lifts_it() {
+        let (pool, user_id, _) = logged_in_thrice(false).await;
+
+        let at = db::now();
+        for id in 1..=3 {
+            sqlx::query(
+                "INSERT INTO libraries (id, name, path, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("library {id}"))
+            .bind(format!("/srv/{id}"))
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let allowed = |pool: SqlitePool| async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT library_id FROM user_libraries WHERE user_id = ? ORDER BY library_id",
+            )
+            .bind(user_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        };
+
+        let _ = restrict(
+            an_administrator("ana"),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(LibraryAccess {
+                libraries: vec![1, 2],
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(allowed(pool.clone()).await, vec![1, 2]);
+
+        // Not added to: what the second call names is the whole of it.
+        let _ = restrict(
+            an_administrator("ana"),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(LibraryAccess { libraries: vec![3] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(allowed(pool.clone()).await, vec![3], "replaced, not merged");
+
+        let _ = restrict(
+            an_administrator("ana"),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(LibraryAccess { libraries: vec![] }),
+        )
+        .await
+        .unwrap();
+        assert!(
+            allowed(pool.clone()).await.is_empty(),
+            "an empty list is no restriction at all, which is every library"
+        );
+    }
+
+    /// A library that is not there is a mistake in the asking, and the restriction
+    /// it was part of is left as it was rather than half applied.
+    #[tokio::test]
+    async fn a_restriction_naming_no_library_changes_nothing() {
+        let (pool, user_id, _) = logged_in_thrice(false).await;
+
+        let at = db::now();
+        sqlx::query(
+            "INSERT INTO libraries (id, name, path, created_at, updated_at)
+             VALUES (1, 'kept', '/srv/kept', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let _ = restrict(
+            an_administrator("ana"),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(LibraryAccess { libraries: vec![1] }),
+        )
+        .await
+        .unwrap();
+
+        let refused = restrict(
+            an_administrator("ana"),
+            State(pool.clone()),
+            Path("ana".to_string()),
+            Json(LibraryAccess {
+                libraries: vec![1, 404],
+            }),
+        )
+        .await
+        .expect_err("no library 404");
+        assert!(matches!(refused, ApiError::Invalid(_)));
+
+        let still: Vec<i64> =
+            sqlx::query_scalar("SELECT library_id FROM user_libraries WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            still,
+            vec![1],
+            "the restriction it had is not half replaced by one that was refused"
+        );
+    }
+
     /// The session count is the one figure here that compares timestamps, and it
     /// compares them as text.
     ///
