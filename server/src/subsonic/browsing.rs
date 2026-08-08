@@ -482,16 +482,32 @@ async fn load_albums_of_artist(
     // lookup of one row by its unique name, nothing is walked, and the same five
     // records cost eight hundred.
     //
-    // The two branches say different things about visibility on purpose, and this
-    // keeps what they said. A record she signs is hers whether or not anything on
-    // it can still be played, which is what puts a discography on screen when the
-    // files are away. A record she merely plays on has to have a track of hers
-    // that is still there to be played.
+    // The two branches say different things on purpose. A record she signs is
+    // hers whether or not anything on it can still be played, which is what puts
+    // a discography on screen when the files are away. A record she merely plays
+    // on has to have a track of hers that is still there to be played.
+    //
+    // Where they must not differ is the wall, and they used to. The signing
+    // branch asked nothing about libraries at all, so a record she signs in a
+    // library this account was walled off from came back with its title and its
+    // year — the album could not be opened, its cover was refused and its songs
+    // came back empty, but the name of a record somebody was not to know about
+    // had already been handed over.
+    //
+    // The two are not the same thing and were being treated as one. A file that
+    // is away is an accident of the disk: the record is still theirs and will
+    // play again when it comes back. A library that is walled off is a decision
+    // an administrator made about what this account may know. So the branch still
+    // asks nothing about files, and now asks about the library — a record of hers
+    // is one with a track, present or not, somewhere she may look.
     let rows: Vec<AlbumRow> = sqlx::query_as(concat!(
         album_columns!(),
         " WHERE al.id IN (
                    SELECT signed.album_id FROM album_artists signed
                     WHERE signed.artist_id = (SELECT id FROM artists WHERE public_id = ?)
+                      AND EXISTS (SELECT 1 FROM tracks t
+                                   WHERE t.album_id = signed.album_id
+                                     AND t.library_id IN (SELECT id FROM visible_libraries))
                    UNION
                    SELECT t.album_id FROM tracks t
                      JOIN track_artists ta ON ta.track_id = t.id
@@ -1693,8 +1709,14 @@ mod visibility_tests {
     /// that is what keeps a discography on screen when a disk is unmounted, and
     /// dropping it is how a name ends up in the listing with an empty shelf
     /// behind it. A record they only play on has to have a track of theirs that
-    /// can still be played, and one in a library this person may not open is not
-    /// theirs to see.
+    /// can still be played.
+    ///
+    /// What neither branch may do is reach past the wall, and one of them did.
+    /// A file that is away is the disk's doing; a library walled off is an
+    /// administrator's decision about what this account may know, and answering
+    /// with the title and year of a record from one is handing over the thing
+    /// that was to be kept back — whatever the album, the cover and the songs go
+    /// on to refuse afterwards.
     ///
     /// Worth pinning here because the statement gathers those records from the
     /// artist rather than asking each record about them, and a set gathered
@@ -1714,13 +1736,15 @@ mod visibility_tests {
         .await
         .unwrap();
 
-        // Four records: what she signs, what she plays on, and the two that are
+        // Six records: what she signs, what she plays on, and the ones that are
         // hers only in a way this person cannot reach.
         for (album, name) in [
             (10, "Signed, Every File Away"),
             (11, "Plays On It"),
             (12, "Plays On It, File Away"),
             (13, "Plays On It, Other Library"),
+            (14, "Signed, Other Library"),
+            (15, "Signed, No Tracks At All"),
         ] {
             sqlx::query(
                 "INSERT INTO albums (id, public_id, grouping_key, name, created_at, updated_at)
@@ -1737,14 +1761,20 @@ mod visibility_tests {
             .unwrap();
         }
 
-        // She signs the first one and nothing else. The others carry somebody
+        // She signs three: one in a library everybody may open, one behind the
+        // wall, and one with nothing under it at all — which is what removing a
+        // library leaves behind until somebody purges. The rest carry somebody
         // else's signature, so they can only be hers through a track.
-        sqlx::query(
-            "INSERT INTO album_artists (album_id, artist_id, role) VALUES (10, 3, 'albumartist')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        for album in [10, 14, 15] {
+            sqlx::query(
+                "INSERT INTO album_artists (album_id, artist_id, role)
+                 VALUES (?, 3, 'albumartist')",
+            )
+            .bind(album)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
         for album in [11, 12, 13] {
             sqlx::query(
                 "INSERT INTO album_artists (album_id, artist_id, role) VALUES (?, 1, 'albumartist')",
@@ -1755,11 +1785,13 @@ mod visibility_tests {
             .unwrap();
         }
 
+        // Album 15 gets none, on purpose.
         for (track, album, library, gone) in [
             (10, 10, 1, true),
             (11, 11, 1, false),
             (12, 12, 1, true),
             (13, 13, 2, false),
+            (14, 14, 2, false),
         ] {
             sqlx::query(
                 "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
@@ -1806,9 +1838,11 @@ mod visibility_tests {
                 "Plays On It".to_string(),
                 "Plays On It, Other Library".to_string(),
                 "Signed, Every File Away".to_string(),
+                "Signed, Other Library".to_string(),
             ],
             "what she signs stays whatever became of its files; what she only \
-             plays on needs a track of hers still there"
+             plays on needs a track of hers still there; and a record with no \
+             tracks under it at all is nobody's discography"
         );
 
         assert_eq!(
@@ -1821,8 +1855,9 @@ mod visibility_tests {
                 "Plays On It".to_string(),
                 "Signed, Every File Away".to_string(),
             ],
-            "a record she plays on in a library this person may not open is not \
-             theirs to see"
+            "the wall holds for both ways of being hers: not the one she plays \
+             on in the other library, and not the one she signs there either — \
+             the title and the year of a record are the thing being kept back"
         );
 
         assert!(
