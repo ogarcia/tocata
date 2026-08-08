@@ -348,3 +348,267 @@ async fn load(pool: &SqlitePool, id: i64) -> Result<Library, ApiError> {
 
     row.map(Library::from).ok_or(ApiError::NotFound)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::user::User;
+
+    /// Real directories, because a path is checked against the disk before it is
+    /// accepted and there is no way to test that against a made up one.
+    fn directories(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("tocata-libraries-{name}"));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("outer/inner")).unwrap();
+        std::fs::create_dir_all(root.join("apart")).unwrap();
+        std::fs::write(root.join("a file"), b"not a directory").unwrap();
+        root
+    }
+
+    async fn a_server() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        pool
+    }
+
+    fn an_administrator() -> Administrator {
+        Administrator {
+            user: User {
+                id: 1,
+                username: "ana".to_string(),
+                is_admin: true,
+            },
+        }
+    }
+
+    fn asking(path: &std::path::Path, name: Option<&str>) -> Json<NewLibrary> {
+        Json(NewLibrary {
+            path: path.to_string_lossy().to_string(),
+            name: name.map(str::to_string),
+        })
+    }
+
+    /// Added with no name of its own, a library is called after its directory —
+    /// the same thing the environment variable does, so a library added either way
+    /// reads the same in the panel.
+    #[tokio::test]
+    async fn a_library_added_without_a_name_is_called_after_its_directory() {
+        let pool = a_server().await;
+        let root = directories("named");
+
+        let (status, Json(added)) = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("outer"), None),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(added.name, "outer");
+        assert!(added.enabled, "and it is on, or adding it would do nothing");
+    }
+
+    /// The three ways a path is no good, each answered as a mistake in the asking
+    /// rather than as a failure of ours.
+    #[tokio::test]
+    async fn a_path_that_is_not_a_readable_directory_is_refused() {
+        let pool = a_server().await;
+        let root = directories("paths");
+
+        for (path, what) in [
+            ("relative/music".to_string(), "not absolute"),
+            (
+                root.join("nowhere").to_string_lossy().to_string(),
+                "not there",
+            ),
+            (
+                root.join("a file").to_string_lossy().to_string(),
+                "not a directory",
+            ),
+        ] {
+            let refused = add(
+                an_administrator(),
+                State(pool.clone()),
+                Json(NewLibrary { path, name: None }),
+            )
+            .await
+            .expect_err(what);
+
+            assert!(matches!(refused, ApiError::Invalid(_)), "{what}");
+        }
+    }
+
+    /// A library inside another, or holding another, is refused both ways round.
+    ///
+    /// Two libraries over the same files would scan them twice and count them
+    /// twice, and which of the two a track belonged to would be whichever got
+    /// there first.
+    #[tokio::test]
+    async fn a_library_inside_another_is_refused_from_either_end() {
+        let pool = a_server().await;
+        let root = directories("nesting");
+
+        let _ = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("outer"), None),
+        )
+        .await
+        .unwrap();
+
+        let inside = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("outer/inner"), None),
+        )
+        .await
+        .expect_err("inside one that is already a library");
+        assert!(matches!(inside, ApiError::Conflict(_)));
+
+        let holding = add(an_administrator(), State(pool.clone()), asking(&root, None))
+            .await
+            .expect_err("holding one that is already a library");
+        assert!(matches!(holding, ApiError::Conflict(_)));
+
+        let _ = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("apart"), None),
+        )
+        .await
+        .expect("and one beside it is fine");
+    }
+
+    /// Moving a library is a change of one column, and the overlap rule must not
+    /// count the library against itself while doing it.
+    #[tokio::test]
+    async fn a_library_can_be_moved_and_does_not_block_its_own_move() {
+        let pool = a_server().await;
+        let root = directories("moving");
+
+        let (_, Json(added)) = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("outer"), None),
+        )
+        .await
+        .unwrap();
+
+        let Json(moved) = change(
+            an_administrator(),
+            State(pool.clone()),
+            UrlPath(added.id),
+            Json(LibraryChanges {
+                name: None,
+                path: Some(root.join("apart").to_string_lossy().to_string()),
+                enabled: None,
+            }),
+        )
+        .await
+        .expect("moving it somewhere else");
+        assert!(moved.path.ends_with("apart"));
+
+        let _ = change(
+            an_administrator(),
+            State(pool.clone()),
+            UrlPath(added.id),
+            Json(LibraryChanges {
+                name: Some("the same place".to_string()),
+                path: Some(root.join("apart").to_string_lossy().to_string()),
+                enabled: None,
+            }),
+        )
+        .await
+        .expect("and left where it is, it does not overlap itself");
+    }
+
+    /// A change that changes nothing is a mistake worth saying so, since the
+    /// alternative is answering "done" to a request that did nothing.
+    #[tokio::test]
+    async fn a_change_that_names_nothing_is_refused() {
+        let pool = a_server().await;
+        let root = directories("empty-change");
+
+        let (_, Json(added)) = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("outer"), None),
+        )
+        .await
+        .unwrap();
+
+        let refused = change(
+            an_administrator(),
+            State(pool.clone()),
+            UrlPath(added.id),
+            Json(LibraryChanges {
+                name: Some("   ".to_string()),
+                path: Some(String::new()),
+                enabled: None,
+            }),
+        )
+        .await
+        .expect_err("whitespace is not a name and empty is not a path");
+        assert!(matches!(refused, ApiError::Invalid(_)));
+    }
+
+    /// Removing one takes its music out of the collection, so it has to be
+    /// switched off first — which is the step where the panel can say what is
+    /// about to disappear.
+    #[tokio::test]
+    async fn a_library_is_switched_off_before_it_can_be_removed() {
+        let pool = a_server().await;
+        let root = directories("removing");
+
+        let (_, Json(added)) = add(
+            an_administrator(),
+            State(pool.clone()),
+            asking(&root.join("outer"), None),
+        )
+        .await
+        .unwrap();
+
+        let refused = remove(an_administrator(), State(pool.clone()), UrlPath(added.id))
+            .await
+            .expect_err("still on");
+        assert!(matches!(refused, ApiError::Conflict(_)));
+
+        let _ = change(
+            an_administrator(),
+            State(pool.clone()),
+            UrlPath(added.id),
+            Json(LibraryChanges {
+                name: None,
+                path: None,
+                enabled: Some(false),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            remove(an_administrator(), State(pool.clone()), UrlPath(added.id))
+                .await
+                .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM libraries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    /// One that was never there, told apart from one that cannot be removed yet.
+    #[tokio::test]
+    async fn removing_a_library_that_is_not_there_is_a_miss() {
+        let pool = a_server().await;
+
+        let missed = remove(an_administrator(), State(pool), UrlPath(404))
+            .await
+            .expect_err("no such library");
+        assert!(matches!(missed, ApiError::NotFound));
+    }
+}
