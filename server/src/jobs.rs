@@ -233,7 +233,14 @@ async fn covers(pool: &SqlitePool, data_dir: &Path) -> Result<Outcome> {
         }
     }
 
-    let forgotten = sqlx::query("DELETE FROM artwork_lookups WHERE found = 0")
+    // Only what was looked for on this disk. Forgetting that is free: the next
+    // request opens the files again and the answer costs nothing to have back.
+    //
+    // The remote ones are not this job's to forget. Behind each of those is a
+    // walk to somebody else's server at one request a second, and throwing the
+    // answer away would mean paying that walk again to be told the same thing.
+    // They grow stale on their own clock instead — see `crate::portraits`.
+    let forgotten = sqlx::query("DELETE FROM artwork_lookups WHERE found = 0 AND source = 'local'")
         .in_turn(pool)
         .await
         .context("forgetting the covers that were not found")?
@@ -244,7 +251,7 @@ async fn covers(pool: &SqlitePool, data_dir: &Path) -> Result<Outcome> {
 
 /// Albums the server looked in, found no cover, and stopped looking in.
 async fn unfound(pool: &SqlitePool) -> Result<i64> {
-    sqlx::query_scalar("SELECT count(*) FROM artwork_lookups WHERE found = 0")
+    sqlx::query_scalar("SELECT count(*) FROM artwork_lookups WHERE found = 0 AND source = 'local'")
         .fetch_one(pool)
         .await
         .context("counting the covers that were not found")
@@ -438,6 +445,58 @@ mod tests {
         assert_eq!(done.affected, 1);
         assert!(kept.exists(), "a row still names it");
         assert!(!doomed.exists());
+    }
+
+    /// What came off the network is not in this job's reach, in either half.
+    ///
+    /// The sweep works by hash over a directory, which cannot tell a portrait
+    /// that cost two requests at one a second from a file nothing wants — so the
+    /// fetched ones are in a directory of their own and this never walks it. And
+    /// the memory of having asked and been told no stays too: throwing it away
+    /// would mean walking to somebody else's server again for the same no.
+    #[tokio::test]
+    async fn what_the_network_cost_is_out_of_this_jobs_reach() {
+        let pool = empty().await;
+        let data_dir = tempdir();
+
+        // Nothing names either file, which is the whole of what this job goes on.
+        let cached = cached(&data_dir, "aabbcc");
+        let fetched = crate::artwork::acquired_path(&data_dir, "ddeeff");
+        std::fs::create_dir_all(fetched.parent().unwrap()).unwrap();
+        std::fs::write(&fetched, b"a portrait that cost a walk").unwrap();
+
+        for (source, found) in [("local", 0), ("commons", 0)] {
+            sqlx::query(
+                "INSERT INTO artwork_lookups (entity_type, entity_id, source, attempted_at, found)
+                 VALUES ('artist', 1, ?, ?, ?)",
+            )
+            .bind(source)
+            .bind(db::now())
+            .bind(found)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // One cached file and one local answer of "nothing here". The fetched
+        // pair is not counted, because it is not on offer to be deleted.
+        assert_eq!(
+            pending(&pool, &data_dir, Job::Covers).await.unwrap(),
+            Some(2)
+        );
+
+        let done = run(&pool, &data_dir, Job::Covers).await.unwrap();
+
+        assert_eq!(done.affected, 2);
+        assert!(!cached.exists(), "the cheap one goes");
+        assert!(fetched.exists(), "and the one that cost a walk stays");
+
+        let left: Vec<String> =
+            sqlx::query_scalar("SELECT source FROM artwork_lookups ORDER BY source")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(left, vec!["commons".to_string()]);
     }
 
     /// The other half of the same cache: what was remembered about finding no

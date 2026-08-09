@@ -3,10 +3,19 @@
 
 //! Cover images, kept on disk rather than in the database.
 //!
-//! The database holds a row describing each image; the bytes live in a cache
+//! The database holds a row describing each image; the bytes live in a
 //! directory named after their own hash. That gets deduplication for free: every
 //! track of an album carries the same embedded picture, and they all resolve to
 //! one file.
+//!
+//! **Two directories, not one**, and what separates them is not what the picture
+//! is but what it would cost to have it again. Anything read out of the user's
+//! own files is a cache: delete it and the next request reads the file again for
+//! nothing, which is why the job that tidies it can sweep by hash and delete
+//! whatever no row names. Anything off the network is not: it is two or three
+//! requests to somebody else's server at one a second, the file is the only copy
+//! there is, and a sweep by hash cannot tell it from rubbish. So it lives
+//! somewhere that sweep does not walk.
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
@@ -14,6 +23,28 @@ use std::path::{Path, PathBuf};
 
 /// Subdirectory of the data directory where image bytes go.
 pub const CACHE_DIRECTORY: &str = "artwork";
+
+/// And where the ones that came off the network go, which is not the same place.
+///
+/// The difference is what it costs to have them again. Everything in the cache
+/// can be read back out of the user's own files for nothing, so the job that
+/// tidies it deletes anything no row names and never has to be careful. A
+/// portrait fetched from Commons is two or three requests at one a second, and
+/// the file is the only copy there is: a sweep by hash cannot tell it from
+/// rubbish, so it must not be able to reach it.
+pub const ACQUIRED_DIRECTORY: &str = "acquired";
+
+/// What `source` says for a picture that came from Wikimedia Commons.
+pub const FROM_COMMONS: &str = "commons";
+
+/// Whether a row's source means the bytes cost a trip to somebody else's server.
+///
+/// The one question every caller that deletes has to ask, so it is asked in one
+/// place: a source this does not know is treated as local, because deleting is
+/// the half of this that cannot be undone.
+pub fn acquired(source: &str) -> bool {
+    source == FROM_COMMONS
+}
 
 /// File names that hold an album cover, in the order they are trusted. These are
 /// the conventions taggers and other music software have settled on.
@@ -31,12 +62,39 @@ pub const COVER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bm
 /// would look wrong in a round frame.
 pub const ARTIST_FILE_STEMS: &[&str] = &["artist", "folder", "poster"];
 
-/// Where the bytes of an image with this hash live.
+/// Where the bytes of a cached image with this hash live.
 pub fn cache_path(data_dir: &Path, hash: &str) -> PathBuf {
+    inside(data_dir, CACHE_DIRECTORY, hash)
+}
+
+/// And where a fetched one lives, under the same layout in the other directory.
+pub fn acquired_path(data_dir: &Path, hash: &str) -> PathBuf {
+    inside(data_dir, ACQUIRED_DIRECTORY, hash)
+}
+
+/// Where an image with this hash actually is, wherever that turns out to be.
+///
+/// For everybody who reads rather than writes, so serving a picture does not
+/// mean carrying its row's source down through four signatures to decide which
+/// of two directories to open. Whoever deletes does have to know, and asks.
+///
+/// The fetched one wins a tie, which cannot happen: same hash is same bytes, so
+/// either answer would serve the same picture.
+pub fn path_of(data_dir: &Path, hash: &str) -> PathBuf {
+    let fetched = acquired_path(data_dir, hash);
+
+    if fetched.exists() {
+        return fetched;
+    }
+
+    cache_path(data_dir, hash)
+}
+
+fn inside(data_dir: &Path, directory: &str, hash: &str) -> PathBuf {
     // Two levels of fan out, so a library with thousands of covers does not put
     // thousands of entries in one directory.
     let (prefix, rest) = hash.split_at(2.min(hash.len()));
-    data_dir.join(CACHE_DIRECTORY).join(prefix).join(rest)
+    data_dir.join(directory).join(prefix).join(rest)
 }
 
 /// Writes image bytes into the cache and returns their hash.
@@ -44,8 +102,16 @@ pub fn cache_path(data_dir: &Path, hash: &str) -> PathBuf {
 /// Writing the same image twice is not an error and not extra work: the second
 /// call finds the file already there.
 pub fn store(data_dir: &Path, bytes: &[u8]) -> Result<String> {
+    write_into(cache_path(data_dir, &hash_of(bytes)), bytes)
+}
+
+/// The same, for bytes that came off the network and go where no sweep reaches.
+pub fn acquire(data_dir: &Path, bytes: &[u8]) -> Result<String> {
+    write_into(acquired_path(data_dir, &hash_of(bytes)), bytes)
+}
+
+fn write_into(path: PathBuf, bytes: &[u8]) -> Result<String> {
     let hash = hash_of(bytes);
-    let path = cache_path(data_dir, &hash);
 
     if path.exists() {
         return Ok(hash);
@@ -53,9 +119,8 @@ pub fn store(data_dir: &Path, bytes: &[u8]) -> Result<String> {
 
     let parent = path
         .parent()
-        .context("an artwork cache path always has a parent")?;
-    std::fs::create_dir_all(parent)
-        .with_context(|| format!("creating the artwork cache at {}", parent.display()))?;
+        .context("an artwork path always has a parent")?;
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     std::fs::write(&path, bytes)
         .with_context(|| format!("writing artwork to {}", path.display()))?;
 
@@ -212,6 +277,41 @@ mod tests {
         let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0];
         bytes.extend_from_slice(b"padding to make it look like a file");
         bytes
+    }
+
+    /// What decides which of the two directories a picture is in, and that
+    /// reading finds it either way — the reader is the one caller that must not
+    /// have to know.
+    #[test]
+    fn what_cost_a_walk_is_kept_where_a_sweep_cannot_reach_it() {
+        let data_dir = crate::fixtures::temp_root("artwork-two-homes");
+
+        let cached = store(&data_dir, &jpeg()).unwrap();
+        let fetched = acquire(&data_dir, &png()).unwrap();
+
+        assert!(cache_path(&data_dir, &cached).exists());
+        assert!(acquired_path(&data_dir, &fetched).exists());
+        assert!(
+            !cache_path(&data_dir, &fetched).exists(),
+            "the fetched one is not where the sweep walks"
+        );
+
+        // And whoever serves an image finds it without being told which it is.
+        assert_eq!(path_of(&data_dir, &cached), cache_path(&data_dir, &cached));
+        assert_eq!(
+            path_of(&data_dir, &fetched),
+            acquired_path(&data_dir, &fetched)
+        );
+    }
+
+    /// A source nothing knows is treated as local, because being wrong about
+    /// this deletes something that cost a walk and cannot be had back for free.
+    #[test]
+    fn only_a_source_we_know_fetched_counts_as_fetched() {
+        assert!(acquired(FROM_COMMONS));
+        assert!(!acquired("embedded"));
+        assert!(!acquired("local_file"));
+        assert!(!acquired("something a later version writes"));
     }
 
     #[test]

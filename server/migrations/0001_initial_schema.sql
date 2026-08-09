@@ -36,7 +36,14 @@ CREATE TABLE libraries (
 -- in the database: content_hash names the cached file.
 --
 -- `source` matters for policy: a local file must never be overwritten by
--- something fetched from the network, and only remote entries expire.
+-- something fetched from the network, and only remote entries expire. It also
+-- decides which directory the bytes are in — what came off the network is kept
+-- apart from what can be read again for nothing.
+--
+-- The four columns at the end are what a licence asks for and only something
+-- fetched has: who made the picture, what it is licensed under, where those
+-- terms are, and the page it came off. Null for everything read out of a file
+-- on the user's own disk, which is nobody's to attribute.
 CREATE TABLE artworks (
     id           INTEGER PRIMARY KEY,
     public_id    TEXT    NOT NULL UNIQUE,
@@ -47,7 +54,11 @@ CREATE TABLE artworks (
     width        INTEGER,
     height       INTEGER,
     content_hash TEXT    NOT NULL,
-    fetched_at   TEXT    NOT NULL
+    fetched_at   TEXT    NOT NULL,
+    author       TEXT,
+    license      TEXT,
+    license_url  TEXT,
+    source_url   TEXT
 );
 
 CREATE INDEX artworks_hash_idx ON artworks (content_hash);

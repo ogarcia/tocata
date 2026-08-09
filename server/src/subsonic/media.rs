@@ -139,7 +139,7 @@ pub async fn get_cover_art(
         }
     };
 
-    let path = artwork::cache_path(config.data_dir(), &hash);
+    let path = artwork::path_of(config.data_dir(), &hash);
     let service = ServeFile::new_with_mime(
         &path,
         &mime_type.parse().unwrap_or(mime::APPLICATION_OCTET_STREAM),

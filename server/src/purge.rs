@@ -32,10 +32,18 @@ pub async fn absent(pool: &SqlitePool, data_dir: &Path, until: Option<&str>) -> 
 
     // After the commit, and never as part of it: a file that will not unlink must
     // not undo a purge that is already true in the database.
-    for hash in orphaned_files {
-        let path = crate::artwork::cache_path(data_dir, &hash);
+    //
+    // Whichever directory it is in. A purge does reach what was fetched, unlike
+    // the sweep that tidies the cache: this is somebody saying that a record is
+    // gone for good, not a heuristic about which files nothing names.
+    for (hash, source) in orphaned_files {
+        let path = match crate::artwork::acquired(&source) {
+            true => crate::artwork::acquired_path(data_dir, &hash),
+            false => crate::artwork::cache_path(data_dir, &hash),
+        };
+
         if let Err(e) = std::fs::remove_file(&path) {
-            warn!("could not remove cached artwork {}: {e}", path.display());
+            warn!("could not remove artwork {}: {e}", path.display());
         }
     }
 
@@ -57,7 +65,7 @@ pub async fn absent(pool: &SqlitePool, data_dir: &Path, until: Option<&str>) -> 
 async fn sweep(
     pool: &SqlitePool,
     until: Option<&str>,
-) -> Result<(Removed, Vec<String>), sqlx::Error> {
+) -> Result<(Removed, Vec<(String, String)>), sqlx::Error> {
     let mut tx = crate::db::writing(pool).await?;
 
     // The full text tables are maintained by the scanner as it writes, not by
@@ -191,12 +199,13 @@ async fn sweep(
 /// is only unreferenced once no row is left holding that hash.
 async fn purge_artworks(
     tx: &mut Transaction<'_, Sqlite>,
-) -> Result<(i64, Vec<String>), sqlx::Error> {
-    const UNREFERENCED: &str = "SELECT id, content_hash FROM artworks a
+) -> Result<(i64, Vec<(String, String)>), sqlx::Error> {
+    const UNREFERENCED: &str = "SELECT id, content_hash, source FROM artworks a
           WHERE NOT EXISTS (SELECT 1 FROM albums b WHERE b.artwork_id = a.id)
             AND NOT EXISTS (SELECT 1 FROM artists r WHERE r.artwork_id = a.id)";
 
-    let doomed: Vec<(i64, String)> = sqlx::query_as(UNREFERENCED).fetch_all(&mut **tx).await?;
+    let doomed: Vec<(i64, String, String)> =
+        sqlx::query_as(UNREFERENCED).fetch_all(&mut **tx).await?;
 
     if doomed.is_empty() {
         return Ok((0, Vec::new()));
@@ -211,16 +220,16 @@ async fn purge_artworks(
     .await?
     .rows_affected() as i64;
 
-    let mut orphaned = Vec::new();
-    for (_, hash) in doomed {
+    let mut orphaned: Vec<(String, String)> = Vec::new();
+    for (_, hash, source) in doomed {
         let still_used: i64 =
             sqlx::query_scalar("SELECT count(*) FROM artworks WHERE content_hash = ?")
                 .bind(&hash)
                 .fetch_one(&mut **tx)
                 .await?;
 
-        if still_used == 0 && !orphaned.contains(&hash) {
-            orphaned.push(hash);
+        if still_used == 0 && !orphaned.iter().any(|(seen, _)| seen == &hash) {
+            orphaned.push((hash, source));
         }
     }
 
@@ -360,8 +369,9 @@ mod tests {
         assert_eq!(removed.artworks, 1, "no album or artist points at it");
         assert_eq!(
             files,
-            vec!["abcd".to_string()],
-            "its cached file is unreferenced"
+            vec![("abcd".to_string(), "file".to_string())],
+            "its cached file is unreferenced, and named with where it came from \
+             so the right directory is the one that loses it"
         );
 
         // The full text tables are maintained by hand, so this is the assertion

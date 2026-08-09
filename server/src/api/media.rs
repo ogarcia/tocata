@@ -157,7 +157,7 @@ async fn image(
     mime_type: &str,
     request: Request,
 ) -> Response {
-    let path = crate::artwork::cache_path(data_dir, hash);
+    let path = crate::artwork::path_of(data_dir, hash);
     let service = ServeFile::new_with_mime(
         &path,
         &mime_type.parse().unwrap_or(mime::APPLICATION_OCTET_STREAM),
