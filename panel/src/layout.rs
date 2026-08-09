@@ -384,7 +384,18 @@ fn Sound() -> impl IntoView {
 
     let first = NodeRef::<leptos::html::Audio>::new();
     let second = NodeRef::<leptos::html::Audio>::new();
-    let source = (RwSignal::new(String::new()), RwSignal::new(String::new()));
+
+    // What each element has actually been given, which is memory rather than
+    // markup: `src` is set here by hand instead of being an attribute that
+    // follows a signal.
+    //
+    // It had to stop being an attribute. Both the source and the `play()` that
+    // follows it come from signals that change in the same breath, and nothing
+    // says which of the two effects runs first — so play was being asked of an
+    // element that had not been given its file yet. It did nothing, `playing`
+    // stayed true, and nothing ever asked again: pressing play on anything at all
+    // sounded only after a pause and a second press.
+    let holding = (RwSignal::new(String::new()), RwSignal::new(String::new()));
 
     // False is the first element. Flipped at the end of a track, never anywhere
     // else: everything that jumps — a button, a row, a new queue — keeps whichever
@@ -393,65 +404,54 @@ fn Sound() -> impl IntoView {
     let second_one = RwSignal::new(false);
 
     let live = move || if second_one.get() { second } else { first };
-    let live_source = move || if second_one.get() { source.1 } else { source.0 };
-    let idle_source = move || if second_one.get() { source.0 } else { source.1 };
 
-    // Who holds what. The live element gets the current track and the other one
-    // gets the next, and neither is written unless what it holds is wrong — which
-    // is what makes the handover free: after the flip the new live element is
-    // already holding exactly what this would give it.
+    // Who holds what, and who is sounding, decided together and in that order.
+    //
+    // The live element gets the track that should be playing and is asked to play
+    // it; the other gets the one after and is kept quiet. Neither is given a
+    // source it already holds — which is what makes the handover free, since the
+    // element being made live is already holding exactly this.
     Effect::new(move |_| {
         let wanted = player
             .current()
             .map(|id| api::audio(&id))
             .unwrap_or_default();
-        let live = live_source();
-
-        if live.get_untracked() != wanted {
-            live.set(wanted);
-        }
-
         let next = player
             .upcoming()
             .map(|id| api::audio(&id))
             .unwrap_or_default();
-        let idle = idle_source();
+        let playing = player.playing.get();
+        let second_is_live = second_one.get();
 
-        if idle.get_untracked() != next {
-            idle.set(next);
+        let (live, idle) = match second_is_live {
+            true => (second, first),
+            false => (first, second),
+        };
+        let (live_holds, idle_holds) = match second_is_live {
+            true => (holding.1, holding.0),
+            false => (holding.0, holding.1),
+        };
+
+        if let Some(audio) = live.get() {
+            hand(&audio, live_holds, &wanted);
+
+            // Asking, not trusting: a browser can refuse — a file that will not
+            // decode, a gesture it wanted first — and what comes back is whatever
+            // the element then reports through `on:play` and `on:pause`.
+            if playing {
+                let _ = audio.play();
+            } else {
+                let _ = audio.pause();
+            }
         }
-    });
-
-    // Pressing play is asking the element to play, which can be refused — a file
-    // that will not decode, a browser that wants a gesture first. So the signal is
-    // followed rather than trusted: this asks, and what comes back is whatever the
-    // element then reports through `on:play` and `on:pause`.
-    //
-    // It reads the live source as well as the flag, because both of the ways a new
-    // track starts leave `playing` already true: the flip at a join, and a jump
-    // that changes what the live element holds. With one element that needed no
-    // saying — a `src` swapped under an element that was already playing carries on
-    // by itself — and with two it has to be asked for.
-    Effect::new(move |_| {
-        let wanted = player.playing.get();
-        let _ = live_source().get();
-
-        let Some(audio) = live().get() else { return };
-
-        if wanted {
-            let _ = audio.play();
-        } else {
-            let _ = audio.pause();
-        }
-
-        // And the other one is silent, always. Reaching the end of a track does
-        // not pause the element it played in — `paused` stays false — so the one
-        // that has just handed over would start sounding the moment it is given
-        // the track after next, and two would be playing at once.
-        let idle = if second_one.get() { first } else { second };
 
         if let Some(audio) = idle.get() {
+            // Silent, always. Reaching the end of a track does not pause the
+            // element that played it — `paused` stays false — so the one that has
+            // just handed over would start sounding the moment it is given the
+            // track after next, and two would be playing at once.
             let _ = audio.pause();
+            hand(&audio, idle_holds, &next);
         }
     });
 
@@ -474,9 +474,35 @@ fn Sound() -> impl IntoView {
     });
 
     view! {
-        <Half node_ref=first mine=false sounding=second_one source=source.0 />
-        <Half node_ref=second mine=true sounding=second_one source=source.1 />
+        <Half node_ref=first mine=false sounding=second_one />
+        <Half node_ref=second mine=true sounding=second_one />
     }
+}
+
+/// Gives one element a file to load, and only when it is not the one it has.
+///
+/// Reassigning the source an element already holds throws away everything it has
+/// buffered, which at a handover is the whole point of there being two.
+///
+/// Nothing to load is the attribute taken away rather than set to nothing: `src=""`
+/// is a request for the page this panel is served from, read as audio, and that is
+/// what the end of a queue would otherwise ask for.
+fn hand(audio: &web_sys::HtmlAudioElement, holding: RwSignal<String>, wanted: &str) {
+    if holding.get_untracked() == wanted {
+        return;
+    }
+
+    holding.update_untracked(|held| *held = wanted.to_string());
+
+    if wanted.is_empty() {
+        let _ = audio.remove_attribute("src");
+    } else {
+        audio.set_src(wanted);
+    }
+
+    // Which is what makes either of those take effect: without it the element goes
+    // on with whatever it was doing until it happens to notice.
+    audio.load();
 }
 
 /// One of the two, which is only ever the clock while it is the one sounding.
@@ -490,21 +516,15 @@ fn Half(
     /// Which of the two this is, against the flag that says which is sounding.
     mine: bool,
     sounding: RwSignal<bool>,
-    source: RwSignal<String>,
 ) -> impl IntoView {
     let player = crate::player::player();
     let is_mine = move || sounding.get_untracked() == mine;
 
     view! {
+        // No `src` here: what each of these is loading is handed to it above,
+        // beside the `play()` that has to follow it. See `Sound`.
         <audio
             node_ref=node_ref
-            // Left off rather than left empty. `src=""` is a request for the page
-            // this panel is served from, read as audio — which is what the end of
-            // a queue would ask for, since there is nothing after the last track.
-            src=move || {
-                let source = source.get();
-                (!source.is_empty()).then_some(source)
-            }
             // The whole point: the one that is not sounding fetches anyway, so that
             // when its turn comes there is nothing left to wait for.
             preload="auto"
