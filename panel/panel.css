@@ -1388,7 +1388,11 @@ h1 {
  * the first, the field takes the whole of the second — which is what puts the
  * button back where it is drawn after the markup put it after the field, where tab
  * needs it. */
-.secret {
+/* Named the way the rule it overrides is named — `.sheet label, .entry label` —
+ * because that one is a class and an element, and a bare `.secret` loses to it on
+ * specificity: the field went back to a column and the word dropped below the box
+ * in both places at once. */
+.sheet label.secret, .entry label.secret {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
 }

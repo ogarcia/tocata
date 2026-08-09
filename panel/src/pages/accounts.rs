@@ -537,12 +537,14 @@ fn NewPassword(
 ) -> impl IntoView {
     let dialog: NodeRef<Dialog> = NodeRef::new();
     let (password, set_password) = signal(String::new());
+    let (shown, set_shown) = signal(false);
 
     Effect::new(move |_| {
         let Some(element) = dialog.get() else { return };
 
         if account.get().is_some() {
             set_password.set(String::new());
+            set_shown.set(false);
             let _ = element.show_modal();
         } else {
             element.close();
@@ -575,16 +577,37 @@ fn NewPassword(
                     </p>
 
                     <div class="sheet-content">
-                        <label>
+                        // Shown on request, like the one on the form that makes an
+                        // account: typed once, never repeated, and invented for
+                        // somebody else rather than recalled.
+                        //
+                        // In the tab order here, unlike there. This is the only
+                        // field in the dialogue, so the step after it is the way
+                        // out and the way to save — nothing is being interrupted,
+                        // and the button is one a keyboard can reach.
+                        <label class="secret">
                             <span>{t!("accounts.password")}</span>
                             <input
-                                type="password"
+                                type=move || if shown.get() { "text" } else { "password" }
                                 autocomplete="new-password"
                                 autofocus
                                 required
                                 prop:value=password
                                 on:input:target=move |e| set_password.set(e.target().value())
                             />
+                            <button
+                                type="button"
+                                class="reveal"
+                                on:click=move |_| set_shown.update(|is| *is = !*is)
+                            >
+                                {move || {
+                                    if shown.get() {
+                                        t!("common.hide").to_string()
+                                    } else {
+                                        t!("common.show").to_string()
+                                    }
+                                }}
+                            </button>
                         </label>
                     </div>
                 </div>
@@ -796,6 +819,7 @@ fn Adding(
         if adding.get() {
             set_username.set(String::new());
             set_password.set(String::new());
+            set_shown.set(false);
             set_email.set(String::new());
             set_admin.set(false);
             set_failure.set(None);
