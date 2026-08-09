@@ -48,6 +48,15 @@ pub enum ApiError {
     /// know that token. It is 400 and not 403 — nothing here refused anything, and
     /// a 403 is what the panel reads as being about this server.
     TokenRefused,
+    /// 409 — the request needs this server to talk to somebody else's, and it is not
+    /// allowed to.
+    ///
+    /// Its own failure and not a `Conflict`, though it is one, because the panel picks
+    /// its words from the code: a conflict there is a name already taken, and this is
+    /// a server switched off the network. Nothing is wrong with the request and
+    /// nothing about it can be corrected — an administrator changes one setting and
+    /// the same request works.
+    NotReachingOut,
     /// 409 — the request makes sense but conflicts with what is already going on.
     Conflict(&'static str),
     /// 429 — too many failed logins from where this came from, so it has to wait.
@@ -68,6 +77,7 @@ impl ApiError {
             Self::NotFound => "notFound",
             Self::Invalid(_) => "invalidRequest",
             Self::TokenRefused => "tokenRefused",
+            Self::NotReachingOut => "notReachingOut",
             Self::Conflict(_) => "conflict",
             Self::TooManyAttempts => "tooManyAttempts",
             Self::Internal => "internalError",
@@ -82,7 +92,7 @@ impl ApiError {
             Self::NotAuthorized | Self::WrongPassword => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Invalid(_) | Self::TokenRefused => StatusCode::BAD_REQUEST,
-            Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Conflict(_) | Self::NotReachingOut => StatusCode::CONFLICT,
             Self::TooManyAttempts => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -97,6 +107,7 @@ impl ApiError {
             Self::NotFound => "No such thing",
             Self::Invalid(detail) | Self::Conflict(detail) => detail,
             Self::TokenRefused => "The service would not accept that token",
+            Self::NotReachingOut => "This server is not allowed to reach out to other servers",
             Self::TooManyAttempts => "Too many failed logins from here; wait a while",
             Self::Internal => "An internal error occurred",
         }

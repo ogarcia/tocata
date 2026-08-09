@@ -742,13 +742,18 @@ CREATE TABLE settings (
                                               OR absent_grace_days >= 0),
     -- How long a panel login lasts, in days. Absolute: see the sessions table.
     session_days      INTEGER NOT NULL CHECK (session_days > 0),
-    -- Whether the server may walk out to MusicBrainz and Wikimedia Commons
-    -- looking for photographs of the artists it holds. Off, and off is what a
-    -- collection that has never been asked gets: everything else here happens
-    -- between this machine and its own disk, and reaching somebody else's
-    -- server is a thing to be asked for rather than assumed.
-    fetch_portraits   INTEGER NOT NULL DEFAULT 0
-                                       CHECK (fetch_portraits IN (0, 1)),
+    -- Whether this server may talk to anybody at all: walking out to MusicBrainz
+    -- and Wikimedia Commons for photographs of the artists it holds, and passing
+    -- listens on to a scrobbling service. Off, and off is what a collection that
+    -- has never been asked gets: everything else here happens between this
+    -- machine and its own disk, and reaching somebody else's server is a thing to
+    -- be asked for rather than assumed.
+    --
+    -- Read straight out of this row by the statements that decide whether a
+    -- listen is queued and where one may be sent, so switching it off stops
+    -- those in the same breath rather than after something has been sent.
+    reach_out         INTEGER NOT NULL DEFAULT 0
+                                       CHECK (reach_out IN (0, 1)),
     updated_at        TEXT    NOT NULL
 );
 

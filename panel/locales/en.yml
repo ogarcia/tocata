@@ -556,6 +556,9 @@ profile:
   scrobbling: Pass plays on
   scrobbling_on: "Pass my plays on"
   scrobbling_why: "Counting them here never stops. This is only about sending them anywhere else."
+  # When the whole server is not allowed out. It says whose decision that is, because
+  # it is not this reader's unless they also administer the place.
+  scrobbling_shut: "This server is not allowed to talk to other servers, so nothing is sent anywhere. An administrator can allow it in Settings, under \"Out to the network\"."
   unchanged: Leave empty to keep it
   username: Username
   username_theirs: "An administrator changes this"
@@ -696,9 +699,9 @@ settings:
   day: "day"
   days_plain: "days"
   reaching_out: "Out to the network"
-  portraits: "Pictures of the artists"
-  portraits_why: "Off, this server talks to nobody. On, it may ask MusicBrainz and Wikimedia Commons for a photograph of each artist that has none, at one request a second — three quarters of an hour for a large collection. Nothing about your music is sent: it asks by the identifier a tag already carries."
-  portraits_on: "Let it look"
+  reaching: "Talking to other servers"
+  reaching_why: "Off, this server talks to nobody and everything happens between this machine and its own disk. On, the only two things that leave here are allowed: asking MusicBrainz and Wikimedia Commons for a photograph of each artist that has none, and passing what you listen to on to a scrobbling service, if you have set one up in your profile. Neither of them starts on its own."
+  reaching_on: "Let it out"
   collection: "The collection"
   ignored_articles: "Articles that do not count"
   ignored_articles_why: "Words skipped when deciding which letter a name files under, separated by spaces, so that \"The Beatles\" sits under B."
@@ -759,6 +762,10 @@ listens:
   destinations: "Where they go"
   lead: "Besides counting them here, Tocata can pass what you listen to on to a scrobbling service. You can send to more than one. These take effect as you press them — there is nothing here to save."
   while_off: "Nothing is being sent while the switch above is off. What is waiting stays waiting, and goes as soon as you switch it back on."
+  # The same, by a decision that is not yours: there is nothing here you can switch
+  # on, and a destination cannot be added either, since setting one up means asking
+  # the service about the token.
+  while_shut: "Nothing can be sent and no destination can be added while this server is not allowed to talk to other servers."
   none: "You are not sending your listens anywhere."
   none_why: "Passing plays on is switched on, but a listen is queued for a destination: until there is one, nothing is being kept to send later."
   add: "Add a destination"

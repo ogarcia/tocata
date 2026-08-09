@@ -367,6 +367,10 @@ pub fn said(why: &Failure) -> String {
             "conflict" => t!("accounts.taken").to_string(),
             "invalidRequest" => t!("accounts.invalid").to_string(),
             "notAuthorized" => t!("accounts.not_allowed").to_string(),
+            // Only ever from setting up a scrobbler, and only where the panel was
+            // already drawn when an administrator switched the server off the
+            // network.
+            "notReachingOut" => t!("listens.while_shut").to_string(),
             "wrongPassword" => t!("accounts.wrong_password").to_string(),
             _ => t!("common.refused").to_string(),
         },

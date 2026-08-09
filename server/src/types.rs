@@ -614,10 +614,14 @@ pub struct Settings {
     /// How long a panel login lasts, in days.
     #[schema(example = 30)]
     pub session_days: i64,
-    /// Whether the server may walk out to MusicBrainz and Wikimedia Commons
-    /// looking for pictures of the artists. Off unless somebody said otherwise:
-    /// everything else here happens between this machine and its own disk.
-    pub fetch_portraits: bool,
+    /// Whether this server may talk to anybody at all.
+    ///
+    /// The one switch over every way out of this machine: looking for pictures of
+    /// the artists, and passing listens on to a scrobbling service. Off unless
+    /// somebody said otherwise, because everything else here happens between this
+    /// machine and its own disk — and a server on a network with no way out has
+    /// nothing to gain from either but waiting.
+    pub reach_out: bool,
 }
 
 /// What may be changed. Anything left out is left alone.
@@ -651,9 +655,9 @@ pub struct SettingsChanges {
     /// expiry it was given.
     #[schema(example = 30)]
     pub session_days: Option<i64>,
-    /// Whether the server may go looking for pictures of the artists on
-    /// MusicBrainz and Wikimedia Commons.
-    pub fetch_portraits: Option<bool>,
+    /// Whether this server may talk to anybody at all: pictures of the artists,
+    /// and passing listens on.
+    pub reach_out: Option<bool>,
 }
 
 /// What the server is costing the machine, right now.

@@ -82,6 +82,9 @@ fn catalogue() -> Vec<Offered> {
 ///
 /// Sending it again replaces what was there, which is how a token is renewed and
 /// how a self hosted instance moves house.
+///
+/// A server not allowed off its own machine refuses this outright. Nothing is wrong
+/// with the request — an administrator changes one setting and it works.
 #[utoipa::path(
     put,
     path = "/scrobblers/{service}",
@@ -93,6 +96,7 @@ fn catalogue() -> Vec<Offered> {
         (status = 400, description = "No token, no address for a service that needs one, or a token the service refused", body = ErrorBody),
         (status = 401, description = "No valid session", body = ErrorBody),
         (status = 404, description = "No such service", body = ErrorBody),
+        (status = 409, description = "This server is not allowed to reach out", body = ErrorBody),
     )
 )]
 pub async fn set(
@@ -110,6 +114,18 @@ pub async fn set(
     }
 
     let url = whereabouts(service, given.url.as_deref())?;
+
+    // Setting one up means asking the service about the token, which is this server
+    // talking to somebody else's. Refused rather than stored unchecked: a destination
+    // saved on a server that may not reach it would sit there looking configured and
+    // send nothing, and the panel would have no way to say why.
+    if !crate::settings::load(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "reading whether the server may reach out"))?
+        .reach_out
+    {
+        return Err(ApiError::NotReachingOut);
+    }
 
     // Asked before anything is written, so a refused token leaves no row behind to
     // wonder about.
@@ -513,6 +529,42 @@ mod tests {
             .expect_err("no such service"),
             ApiError::NotFound
         ));
+    }
+
+    /// A server not allowed off its own machine will not set a destination up.
+    ///
+    /// Refused rather than stored unchecked, and refused with a code of its own:
+    /// nothing about the request is wrong, so a message about a mistyped field would
+    /// send somebody looking for a mistake they have not made. What is wrong is a
+    /// setting one screen away, and an administrator changes it.
+    #[tokio::test]
+    async fn a_destination_is_not_set_up_while_the_server_may_not_reach_out() {
+        let (pool, panel) = a_destination().await;
+        crate::settings::seed(&pool, &[]).await.unwrap();
+
+        let refused = set(
+            panel,
+            State(pool.clone()),
+            State(Net::new()),
+            UrlPath("listenbrainz".to_string()),
+            Json(NewScrobbler {
+                url: None,
+                token: "a token".to_string(),
+                enabled: None,
+            }),
+        )
+        .await
+        .expect_err("this server does not talk to anybody");
+
+        assert!(matches!(refused, ApiError::NotReachingOut));
+
+        // And nothing was written on the way out: the row that was already there is
+        // the one that was already there.
+        let tokens: Vec<String> = sqlx::query_scalar("SELECT token FROM scrobblers")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(tokens, ["a token"]);
     }
 
     /// The two ways a request to set one up is refused before the network is

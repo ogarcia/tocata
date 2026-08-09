@@ -84,6 +84,23 @@ macro_rules! visible_libraries {
     };
 }
 
+/// Whether this server is allowed to talk to anybody at all.
+///
+/// The one setting that decides it, written into the statements that decide where a
+/// listen goes rather than read into a variable first. Which is what makes switching
+/// it off take effect on the next listen instead of on the next restart: nothing here
+/// holds a copy of it, and a statement reading it in the same breath as the row it
+/// governs cannot be looking at the answer from before.
+///
+/// A collection with no settings row at all falls the safe way: the subquery is null,
+/// the comparison is null, and no row passes it.
+#[cfg(feature = "server")]
+macro_rules! reaching_out {
+    () => {
+        "(SELECT reach_out FROM settings WHERE id = 1) = 1"
+    };
+}
+
 /// Whether a thing has at least one track worth showing.
 ///
 /// A track is worth showing when its file is still there and its library is

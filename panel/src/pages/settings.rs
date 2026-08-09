@@ -129,7 +129,7 @@ fn Knobs(settings: Settings, save: Callback<SettingsChanges>) -> impl IntoView {
     });
 
     let (articles, set_articles) = signal(settings.ignored_articles.join(" "));
-    let (portraits, set_portraits) = signal(settings.fetch_portraits);
+    let (reaching, set_reaching) = signal(settings.reach_out);
     let (session_days, set_session_days) = signal(settings.session_days);
 
     // The spans offered, and whatever this server actually has if it is not one of
@@ -176,7 +176,7 @@ fn Knobs(settings: Settings, save: Callback<SettingsChanges>) -> impl IntoView {
                 Absent::After => Some(typed(&days.get()).unwrap_or(A_WEEK)),
             }),
             session_days: Some(session_days.get()),
-            fetch_portraits: Some(portraits.get()),
+            reach_out: Some(reaching.get()),
         });
     };
 
@@ -312,16 +312,16 @@ fn Knobs(settings: Settings, save: Callback<SettingsChanges>) -> impl IntoView {
 
                         <div class="settings">
                             <Setting
-                                label=t!("settings.portraits").to_string()
-                                why=t!("settings.portraits_why").to_string()
+                                label=t!("settings.reaching").to_string()
+                                why=t!("settings.reaching_why").to_string()
                             >
                                 <label class="checkbox">
                                     <input
                                         type="checkbox"
-                                        prop:checked=portraits
-                                        on:change:target=move |e| set_portraits.set(e.target().checked())
+                                        prop:checked=reaching
+                                        on:change:target=move |e| set_reaching.set(e.target().checked())
                                     />
-                                    <span>{t!("settings.portraits_on")}</span>
+                                    <span>{t!("settings.reaching_on")}</span>
                                 </label>
                             </Setting>
                         </div>

@@ -553,6 +553,9 @@ profile:
   scrobbling: Pasar las reproducciones
   scrobbling_on: "Pasar mis reproducciones"
   scrobbling_why: "Contarlas aquí no se detiene nunca. Esto es solo sobre enviarlas a otro sitio."
+  # Cuando el servidor entero tiene prohibido salir. Dice de quién es la decisión,
+  # porque no es de quien está leyendo esto salvo que además administre.
+  scrobbling_shut: "Este servidor no tiene permitido hablar con otros servidores, así que no se envía nada a ninguna parte. Un administrador puede permitirlo en Ajustes, en «Salir a la red»."
   unchanged: Vacío para dejarla como está
   username: Usuario
   username_theirs: "Lo cambia un administrador"
@@ -689,9 +692,9 @@ settings:
   day: "día"
   days_plain: "días"
   reaching_out: "Salir a la red"
-  portraits: "Fotos de los artistas"
-  portraits_why: "Apagado, este servidor no habla con nadie. Encendido, puede preguntar a MusicBrainz y a Wikimedia Commons por una foto de cada artista que no tenga ninguna, a una petición por segundo: tres cuartos de hora en una colección grande. No se envía nada de tu música: pregunta por el identificador que ya trae la etiqueta."
-  portraits_on: "Que busque"
+  reaching: "Hablar con otros servidores"
+  reaching_why: "Apagado, este servidor no habla con nadie y todo ocurre entre esta máquina y su disco. Encendido, se permiten las dos únicas cosas que salen de aquí: preguntar a MusicBrainz y a Wikimedia Commons por una foto de cada artista que no tenga ninguna, y enviar lo que escuchas a un servicio de scrobbling, si tú lo has configurado en tu perfil. Ninguna de las dos empieza sola."
+  reaching_on: "Permitir que salga"
   collection: "La colección"
   ignored_articles: "Artículos que no cuentan"
   ignored_articles_why: "Palabras que se saltan al decidir por qué letra va un nombre, separadas por espacios: así «The Beatles» está en la B."
@@ -752,6 +755,10 @@ listens:
   destinations: "Dónde se envían"
   lead: "Además de contarlas aquí, Tocata puede pasar lo que escuchas a un servicio de scrobbling. Puedes enviarlas a más de uno. Surten efecto al pulsarlos: aquí no hay nada que guardar."
   while_off: "No se está enviando nada mientras el interruptor de arriba esté apagado. Lo que espera sigue esperando, y sale en cuanto lo vuelvas a encender."
+  # Lo mismo, pero por una decisión que no es tuya: aquí no hay nada que puedas
+  # encender, y añadir un destino tampoco se puede porque darlo de alta exige
+  # preguntarle al servicio por el testigo.
+  while_shut: "No se puede enviar nada ni añadir destinos mientras este servidor no tenga permitido hablar con otros servidores."
   none: "No estás enviando tus escuchas a ningún sitio."
   none_why: "Pasar las reproducciones está activado, pero una escucha se encola para cada destino: hasta que haya uno, no se guarda nada para enviarlo después."
   add: "Añadir un destino"

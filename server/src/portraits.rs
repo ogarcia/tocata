@@ -639,7 +639,10 @@ impl Fetching {
         self.cancel.store(true, Ordering::Release);
     }
 
-    fn should_stop(&self) -> bool {
+    /// Whether a walk has been asked to stop. Read by the walk itself between
+    /// artists, and asked of it from outside by whatever wants to know that the word
+    /// has been passed on.
+    pub fn should_stop(&self) -> bool {
         self.cancel.load(Ordering::Acquire)
     }
 

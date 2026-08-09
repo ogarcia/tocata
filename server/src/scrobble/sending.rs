@@ -122,22 +122,28 @@ async fn hand_over(net: &Net, pool: &SqlitePool, user_id: i64, service: Service)
     // Read again per destination rather than once for all of them: a token
     // changed, or a destination switched off, between one pass and the next is
     // exactly the case where reading it late is reading it right.
-    let found: Option<(String, String)> = sqlx::query_as(
+    let found: Option<(String, String)> = sqlx::query_as(concat!(
         "SELECT s.url, s.token
            FROM scrobblers s
            JOIN users u ON u.id = s.user_id
           WHERE s.user_id = ? AND s.service = ?
-            AND s.enabled = 1 AND u.scrobbling_enabled = 1",
-    )
+            AND s.enabled = 1 AND u.scrobbling_enabled = 1
+            AND ",
+        reaching_out!()
+    ))
     .bind(user_id)
     .bind(service.name())
     .fetch_optional(pool)
     .await
     .context("reading a destination")?;
 
-    // Switched off since it was queued. The rows stay: switching it on again is
-    // meant to send what was waiting, which is the difference between switching
-    // off and removing.
+    // Switched off since it was queued, here or at the server's own way out. The
+    // rows stay: switching it on again is meant to send what was waiting, which is
+    // the difference between switching off and removing.
+    //
+    // And nothing is counted as an attempt, so a week off the network does not push
+    // every destination out to the six-hour wait it would then have to climb back
+    // down from.
     let Some((url, token)) = found else {
         return Ok(());
     };

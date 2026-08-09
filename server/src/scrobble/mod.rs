@@ -179,6 +179,11 @@ pub async fn queue(pool: &SqlitePool, user_id: i64, track_id: i64, played_at: &s
 /// here — the join decides who it goes to, and the where decides whether it goes
 /// at all.
 ///
+/// A listen is not written down at all while the server is not allowed out. Which is
+/// the one place that decision could go: queueing it anyway would build a history of
+/// somebody's listening on the promise of sending it later, and the person who
+/// switched the server off the network did not ask for that promise.
+///
 /// A song with no credit at all is not queued, and the inner join is what does it.
 /// The far end insists on an artist name, so there would be nothing to send;
 /// putting the file's name in, or the word "Unknown", would file a listen in
@@ -204,6 +209,8 @@ async fn enqueue(pool: &SqlitePool, user_id: i64, track_id: i64, played_at: &str
             AND s.enabled = 1
             AND u.scrobbling_enabled = 1
             AND ",
+        reaching_out!(),
+        " AND ",
         credited!("name"),
         " IS NOT NULL"
     ))
@@ -377,18 +384,21 @@ async fn sounding(pool: &SqlitePool, user_id: i64, track_id: i64) -> Result<Opti
 
 /// The destinations that are switched on, for one person or for everybody.
 ///
-/// Both switches are read here: the account's own — the one OpenSubsonic has
-/// always carried and nothing until now consulted — and the destination's. Either
-/// one off means nothing is sent and nothing is queued.
+/// Three switches are read here: the account's own — the one OpenSubsonic has
+/// always carried and nothing until now consulted — the destination's, and the
+/// server's own way out. Any one of them off means nothing is sent and nothing is
+/// queued.
 async fn switched_on(pool: &SqlitePool, whose: Option<i64>) -> Result<Vec<Destination>> {
-    let rows: Vec<(i64, String, String, String)> = sqlx::query_as(
+    let rows: Vec<(i64, String, String, String)> = sqlx::query_as(concat!(
         "SELECT s.user_id, s.service, s.url, s.token
            FROM scrobblers s
            JOIN users u ON u.id = s.user_id
           WHERE s.enabled = 1
             AND u.scrobbling_enabled = 1
-            AND (? IS NULL OR s.user_id = ?)",
-    )
+            AND (? IS NULL OR s.user_id = ?)
+            AND ",
+        reaching_out!()
+    ))
     .bind(whose)
     .bind(whose)
     .fetch_all(pool)
@@ -500,6 +510,15 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+
+        // Allowed off the machine, which everything here needs and no real collection
+        // gets by default. Every test below is about where a listen goes once it is
+        // allowed to go anywhere; the one about the switch itself takes it away again.
+        crate::settings::seed(&pool, &[]).await.unwrap();
+        sqlx::query("UPDATE settings SET reach_out = 1 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         pool
     }
@@ -637,6 +656,50 @@ mod tests {
         let waiting = queued(&pool).await;
         assert_eq!(waiting.len(), 1);
         assert_eq!(waiting[0].0, "koito");
+    }
+
+    /// A server not allowed off its own machine queues nothing and sends nowhere.
+    ///
+    /// The switch that governs it was written for the walk out after pictures of the
+    /// artists, and it was named for that — which was the mistake this test stands
+    /// over: it is the only setting deciding whether anything leaves the machine, and
+    /// somebody who switched it off did not mean "except my listening history".
+    ///
+    /// Nothing is queued rather than queued and held. Holding it would build up a
+    /// history of somebody's listening against a promise to send it later, which is
+    /// exactly what switching this off says not to do.
+    #[tokio::test]
+    async fn a_server_that_may_not_reach_out_queues_nothing() {
+        let pool = collection().await;
+        let ana = listener(&pool, "ana", true).await;
+        destination(&pool, ana, Service::ListenBrainz, true).await;
+
+        sqlx::query("UPDATE settings SET reach_out = 0 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        queue(&pool, ana, 1, &db::now()).await;
+
+        assert!(
+            queued(&pool).await.is_empty(),
+            "the account says yes and the destination says yes, and the server may \
+             not talk to anybody"
+        );
+        assert!(
+            switched_on(&pool, Some(ana)).await.unwrap().is_empty(),
+            "and there is nowhere to announce what is sounding either"
+        );
+
+        // And back, without anything having to be set up again: what the switch takes
+        // away it gives back.
+        sqlx::query("UPDATE settings SET reach_out = 1 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        queue(&pool, ana, 1, &db::now()).await;
+        assert_eq!(queued(&pool).await.len(), 1);
     }
 
     /// The common case by far: nobody has set any of this up. It has to cost a

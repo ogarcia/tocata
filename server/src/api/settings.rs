@@ -9,11 +9,13 @@
 
 use super::error::ApiError;
 use super::session::{Administrator, Panel};
+use crate::portraits::Fetching;
 use crate::settings;
 use crate::types::{ErrorBody, Settings, SettingsChanges};
 use axum::Json;
 use axum::extract::State;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 
 impl From<settings::Settings> for Settings {
     fn from(settings: settings::Settings) -> Self {
@@ -23,7 +25,7 @@ impl From<settings::Settings> for Settings {
             scan_at: settings.scan_at,
             absent_grace_days: settings.absent_grace_days,
             session_days: settings.session_days,
-            fetch_portraits: settings.fetch_portraits,
+            reach_out: settings.reach_out,
         }
     }
 }
@@ -69,6 +71,7 @@ pub async fn read(
 pub async fn change(
     _admin: Administrator,
     State(pool): State<SqlitePool>,
+    State(fetching): State<Arc<Fetching>>,
     Json(changes): Json<SettingsChanges>,
 ) -> Result<Json<Settings>, ApiError> {
     let mut current = settings::load(&pool)
@@ -120,8 +123,16 @@ pub async fn change(
         current.session_days = days;
     }
 
-    if let Some(looking) = changes.fetch_portraits {
-        current.fetch_portraits = looking;
+    if let Some(looking) = changes.reach_out {
+        // A walk after portraits that is already going stops here. It is the one way
+        // out of this machine that runs for an hour at a time, so without this,
+        // switching the server off the network would be answered by it going on
+        // asking somebody else's server until it had finished the queue.
+        if !looking {
+            fetching.cancel();
+        }
+
+        current.reach_out = looking;
     }
 
     settings::store(&pool, &current)
@@ -167,6 +178,13 @@ mod tests {
         Json(serde_json::from_str(json).unwrap())
     }
 
+    /// A walk after portraits that is not going, which is what every test here has:
+    /// the handler only ever asks it to stop, and asking a walk that is not running
+    /// to stop is what it is for.
+    fn idle() -> State<Arc<Fetching>> {
+        State(Arc::new(Fetching::default()))
+    }
+
     /// The point of changing one field at a time: two settings saved from the
     /// same screen must not undo each other, and neither must one saved alone.
     #[tokio::test]
@@ -176,6 +194,7 @@ mod tests {
         let Json(after) = change(
             same(&admin),
             State(pool.clone()),
+            idle(),
             asking(r#"{"sessionDays":7}"#),
         )
         .await
@@ -195,6 +214,7 @@ mod tests {
         let Json(set) = change(
             same(&admin),
             State(pool.clone()),
+            idle(),
             asking(r#"{"scanAt":"04:00"}"#),
         )
         .await
@@ -204,6 +224,7 @@ mod tests {
         let Json(untouched) = change(
             same(&admin),
             State(pool.clone()),
+            idle(),
             asking(r#"{"sessionDays":30}"#),
         )
         .await
@@ -213,6 +234,7 @@ mod tests {
         let Json(cleared) = change(
             same(&admin),
             State(pool.clone()),
+            idle(),
             asking(r#"{"scanAt":null}"#),
         )
         .await
@@ -229,6 +251,7 @@ mod tests {
         let Json(at_once) = change(
             same(&admin),
             State(pool.clone()),
+            idle(),
             asking(r#"{"absentGraceDays":0}"#),
         )
         .await
@@ -238,11 +261,57 @@ mod tests {
         let Json(never) = change(
             same(&admin),
             State(pool.clone()),
+            idle(),
             asking(r#"{"absentGraceDays":null}"#),
         )
         .await
         .unwrap();
         assert_eq!(never.absent_grace_days, None);
+    }
+
+    /// Closing the way out stops the walk that is already using it.
+    ///
+    /// The walk after portraits runs for the best part of an hour on a real
+    /// collection, one request a second. Without this, an administrator switching the
+    /// server off the network would be answered by it going on talking to somebody
+    /// else's server until the queue ran out — which is the whole of what they had
+    /// just said not to do.
+    #[tokio::test]
+    async fn switching_the_way_out_off_stops_a_walk_already_going() {
+        let (pool, admin) = a_seeded_server().await;
+        let walking = idle();
+
+        assert!(
+            !walking.0.should_stop(),
+            "nothing has been told anything yet"
+        );
+
+        let Json(after) = change(
+            same(&admin),
+            State(pool.clone()),
+            State(walking.0.clone()),
+            asking(r#"{"reachOut":false}"#),
+        )
+        .await
+        .unwrap();
+
+        assert!(!after.reach_out);
+        assert!(
+            walking.0.should_stop(),
+            "the walk has been told, not left to finish"
+        );
+
+        // And switching it back on does not ask anything to stop.
+        let Json(after) = change(
+            same(&admin),
+            State(pool.clone()),
+            idle(),
+            asking(r#"{"reachOut":true}"#),
+        )
+        .await
+        .unwrap();
+
+        assert!(after.reach_out);
     }
 
     /// A setting the server could never act on is worse than no setting: it
@@ -258,7 +327,7 @@ mod tests {
             r#"{"sessionDays":0}"#,
             r#"{"ignoredArticles":["Los Del"]}"#,
         ] {
-            let refused = change(same(&admin), State(pool.clone()), asking(asked)).await;
+            let refused = change(same(&admin), State(pool.clone()), idle(), asking(asked)).await;
 
             assert!(
                 matches!(refused, Err(ApiError::Invalid(_))),

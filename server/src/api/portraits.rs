@@ -73,7 +73,7 @@ pub async fn start(
         .await
         .map_err(|e| ApiError::internal(e, "reading the settings"))?;
 
-    if !settings.fetch_portraits {
+    if !settings.reach_out {
         return Err(ApiError::Conflict("Looking for portraits is switched off"));
     }
 
@@ -130,7 +130,7 @@ async fn told(pool: &SqlitePool, fetching: &Fetching) -> Result<Portraits, ApiEr
         .len() as u64;
 
     Ok(Portraits {
-        allowed: settings.fetch_portraits,
+        allowed: settings.reach_out,
         wanting,
         run: fetching.snapshot().into(),
     })
@@ -199,7 +199,7 @@ mod tests {
 
         let mut settings = settings::load(&pool).await.unwrap();
         assert!(
-            !settings.fetch_portraits,
+            !settings.reach_out,
             "a collection nobody has asked stays at home"
         );
 
@@ -229,7 +229,7 @@ mod tests {
         assert!(!reported.allowed);
         assert!(!reported.run.fetching);
 
-        settings.fetch_portraits = true;
+        settings.reach_out = true;
         settings::store(&pool, &settings).await.unwrap();
 
         let reported = told(&pool, &state.portraits).await.unwrap();

@@ -507,6 +507,21 @@ fn Listening(account: Account, on_expired: Callback<()>) -> impl IntoView {
     let (saved, set_saved) = signal(false);
     let (failure, set_failure) = signal(Option::<String>::None);
 
+    // Whether the server is allowed to talk to anybody at all, which is a decision
+    // above this account and above this screen: with it off nothing here can send
+    // anything, whatever the switch says.
+    //
+    // Assumed off until the answer comes, so the switch cannot flash on and go dead a
+    // moment later. A settings read that fails leaves it off too, which is the way
+    // round to be wrong: it says nothing is being sent where nothing is being sent.
+    let (allowed, set_allowed) = signal(false);
+
+    spawn_local(async move {
+        if let Ok(settings) = api::settings().await {
+            set_allowed.set(settings.reach_out);
+        }
+    });
+
     // Saved where it is changed, and its own call rather than the one the form above
     // shares: that one reports at the foot of the whole screen, a column away from
     // the switch somebody just touched.
@@ -546,16 +561,30 @@ fn Listening(account: Account, on_expired: Callback<()>) -> impl IntoView {
                 label=t!("profile.scrobbling").to_string()
                 why=t!("profile.scrobbling_why").to_string()
             >
+                // Off and unpressable while the server may not go out, whatever this
+                // account has stored. Showing it ticked would be the panel claiming
+                // that plays are being passed on, and none are — and leaving it
+                // pressable would offer a choice that changes nothing.
                 <label class="checkbox">
                     <input
                         type="checkbox"
-                        prop:checked=shown
+                        prop:checked=move || shown.get() && allowed.get()
+                        prop:disabled=move || !allowed.get()
                         on:change:target=move |e| flip(e.target().checked())
                     />
                     <span>{t!("profile.scrobbling_on")}</span>
                 </label>
 
-                {move || saved.get().then(|| view! { <p class="settled">{t!("common.saved")}</p> })}
+                // Under the box rather than beside the list below, because this is
+                // what the box has gone quiet about.
+                {move || {
+                    (!allowed.get())
+                        .then(|| view! { <p class="settled">{t!("profile.scrobbling_shut")}</p> })
+                }}
+                {move || {
+                    (allowed.get() && saved.get())
+                        .then(|| view! { <p class="settled">{t!("common.saved")}</p> })
+                }}
                 {move || {
                     failure
                         .get()
@@ -566,8 +595,14 @@ fn Listening(account: Account, on_expired: Callback<()>) -> impl IntoView {
 
         // Told what the switch is, so it can say what that means for the queue and go
         // quiet when nothing is being sent. The switch as the server has it and not as
-        // the box stands, because what the list says is true of what was saved.
-        <Destinations passing=Signal::derive(move || passing.get()) on_expired />
+        // the box stands, because what the list says is true of what was saved — and
+        // the server's own way out over the top of it, since a destination on a server
+        // that may not reach it sends nothing either.
+        <Destinations
+            passing=Signal::derive(move || passing.get() && allowed.get())
+            allowed=Signal::derive(move || allowed.get())
+            on_expired
+        />
     }
 }
 
@@ -582,6 +617,10 @@ fn Destinations(
     /// Whether plays are being passed on at all, as the server has it. What decides
     /// whether any of this is doing anything, and so how it reads.
     passing: Signal<bool>,
+    /// Whether the server may talk to anybody at all. Told apart from the switch
+    /// above because the two go quiet in the same way and for different reasons —
+    /// one is yours to turn back on, and the other is not.
+    allowed: Signal<bool>,
     on_expired: Callback<()>,
 ) -> impl IntoView {
     let (sending, set_sending) = signal(Option::<tocata::types::Scrobbling>::None);
@@ -647,6 +686,12 @@ fn Destinations(
             {move || {
                 spare()
                     .filter(|spare| !spare.is_empty())
+                    // Not offered at all where it could not be finished: setting a
+                    // destination up means asking the service about the token, which
+                    // is the server talking to somebody else's. The line below says
+                    // why, so this is a button missing and not a button missing
+                    // silently.
+                    .filter(|_| allowed.get())
                     .map(|_| {
                         // Opens on none of them: the sheet holds the list, and which
                         // one it is going to be is the first thing it asks.
@@ -667,8 +712,20 @@ fn Destinations(
         // A sibling of what has gone quiet and never a child of it. Dimmed along with
         // everything else, the one line explaining why the rest went quiet was the
         // least legible text on the screen.
+        // Two ways for this to have gone quiet and two sentences, because they are not
+        // the same news: one is a switch a line above, the other is the whole server
+        // being off the network and nothing here that can change it.
         {move || {
-            (!passing.get()).then(|| view! { <p class="because">{t!("listens.while_off")}</p> })
+            (!passing.get())
+                .then(|| {
+                    let why = if allowed.get() {
+                        t!("listens.while_off")
+                    } else {
+                        t!("listens.while_shut")
+                    };
+
+                    view! { <p class="because">{why.to_string()}</p> }
+                })
         }}
 
         <div class:stilled=move || !passing.get()>
