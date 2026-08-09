@@ -27,8 +27,6 @@ login:
   claim: "Tus discos, justo donde lo dejaste."
   username: "Usuario o correo"
   password: Contraseña
-  show: "Mostrar"
-  hide: "Ocultar"
   remember: "Mantener mi sesión activa en este navegador"
   forgotten: "¿Has olvidado tu contraseña? Un administrador te asignará una nueva; el servidor no puede enviártela por correo electrónico."
   submit: Entrar
@@ -706,6 +704,8 @@ accent:
   plum: "Ciruela"
 
 common:
+  show: "Mostrar"
+  hide: "Ocultar"
   copy: Copiar
   copied: Copiada
   done: Hecho

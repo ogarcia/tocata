@@ -31,8 +31,6 @@ login:
   claim: "Your records, where you left them."
   username: "Username or email"
   password: Password
-  show: "Show"
-  hide: "Hide"
   remember: "Keep me logged in on this browser"
   forgotten: "Forgotten your password? An administrator sets a new one for you — the server cannot email it."
   submit: Log in
@@ -713,6 +711,8 @@ accent:
   plum: "Plum"
 
 common:
+  show: "Show"
+  hide: "Hide"
   copy: Copy
   copied: Copied
   done: Done

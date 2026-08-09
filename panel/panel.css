@@ -1380,20 +1380,28 @@ h1 {
  * So the focus order is username, password, Show: the button is still reachable
  * from the keyboard, which `tabindex="-1"` would have cost, and it is reached
  * after the thing it is about rather than before it. */
-.entry .secret {
+/* A password field with the word that reveals it up on the label's line.
+ *
+ * Not bound to the entry screen, because it is the same thing wherever a password
+ * is typed once and never repeated: the way in, and an administrator making
+ * somebody else's account. Two rows and two columns — the label and the word share
+ * the first, the field takes the whole of the second — which is what puts the
+ * button back where it is drawn after the markup put it after the field, where tab
+ * needs it. */
+.secret {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.entry .secret > span { grid-area: 1 / 1; }
+.secret > span { grid-area: 1 / 1; }
 
-.entry .secret .reveal { grid-area: 1 / 2; }
+.secret .reveal { grid-area: 1 / 2; }
 
-.entry .secret input { grid-area: 2 / 1 / 3 / 3; }
+.secret input { grid-area: 2 / 1 / 3 / 3; }
 
 /* The label and the word beside it sit on one baseline. Only those two: the field
  * is alone on its own row, where there is nothing to line it up with. */
-.entry .secret > span, .entry .secret .reveal { align-self: baseline; }
+.secret > span, .secret .reveal { align-self: baseline; }
 
 /* Said as a word, underlined, because it is a choice between two words and a
  * glyph on the line where the text goes is a target nobody can name. */

@@ -331,7 +331,7 @@ mod tests {
     /// library and the play glyph over a track number, `named` was a link in the roster
     /// and the title block of the opened player. The way out of those is a different
     /// word, never a line here.
-    const SHARED: [&str; 73] = [
+    const SHARED: [&str; 75] = [
         // How something reads, wherever it is.
         "quiet",
         "lead",
@@ -410,6 +410,11 @@ mod tests {
         "art",
         "avatar",
         "badge",
+        // A password typed once and never repeated, and the word that shows it:
+        // the way in, and an administrator making somebody else's account. The
+        // same shape and the same two words, because they are the same thing.
+        "secret",
+        "reveal",
         "menu",
         "menu-item",
         "dropdown",

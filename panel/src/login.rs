@@ -147,9 +147,9 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
                         >
                             {move || {
                                 if shown.get() {
-                                    t!("login.hide").to_string()
+                                    t!("common.hide").to_string()
                                 } else {
-                                    t!("login.show").to_string()
+                                    t!("common.show").to_string()
                                 }
                             }}
                         </button>

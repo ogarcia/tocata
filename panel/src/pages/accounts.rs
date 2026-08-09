@@ -784,6 +784,7 @@ fn Adding(
     let dialog: NodeRef<Dialog> = NodeRef::new();
     let (username, set_username) = signal(String::new());
     let (password, set_password) = signal(String::new());
+    let (shown, set_shown) = signal(false);
     let (email, set_email) = signal(String::new());
     let (admin, set_admin) = signal(false);
     let (failure, set_failure) = signal(Option::<String>::None);
@@ -855,15 +856,45 @@ fn Adding(
                             />
                         </label>
 
-                        <label>
+                        // Shown on request, because this one is typed once and
+                        // never repeated: nobody here is recalling a password
+                        // they know, they are inventing one for somebody else,
+                        // and a row of dots is no way to check what was typed.
+                        <label class="secret">
                             <span>{t!("accounts.password")}</span>
                             <input
-                                type="password"
+                                type=move || if shown.get() { "text" } else { "password" }
                                 autocomplete="new-password"
                                 required
                                 prop:value=password
                                 on:input:target=move |e| set_password.set(e.target().value())
                             />
+                            // After the field in the markup so the stylesheet can
+                            // put it back beside the label, and out of the tab
+                            // order entirely — which the way in does not do.
+                            //
+                            // The difference is what comes next. There, the
+                            // password is the last field and Show is the natural
+                            // step after it; here there are two more, and tabbing
+                            // from the password has to reach the address rather
+                            // than a word about the field just left. What it
+                            // costs is a button a keyboard cannot reach, which is
+                            // the price of not interrupting the one thing every
+                            // keyboard here is doing: filling a form in order.
+                            <button
+                                type="button"
+                                class="reveal"
+                                tabindex="-1"
+                                on:click=move |_| set_shown.update(|is| *is = !*is)
+                            >
+                                {move || {
+                                    if shown.get() {
+                                        t!("common.hide").to_string()
+                                    } else {
+                                        t!("common.show").to_string()
+                                    }
+                                }}
+                            </button>
                         </label>
 
                         <label>
