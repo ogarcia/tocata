@@ -600,7 +600,12 @@ chores:
   compact_why: "Gives back the space deletions left behind. The server answers nobody while it runs."
   compact_idle: "Gives back the space deletions left behind. There is none to give back right now."
   covers: "Put the covers in order"
-  covers_why: "Clears the %{count} things the cache should not be holding: cover files that belong to nothing any more, and albums the server looked in, found nothing and stopped looking in."
+  # Two figures rather than a total: files that are rubbish and answers that are
+  # merely old are not the same kind of thing, and adding them together reads as
+  # a heap of things wrong with a server where nothing is wrong. Each half is
+  # left out when it is nought.
+  covers_files: "Deletes the %{count} cover files that belong to nothing any more."
+  covers_again: "Looks again in the %{count} albums and artists it found no picture in, in case one has been added since."
   covers_idle: "Deletes covers that belong to nothing any more, and looks again where it found none. Nothing is left over right now."
   forget: "Forget the pictures fetched"
   forget_why: "Throws away the %{count} pictures of artists that came off the network, and the memory of having looked, so they can be looked for again. Having them back means fetching them again: a second each, and only for the artists that had one."

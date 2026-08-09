@@ -97,24 +97,89 @@ fn inside(data_dir: &Path, directory: &str, hash: &str) -> PathBuf {
     data_dir.join(directory).join(prefix).join(rest)
 }
 
-/// Writes image bytes into the cache and returns their hash.
+/// Bytes that are on disk, and the promise to take them off again if the row
+/// that was going to name them never gets written.
+///
+/// The reason this is a value rather than a hash is an order that cannot be
+/// changed. The file has to exist before the row, because a row promising a file
+/// that is not there is worse than a file nothing names: the first is a picture
+/// that fails to load, the second is a few kilobytes. But between the two there
+/// is a transaction that can fail, and what that used to leave behind was a file
+/// nothing would ever name again — measured on a real server, eleven of them,
+/// from a shelf of records opened on a cold cache.
+///
+/// So this cleans up after itself unless it is told the row exists. A guard
+/// rather than a call at the end of the happy path, because the failures here
+/// are `?` on half a dozen lines and the next one somebody adds would be a leak
+/// again.
+///
+/// Only a file this call created. One that was already there belongs to whoever
+/// wrote it, and their row still names it.
+#[must_use = "the file is deleted again unless the row that names it is written"]
+pub struct Written {
+    path: PathBuf,
+    hash: String,
+    fresh: bool,
+    kept: bool,
+}
+
+impl Written {
+    /// What the bytes are called, for the row that is about to name them.
+    pub fn hash(&self) -> &str {
+        &self.hash
+    }
+
+    /// Says the row exists now, so the file stays.
+    pub fn kept(mut self) -> String {
+        self.kept = true;
+        self.hash.clone()
+    }
+}
+
+impl Drop for Written {
+    fn drop(&mut self) {
+        if !self.fresh || self.kept {
+            return;
+        }
+
+        if let Err(e) = std::fs::remove_file(&self.path) {
+            // Worth saying and not worth failing over: what is left behind is a
+            // file the covers job will sweep the next time somebody runs it.
+            tracing::warn!(
+                "could not take back {} after nothing came to name it: {e}",
+                self.path.display()
+            );
+        }
+
+        if let Some(fan) = self.path.parent() {
+            let _ = std::fs::remove_dir(fan);
+        }
+    }
+}
+
+/// Writes image bytes into the cache.
 ///
 /// Writing the same image twice is not an error and not extra work: the second
 /// call finds the file already there.
-pub fn store(data_dir: &Path, bytes: &[u8]) -> Result<String> {
+pub fn store(data_dir: &Path, bytes: &[u8]) -> Result<Written> {
     write_into(cache_path(data_dir, &hash_of(bytes)), bytes)
 }
 
 /// The same, for bytes that came off the network and go where no sweep reaches.
-pub fn acquire(data_dir: &Path, bytes: &[u8]) -> Result<String> {
+pub fn acquire(data_dir: &Path, bytes: &[u8]) -> Result<Written> {
     write_into(acquired_path(data_dir, &hash_of(bytes)), bytes)
 }
 
-fn write_into(path: PathBuf, bytes: &[u8]) -> Result<String> {
+fn write_into(path: PathBuf, bytes: &[u8]) -> Result<Written> {
     let hash = hash_of(bytes);
 
     if path.exists() {
-        return Ok(hash);
+        return Ok(Written {
+            path,
+            hash,
+            fresh: false,
+            kept: false,
+        });
     }
 
     let parent = path
@@ -124,7 +189,12 @@ fn write_into(path: PathBuf, bytes: &[u8]) -> Result<String> {
     std::fs::write(&path, bytes)
         .with_context(|| format!("writing artwork to {}", path.display()))?;
 
-    Ok(hash)
+    Ok(Written {
+        path,
+        hash,
+        fresh: true,
+        kept: false,
+    })
 }
 
 pub fn hash_of(bytes: &[u8]) -> String {
@@ -286,8 +356,8 @@ mod tests {
     fn what_cost_a_walk_is_kept_where_a_sweep_cannot_reach_it() {
         let data_dir = crate::fixtures::temp_root("artwork-two-homes");
 
-        let cached = store(&data_dir, &jpeg()).unwrap();
-        let fetched = acquire(&data_dir, &png()).unwrap();
+        let cached = store(&data_dir, &jpeg()).unwrap().kept();
+        let fetched = acquire(&data_dir, &png()).unwrap().kept();
 
         assert!(cache_path(&data_dir, &cached).exists());
         assert!(acquired_path(&data_dir, &fetched).exists());
@@ -302,6 +372,31 @@ mod tests {
             path_of(&data_dir, &fetched),
             acquired_path(&data_dir, &fetched)
         );
+    }
+
+    /// The file goes away again if nothing comes to name it, which is what a
+    /// transaction that failed used to leave behind: a few kilobytes that no row
+    /// would ever point at and only a sweep would find.
+    #[test]
+    fn bytes_nothing_came_to_name_are_taken_back() {
+        let data_dir = crate::fixtures::temp_root("artwork-unclaimed");
+
+        let path = {
+            let written = store(&data_dir, &jpeg()).unwrap();
+            let path = cache_path(&data_dir, written.hash());
+            assert!(path.exists(), "written first, as it has to be");
+            path
+        };
+
+        assert!(!path.exists(), "and taken back when nothing claimed it");
+
+        // One that was already there is somebody else's, and their row still
+        // names it: a second writer giving up must not take it away.
+        let kept = store(&data_dir, &png()).unwrap().kept();
+        let path = cache_path(&data_dir, &kept);
+
+        drop(store(&data_dir, &png()).unwrap());
+        assert!(path.exists(), "the file was not this call's to take back");
     }
 
     /// A source nothing knows is treated as local, because being wrong about
@@ -371,8 +466,8 @@ mod tests {
         let data_dir = std::env::temp_dir().join("tocata-artwork-store");
         let _ = std::fs::remove_dir_all(&data_dir);
 
-        let first = store(&data_dir, &jpeg()).unwrap();
-        let second = store(&data_dir, &jpeg()).unwrap();
+        let first = store(&data_dir, &jpeg()).unwrap().kept();
+        let second = store(&data_dir, &jpeg()).unwrap().kept();
         assert_eq!(first, second);
 
         let path = cache_path(&data_dir, &first);

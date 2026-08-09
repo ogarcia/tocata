@@ -886,6 +886,17 @@ pub struct JobState {
     /// How much this job would affect right now, in whatever it counts. None for
     /// a job that changes nothing and so has nothing to warn about.
     pub pending: Option<i64>,
+    /// And what it would look at again rather than take away, for the one job
+    /// that does both.
+    ///
+    /// Two figures rather than a total, because the two are not the same kind of
+    /// thing and a sum of them means nothing: putting the cover cache in order
+    /// deletes files nothing names, which is rubbish, and forgets that a cover
+    /// was looked for and not found, which is a true answer that has simply had
+    /// time to go stale. Added together they read as one heap of things wrong
+    /// with a server where nothing is wrong.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub look_again: Option<i64>,
     pub last_run: Option<Run>,
 }
 

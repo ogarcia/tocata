@@ -58,9 +58,14 @@ pub async fn list(
             .await
             .map_err(|e| ApiError::internal(e, "working out what a job would do"))?;
 
+        let look_again = jobs::revisiting(&pool, job)
+            .await
+            .map_err(|e| ApiError::internal(e, "working out what a job would look at again"))?;
+
         listed.push(JobState {
             job,
             pending,
+            look_again,
             last_run: latest.iter().find(|run| run.job == job).cloned(),
         });
     }

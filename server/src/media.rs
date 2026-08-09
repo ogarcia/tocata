@@ -252,7 +252,8 @@ pub(crate) async fn extract_cover(
         return Ok(None);
     };
 
-    let hash = artwork::store(data_dir, &bytes)?;
+    let written = artwork::store(data_dir, &bytes)?;
+    let hash = written.hash().to_string();
     let timestamp = db::now();
 
     let mut tx = crate::db::writing(pool).await?;
@@ -291,6 +292,10 @@ pub(crate) async fn extract_cover(
         .await?;
 
     tx.commit().await?;
+
+    // Only now. Before the commit this file is one failed statement away from
+    // being a few kilobytes nothing will ever name again.
+    written.kept();
 
     Ok(Some((hash, mime_type.to_string())))
 }
@@ -399,7 +404,8 @@ pub(crate) async fn artist_picture(
         return Ok(None);
     };
 
-    let hash = artwork::store(data_dir, &bytes)?;
+    let written = artwork::store(data_dir, &bytes)?;
+    let hash = written.hash().to_string();
     let timestamp = db::now();
 
     let mut tx = crate::db::writing(pool).await?;
@@ -439,6 +445,10 @@ pub(crate) async fn artist_picture(
         .await?;
 
     tx.commit().await?;
+
+    // Only now. Before the commit this file is one failed statement away from
+    // being a few kilobytes nothing will ever name again.
+    written.kept();
 
     Ok(Some((hash, mime_type.to_string())))
 }

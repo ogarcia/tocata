@@ -234,7 +234,8 @@ pub async fn keep(
     artist_id: i64,
     portrait: &Portrait,
 ) -> Result<()> {
-    let hash = artwork::acquire(data_dir, &portrait.bytes)?;
+    let written = artwork::acquire(data_dir, &portrait.bytes)?;
+    let hash = written.hash().to_string();
     let mime_type = artwork::mime_of(&portrait.bytes).context("it was checked to be an image")?;
     let at = db::now();
 
@@ -282,6 +283,10 @@ pub async fn keep(
     remember(&mut tx, artist_id, true, &at).await?;
 
     tx.commit().await?;
+
+    // Only now, and here it matters most: what this file cost was two requests
+    // to somebody else's server at one a second.
+    written.kept();
 
     Ok(())
 }

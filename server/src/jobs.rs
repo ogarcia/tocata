@@ -74,18 +74,30 @@ pub async fn pending(pool: &SqlitePool, data_dir: &Path, job: Job) -> Result<Opt
                 .context("counting what a purge would remove")?
         }
         Job::Compact => reclaimable(pool).await?,
-        Job::Covers => {
-            orphaned(pool, data_dir, crate::artwork::CACHE_DIRECTORY)
-                .await?
-                .len() as i64
-                + unfound(pool).await?
-        }
+        Job::Covers => orphaned(pool, data_dir, crate::artwork::CACHE_DIRECTORY)
+            .await?
+            .len() as i64,
         Job::Forget => fetched(pool).await?,
         // It reads and reports. There is nothing to say in advance beyond that.
         Job::Check => return Ok(None),
     };
 
     Ok(Some(count))
+}
+
+/// What this job would look at again rather than take away, which only one of
+/// them does at all.
+///
+/// Apart from [`pending`] because the two are not the same kind of thing, and
+/// the sum of them was a number that meant nothing: a server that had been
+/// scanned once and browsed for five minutes reported "12 things the cache
+/// should not be holding", of which six were true answers that had simply had
+/// time to go stale.
+pub async fn revisiting(pool: &SqlitePool, job: Job) -> Result<Option<i64>> {
+    match job {
+        Job::Covers => unfound(pool).await.map(Some),
+        _ => Ok(None),
+    }
 }
 
 /// Runs one, and writes down that it ran.
@@ -666,12 +678,14 @@ mod tests {
             .unwrap();
         }
 
-        // One cached file and one local answer of "nothing here". The fetched
-        // pair is not counted, because it is not on offer to be deleted.
+        // One cached file to delete, and one local answer of "nothing here" to
+        // check again. The fetched pair is in neither figure, because it is not
+        // on offer to be touched at all.
         assert_eq!(
             pending(&pool, &data_dir, Job::Covers).await.unwrap(),
-            Some(2)
+            Some(1)
         );
+        assert_eq!(revisiting(&pool, Job::Covers).await.unwrap(), Some(1));
 
         let done = run(&pool, &data_dir, Job::Covers).await.unwrap();
 
@@ -708,11 +722,18 @@ mod tests {
             .unwrap();
         }
 
-        // Counted together with the files, as things in the cache that should not
-        // be there. There are no files here, so this is the two rows.
+        // Counted apart from the files, and not as rubbish: these are true
+        // answers that have had time to go stale, and there is nothing here for
+        // the sweep to take away.
         assert_eq!(
             pending(&pool, &data_dir, Job::Covers).await.unwrap(),
-            Some(2)
+            Some(0),
+            "nothing in the cache is going anywhere"
+        );
+        assert_eq!(
+            revisiting(&pool, Job::Covers).await.unwrap(),
+            Some(2),
+            "and two places are worth looking in again"
         );
 
         let done = run(&pool, &data_dir, Job::Covers).await.unwrap();

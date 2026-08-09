@@ -154,6 +154,7 @@ fn Chore(
     let pending = job.pending;
     let last = job.last_run.clone();
     let figures = move || lately(which, pending, occupied, &last);
+    let look_again = job.look_again;
 
     // The purge is the one that cannot be undone, so it is the one that asks. The
     // dialogue is what runs it afterwards.
@@ -169,7 +170,7 @@ fn Chore(
         <div class="chore">
             <div>
                 <span class="what">{name(which)}</span>
-                <span class="why">{about(which, job.pending)}</span>
+                <span class="why">{about(which, job.pending, look_again)}</span>
                 <span class="ran">{figures}</span>
 
                 // What a check found, or what stopped a job. Kept out of the line
@@ -773,17 +774,37 @@ fn name(job: Job) -> String {
 /// Two sentences per job rather than one with a count interpolated into it: with
 /// nothing to do, "removes the 0 tracks whose files are gone" is a sentence
 /// nobody would write.
-fn about(job: Job, pending: Option<i64>) -> String {
+fn about(job: Job, pending: Option<i64>, look_again: Option<i64>) -> String {
     let some = pending.is_some_and(|how_many| how_many > 0);
     let how_many = pending.map(thousands).unwrap_or_default();
+
+    // The one job that does two things says both, each with its own figure and
+    // each left out when it is nought. A total of the two would be a number of
+    // nothing: files that are rubbish added to answers that are true.
+    if job == Job::Covers {
+        let stale = look_again.unwrap_or_default();
+
+        let said: Vec<String> = [
+            some.then(|| t!("chores.covers_files", count = how_many).to_string()),
+            (stale > 0).then(|| t!("chores.covers_again", count = thousands(stale)).to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        return match said.is_empty() {
+            true => t!("chores.covers_idle").to_string(),
+            false => said.join(" "),
+        };
+    }
 
     match (job, some) {
         (Job::Purge, true) => t!("chores.purge_why", count = how_many).to_string(),
         (Job::Purge, false) => t!("chores.purge_idle").to_string(),
         (Job::Compact, true) => t!("chores.compact_why").to_string(),
         (Job::Compact, false) => t!("chores.compact_idle").to_string(),
-        (Job::Covers, true) => t!("chores.covers_why", count = how_many).to_string(),
-        (Job::Covers, false) => t!("chores.covers_idle").to_string(),
+        // Said above, because it is the one with two figures.
+        (Job::Covers, _) => unreachable!("covers answers before this"),
         (Job::Check, _) => t!("chores.check_why").to_string(),
         (Job::Forget, true) => t!("chores.forget_why", count = how_many).to_string(),
         (Job::Forget, false) => t!("chores.forget_idle").to_string(),

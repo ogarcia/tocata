@@ -596,7 +596,12 @@ chores:
   compact_why: "Devuelve el espacio que dejaron los borrados. Mientras dura, el servidor no atiende a nadie."
   compact_idle: "Devuelve el espacio que dejaron los borrados. Ahora mismo no hay nada que devolver."
   covers: "Poner en orden las carátulas"
-  covers_why: "Limpia las %{count} cosas que sobran en la caché: ficheros de carátula que ya no son de nadie, y álbumes donde el servidor buscó, no encontró y dejó de mirar."
+  # Dos cifras en vez de un total: los ficheros que sobran y las respuestas que
+  # solo se han quedado viejas no son lo mismo, y sumarlos se lee como un montón
+  # de cosas mal en un servidor donde no hay nada mal. Cada mitad se calla
+  # cuando vale cero.
+  covers_files: "Borra los %{count} ficheros de carátula que ya no son de nadie."
+  covers_again: "Vuelve a mirar en los %{count} álbumes y artistas donde no encontró imagen, por si se ha añadido alguna desde entonces."
   covers_idle: "Borra las carátulas que ya no son de nadie y vuelve a mirar donde no encontró ninguna. Ahora mismo no sobra nada."
   forget: "Olvidar las fotos descargadas"
   forget_why: "Tira las %{count} fotos de artistas que vinieron de la red, y el recuerdo de haber mirado, para que se puedan volver a buscar. Recuperarlas es volver a descargarlas: un segundo por artista, y solo los que tenían foto."
