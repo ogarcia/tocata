@@ -129,20 +129,10 @@ async fn told(pool: &SqlitePool, fetching: &Fetching) -> Result<Portraits, ApiEr
         .map_err(|e| ApiError::internal(e, "counting who is without a picture"))?
         .len() as u64;
 
-    let snapshot = fetching.snapshot();
-
     Ok(Portraits {
-        fetching: snapshot.fetching,
         allowed: settings.fetch_portraits,
-        artist: snapshot.artist,
-        done: snapshot.done,
-        total: snapshot.total,
-        found: snapshot.found,
         wanting,
-        started_at: snapshot.started_at,
-        finished_at: snapshot.finished_at,
-        cancelled: snapshot.cancelled,
-        failure: snapshot.failure,
+        run: fetching.snapshot().into(),
     })
 }
 
@@ -237,7 +227,7 @@ mod tests {
         // button that would be refused.
         let reported = told(&pool, &state.portraits).await.unwrap();
         assert!(!reported.allowed);
-        assert!(!reported.fetching);
+        assert!(!reported.run.fetching);
 
         settings.fetch_portraits = true;
         settings::store(&pool, &settings).await.unwrap();

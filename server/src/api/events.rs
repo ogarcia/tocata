@@ -57,10 +57,19 @@ const SCAN_EVENT: &str = "scan";
 /// Likewise for the resource figures.
 const RESOURCES_EVENT: &str = "resources";
 
+/// And for how the walk out for artist portraits is going.
+///
+/// Only the part that moves. What that walk would find if it started — the
+/// setting and how many artists are without a picture — comes out of the
+/// database, and sending it once a second unchanged would make watching the walk
+/// cost more than the walk.
+const PORTRAITS_EVENT: &str = "portraits";
+
 /// What the stream is walking through: the updates, the clock, and the notice
 /// that the server is going away.
 struct Watching {
     updates: broadcast::Receiver<Snapshot>,
+    portraits: broadcast::Receiver<crate::portraits::Snapshot>,
     shutdown: watch::Receiver<bool>,
     meter: Arc<Meter>,
     clock: Interval,
@@ -77,6 +86,9 @@ struct Watching {
 /// - `scan` — exactly what `GET /scan` returns, sent when a scan gets anywhere.
 /// - `resources` — exactly what `GET /resources` returns, sent every couple of
 ///   seconds for as long as the stream is open.
+/// - `portraits` — the `run` half of what `GET /portraits` returns, sent when the
+///   walk for artist portraits gets anywhere. Nothing at all while none is going,
+///   which is nearly always.
 ///
 /// The stream carries whole states, never deltas, so a client that falls behind
 /// or reconnects has nothing to catch up on: whichever event it reads next is
@@ -98,18 +110,26 @@ struct Watching {
 pub async fn stream(
     _panel: Panel,
     State(progress): State<Arc<Progress>>,
+    State(fetching): State<Arc<crate::portraits::Fetching>>,
     State(meter): State<Arc<Meter>>,
     State(shutdown): State<watch::Receiver<bool>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Subscribed before the first snapshot is taken, so an update landing between
     // the two is delivered rather than missed.
     let updates = progress.subscribe();
+    let portraits = fetching.subscribe();
 
     // A panel that connects in the middle of a scan wants to know that now, not at
     // the next tick. The figures need no such treatment: the first tick of an
     // interval completes immediately, so they are on their way already.
     let mut pending = VecDeque::new();
     pending.push_back(scan_event(progress.snapshot().into()));
+
+    // And likewise for a walk already going, which is the longer of the two
+    // things worth arriving in the middle of.
+    if fetching.is_fetching() {
+        pending.push_back(portraits_event(fetching.snapshot().into()));
+    }
 
     let mut clock = interval(RESOURCES_EVERY);
     // A stream that fell behind wants the next reading, not the queue of readings
@@ -118,6 +138,7 @@ pub async fn stream(
 
     let watching = Watching {
         updates,
+        portraits,
         shutdown,
         meter,
         clock,
@@ -149,6 +170,22 @@ pub async fn stream(
                         continue;
                     }
                 },
+                received = watching.portraits.recv() => match received {
+                    Ok(snapshot) => return Some((
+                        portraits_event(snapshot.into()),
+                        Some(watching),
+                    )),
+                    // Same as below: every update is the whole state, so the one
+                    // after the gap says everything the missed ones would have.
+                    Err(RecvError::Lagged(missed)) => {
+                        debug!("an event stream fell {missed} portrait updates behind");
+                        continue;
+                    }
+                    // The walk's progress lives as long as the process, so this
+                    // cannot happen — and if it did, it is no reason to close a
+                    // stream that is also carrying a scan.
+                    Err(RecvError::Closed) => continue,
+                },
                 received = watching.updates.recv() => match received {
                     Ok(snapshot) => return Some((
                         scan_event(snapshot.into()),
@@ -171,6 +208,10 @@ pub async fn stream(
 
 fn scan_event(status: Status) -> Result<Event, Infallible> {
     named(SCAN_EVENT, status)
+}
+
+fn portraits_event(run: crate::types::PortraitRun) -> Result<Event, Infallible> {
+    named(PORTRAITS_EVENT, run)
 }
 
 fn resources_event(figures: Resources) -> Result<Event, Infallible> {

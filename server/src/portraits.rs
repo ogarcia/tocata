@@ -40,6 +40,7 @@ use std::path::Path;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
 /// What `artwork_lookups.source` says for a walk out to Commons, which is what
@@ -87,12 +88,26 @@ const FILE_PAGE: &str = "https://commons.wikimedia.org/wiki/";
 /// because of one answer that asked for a pause.
 const NOT_YET: [u16; 2] = [429, 503];
 
-/// How long to wait when one of them says that and does not say how long.
+/// The least this waits before asking again, whatever the answer said.
 ///
-/// Both publish a limit of about one request a second, so a refusal means
-/// something further upstream than our own pacing — a shared address, a busy
-/// hour. Long enough to be a real pause rather than the same request again.
+/// A floor rather than a default, and it is `Retry-After` that makes it one:
+/// MusicBrainz sends that header set to **zero** with its 503, which taken at
+/// its word means asking again in the same breath — measured, a whole walk gave
+/// up 312 milliseconds after starting, having asked twice and been refused twice
+/// for the same reason.
+///
+/// Both services publish a limit of about a request a second, so a refusal is
+/// something further upstream than our own pacing: their global zone, a shared
+/// address, a busy hour. None of those is over in no time.
 const BACK_OFF: Duration = Duration::from_secs(5);
+
+/// How long to wait before asking again, given whatever the answer said about
+/// it. Never less than [`BACK_OFF`], however little it asked for.
+fn pause(said: Option<u64>) -> Duration {
+    said.map(Duration::from_secs)
+        .unwrap_or_default()
+        .max(BACK_OFF)
+}
 
 /// Asks, and asks once more if the answer was "not yet".
 ///
@@ -109,10 +124,7 @@ async fn patiently(net: &Net, url: &str, who: &'static str) -> Result<crate::net
         return Ok(asked);
     }
 
-    let wait = asked
-        .seconds("retry-after")
-        .map(Duration::from_secs)
-        .unwrap_or(BACK_OFF);
+    let wait = pause(asked.seconds("retry-after"));
 
     debug!("{who} answered {}; waiting {:?}", asked.status, wait);
     tokio::time::sleep(wait).await;
@@ -179,13 +191,7 @@ pub async fn look_up(net: &Net, mbid: &str) -> Result<Option<Portrait>> {
     // The same patience as the two questions, and it is needed in the same
     // place: the file itself comes off a different host with its own limit.
     let fetched = if NOT_YET.contains(&fetched.status) {
-        tokio::time::sleep(
-            fetched
-                .seconds("retry-after")
-                .map(Duration::from_secs)
-                .unwrap_or(BACK_OFF),
-        )
-        .await;
+        tokio::time::sleep(pause(fetched.seconds("retry-after"))).await;
 
         net.fetch(&told.url)
             .await
@@ -519,6 +525,22 @@ pub struct Snapshot {
     pub failure: Option<String>,
 }
 
+impl From<Snapshot> for crate::types::PortraitRun {
+    fn from(snapshot: Snapshot) -> Self {
+        Self {
+            fetching: snapshot.fetching,
+            artist: snapshot.artist,
+            done: snapshot.done,
+            total: snapshot.total,
+            found: snapshot.found,
+            started_at: snapshot.started_at,
+            finished_at: snapshot.finished_at,
+            cancelled: snapshot.cancelled,
+            failure: snapshot.failure,
+        }
+    }
+}
+
 /// The parts that need a lock, which change once an artist rather than once a
 /// counter.
 #[derive(Debug, Default)]
@@ -530,8 +552,15 @@ struct Current {
     failure: Option<String>,
 }
 
+/// How many updates a watcher may fall behind before it starts missing them.
+///
+/// Shallow on purpose, like the scanner's: every update carries the whole state,
+/// so a watcher that falls behind wants the newest one rather than the queue of
+/// the ones it missed.
+const UPDATE_DEPTH: usize = 4;
+
 /// Live progress of a walk, and what keeps two of them from running at once.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Fetching {
     running: AtomicBool,
     cancel: AtomicBool,
@@ -539,11 +568,44 @@ pub struct Fetching {
     total: AtomicU64,
     found: AtomicU64,
     current: RwLock<Current>,
+    updates: broadcast::Sender<Snapshot>,
+}
+
+impl Default for Fetching {
+    fn default() -> Self {
+        let (updates, _) = broadcast::channel(UPDATE_DEPTH);
+
+        Self {
+            running: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
+            done: AtomicU64::new(0),
+            total: AtomicU64::new(0),
+            found: AtomicU64::new(0),
+            current: RwLock::new(Current::default()),
+            updates,
+        }
+    }
 }
 
 impl Fetching {
     pub fn is_fetching(&self) -> bool {
         self.running.load(Ordering::Relaxed)
+    }
+
+    /// Follows the walk from here on. Whoever wants the state as it stands asks
+    /// for a [`Fetching::snapshot`] first — this only carries what happens next.
+    pub fn subscribe(&self) -> broadcast::Receiver<Snapshot> {
+        self.updates.subscribe()
+    }
+
+    /// Tells whoever is watching where it has got to.
+    ///
+    /// Every change, with no interval standing in front of it, unlike the
+    /// scanner's — that one can move four thousand times a second and this one
+    /// moves twice per artist, which is twice every two or three seconds. An
+    /// error here is nobody listening, which is the ordinary case.
+    fn publish(&self) {
+        let _ = self.updates.send(self.snapshot());
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -592,6 +654,8 @@ impl Fetching {
             ..Current::default()
         };
 
+        self.publish();
+
         Some(Walking { fetching: self })
     }
 
@@ -600,6 +664,8 @@ impl Fetching {
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .artist = Some(name.to_string());
+
+        self.publish();
     }
 
     fn went(&self, found: bool) {
@@ -607,6 +673,8 @@ impl Fetching {
         if found {
             self.found.fetch_add(1, Ordering::Relaxed);
         }
+
+        self.publish();
     }
 
     fn gave_up(&self, why: String) {
@@ -638,6 +706,11 @@ impl Drop for Walking<'_> {
 
         self.fetching.cancel.store(false, Ordering::Release);
         self.fetching.running.store(false, Ordering::Release);
+
+        // Dropped before the last word goes out, or the snapshot it carries
+        // would be taken while this still holds the lock it needs.
+        drop(current);
+        self.fetching.publish();
     }
 }
 
@@ -736,6 +809,20 @@ mod tests {
             }]
         }}}
     }"#;
+
+    /// Taking `Retry-After` at its word is how a walk gave up 312 milliseconds
+    /// after starting: MusicBrainz sends that header set to zero along with the
+    /// 503 that says it is busy, and asking again at once gets the same 503.
+    #[test]
+    fn asking_again_at_once_is_not_something_a_service_gets_to_ask_for() {
+        assert_eq!(pause(Some(0)), BACK_OFF, "which is what MusicBrainz sends");
+        assert_eq!(pause(None), BACK_OFF, "and what Commons sends is nothing");
+        assert_eq!(
+            pause(Some(30)),
+            Duration::from_secs(30),
+            "a real wait is respected: it knows what it is busy with"
+        );
+    }
 
     #[test]
     fn the_one_relation_that_is_a_photograph_is_the_one_taken() {

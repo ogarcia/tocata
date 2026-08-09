@@ -290,12 +290,32 @@ pub struct Status {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Portraits {
-    /// Whether one is going now. Everything else describes that walk while it is
-    /// true, and the walk before it once it is not.
-    pub fetching: bool,
     /// Whether the server is allowed out at all. False means the setting is off,
     /// and then nothing here has ever run or can be started.
     pub allowed: bool,
+    /// How many are still without a picture and have an identifier to look one
+    /// up by — what a walk started now would go through.
+    ///
+    /// Only worth reading while nothing is going: during a walk the figures
+    /// inside `run` are the live ones, and this is the answer to "is there
+    /// anything to do here" that a screen asks before offering a button.
+    pub wanting: u64,
+    /// The walk in flight, or the last one to run.
+    pub run: PortraitRun,
+}
+
+/// How one walk is going, or how the last one went.
+///
+/// Apart from the two figures above because this is the part that moves, and it
+/// is what travels on the event stream while a walk is going: the other two come
+/// out of the database, and asking for them once a second to send them unchanged
+/// would be a walk that costs more to watch than to do.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PortraitRun {
+    /// Whether one is going now. Everything else describes that walk while it is
+    /// true, and the walk before it once it is not.
+    pub fetching: bool,
     /// Who it was asking about when this was sampled.
     pub artist: Option<String>,
     pub done: u64,
@@ -303,9 +323,6 @@ pub struct Portraits {
     /// Of those, the ones that came back with a picture. Most artists have none
     /// anywhere, so this is properly a small fraction of `done`.
     pub found: u64,
-    /// How many are still without a picture and have an identifier to look one
-    /// up by — what a walk started now would go through.
-    pub wanting: u64,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     /// True when the last walk was told to stop. What it had already found is

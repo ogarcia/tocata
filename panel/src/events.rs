@@ -19,7 +19,7 @@ use crate::api;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 use serde::de::DeserializeOwned;
-use tocata::types::{Resources, Status};
+use tocata::types::{PortraitRun, Resources, Status};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{EventSource, MessageEvent};
@@ -30,6 +30,10 @@ const SCAN: &str = "scan";
 /// And on the figures it takes every couple of seconds.
 const RESOURCES: &str = "resources";
 
+/// And on how the walk out for artist portraits is going. Nothing arrives under
+/// this name while none is going, which is nearly always.
+const PORTRAITS: &str = "portraits";
+
 /// What the stream says, kept up to date.
 ///
 /// The initial `None` in each means nothing has arrived yet, which a screen can
@@ -38,6 +42,10 @@ const RESOURCES: &str = "resources";
 pub struct Live {
     pub scan: ReadSignal<Option<Status>>,
     pub resources: ReadSignal<Option<Resources>>,
+    /// Only the half of it that moves. What a walk would find if it started —
+    /// the setting, and how many artists are without a picture — is asked for
+    /// rather than watched: it changes when a walk ends, not while it runs.
+    pub portraits: ReadSignal<Option<PortraitRun>>,
 }
 
 /// Opens the stream and hands back what it says.
@@ -48,8 +56,13 @@ pub struct Live {
 pub fn open() -> Live {
     let (scan, set_scan) = signal(None);
     let (resources, set_resources) = signal(None);
+    let (portraits, set_portraits) = signal(None);
 
-    let live = Live { scan, resources };
+    let live = Live {
+        scan,
+        resources,
+        portraits,
+    };
 
     let Ok(source) = EventSource::new(api::EVENTS) else {
         // A URL we wrote ourselves does not fail to parse, and if it did there is
@@ -60,6 +73,7 @@ pub fn open() -> Live {
     let listeners = [
         listen::<Status>(&source, SCAN, set_scan),
         listen::<Resources>(&source, RESOURCES, set_resources),
+        listen::<PortraitRun>(&source, PORTRAITS, set_portraits),
     ];
 
     // Kept alive until the cleanup, because a closure dropped while the browser

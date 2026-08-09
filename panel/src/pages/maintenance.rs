@@ -18,7 +18,9 @@ use leptos::html::Dialog;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
-use tocata::types::{Job, JobState, Loss, Maintenance, MissingTrack, NeedingAttention, Run};
+use tocata::types::{
+    Job, JobState, Loss, Maintenance, MissingTrack, NeedingAttention, PortraitRun, Run,
+};
 
 #[component]
 pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
@@ -190,13 +192,6 @@ fn Chore(
     }
 }
 
-/// How long between asking again while a walk is going.
-///
-/// It moves once a second at best — that is the pace the far end asks for — so
-/// anything faster is asking to be told the same number. This is a progress bar
-/// for something measured in three quarters of an hour.
-const WATCHING: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// Looking for pictures of the artists: whether the server may, how many are
 /// without one, and the way to set it going or stop it.
 ///
@@ -204,44 +199,62 @@ const WATCHING: std::time::Duration = std::time::Duration::from_secs(2);
 /// inside the request that asked for it and is over in seconds; this is a walk
 /// out to two other people's servers at one request a second, and the useful
 /// thing on screen is not "run it" but where it has got to.
+///
+/// **Watched rather than asked after.** Where it has got to arrives on the
+/// stream the panel already keeps open, so a walk that says nothing sends
+/// nothing — the alternative was a request every two seconds for three quarters
+/// of an hour to be told the same number most of the time. The two figures the
+/// stream does not carry are the ones that do not move while it runs: whether
+/// the server may look at all, and how many artists are still without a picture.
+/// Those are asked for once, and again when a walk ends, which is the only
+/// moment either can have changed.
 #[component]
 fn Portraits(on_expired: Callback<()>) -> impl IntoView {
     let state = RwSignal::new(None::<tocata::types::Portraits>);
     let failure = RwSignal::new(None::<String>);
 
-    // Asked again while one is going, and not otherwise: a panel open on a
-    // server doing nothing should be a panel asking nothing.
-    let watch = StoredValue::new(None::<Callback<()>>);
     let look = Callback::new(move |()| {
         spawn_local(async move {
             match api::portraits().await {
-                Ok(fresh) => {
-                    let going = fresh.fetching;
-                    state.set(Some(fresh));
-
-                    if going {
-                        let again = watch.get_value();
-                        let _ = set_timeout_with_handle(
-                            move || {
-                                if let Some(again) = again {
-                                    again.run(());
-                                }
-                            },
-                            WATCHING,
-                        );
-                    }
-                }
+                Ok(fresh) => state.set(Some(fresh)),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(why) => failure.set(Some(said(&why))),
             }
         });
     });
-    watch.set_value(Some(look));
 
     look.run(());
 
+    // What the stream says, folded into what was asked for. The run it carries
+    // replaces the one in hand; the two figures beside it stay until the walk
+    // ends, and then the whole answer is asked for again — that is the moment
+    // "how many are without a picture" has a new answer.
+    let live = use_context::<ReadSignal<Option<PortraitRun>>>();
+    if let Some(live) = live {
+        Effect::new(move |was_fetching: Option<bool>| {
+            let Some(run) = live.get() else {
+                return was_fetching.unwrap_or(false);
+            };
+
+            let going = run.fetching;
+            state.update(|held| {
+                if let Some(held) = held {
+                    held.run = run;
+                }
+            });
+
+            // Just stopped, whether it finished or was told to. Nothing else
+            // moves those two figures while a panel is open on this screen.
+            if was_fetching == Some(true) && !going {
+                look.run(());
+            }
+
+            going
+        });
+    }
+
     let press = move |_| {
-        let going = state.with(|read| read.as_ref().is_some_and(|read| read.fetching));
+        let going = state.with(|read| read.as_ref().is_some_and(|read| read.run.fetching));
         failure.set(None);
 
         spawn_local(async move {
@@ -264,7 +277,7 @@ fn Portraits(on_expired: Callback<()>) -> impl IntoView {
             state
                 .get()
                 .map(|read| {
-                    let going = read.fetching;
+                    let going = read.run.fetching;
                     let allowed = read.allowed;
 
                     view! {
@@ -274,9 +287,10 @@ fn Portraits(on_expired: Callback<()>) -> impl IntoView {
                                     <div>
                                         <span class="what">{t!("portraits.title")}</span>
                                         <span class="why">{about_portraits(&read)}</span>
-                                        <span class="ran">{lately_portraits(&read)}</span>
+                                        <span class="ran">{lately_portraits(&read.run)}</span>
 
                                         {read
+                                            .run
                                             .failure
                                             .clone()
                                             .map(|why| view! { <span class="wrong">{why}</span> })}
@@ -313,8 +327,8 @@ fn about_portraits(read: &tocata::types::Portraits) -> String {
         return t!("portraits.not_allowed").to_string();
     }
 
-    if read.fetching {
-        return match &read.artist {
+    if read.run.fetching {
+        return match &read.run.artist {
             Some(artist) => t!("portraits.looking_at", artist = artist).to_string(),
             None => t!("portraits.starting").to_string(),
         };
@@ -329,7 +343,7 @@ fn about_portraits(read: &tocata::types::Portraits) -> String {
 
 /// Where it has got to, or where the last one got to. Empty before anything has
 /// ever run, which is the one state with nothing to say.
-fn lately_portraits(read: &tocata::types::Portraits) -> String {
+fn lately_portraits(read: &PortraitRun) -> String {
     if read.started_at.is_none() {
         return String::new();
     }

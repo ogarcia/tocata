@@ -134,6 +134,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     // answer from before one finished is a list that is wrong.
     provide_context(scan);
 
+    // And how the walk for artist portraits is going, for the one screen that
+    // draws it. A context for the same reason: it arrives on the stream that is
+    // already open, and threading it down through the router would be handing
+    // every screen something one of them reads.
+    provide_context(live.portraits);
+
     // Who is logged in, held apart from the identity that arrived with the session so
     // that changing either of the two names takes effect where they are read.
     //
