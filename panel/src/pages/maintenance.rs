@@ -83,41 +83,45 @@ pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
             None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
             Some(state) => {
                 // Grouped rather than laid out one after another: the two that
-                // take things away belong together, and so do the two that work on
-                // the database file. As two boxes in the grid they are two columns
-                // on a wide screen and still two groups when there is room for one
-                // column, which one flat list of four could not manage.
-                let (cleaning, database): (Vec<_>, Vec<_>) =
-                    state.jobs.into_iter().partition(|state| cleans(state.job));
+                // take things away belong together, the two that work on the
+                // database file belong together, and what reaches the network is
+                // its own thing entirely. As boxes in the grid they are columns on
+                // a wide screen and still groups when there is room for one
+                // column, which one flat list could not manage.
+                let mut cleaning = Vec::new();
+                let mut database = Vec::new();
+                let mut outward = Vec::new();
+
+                for job in state.jobs {
+                    match band(job.job) {
+                        Band::Cleaning => cleaning.push(job),
+                        Band::Database => database.push(job),
+                        Band::Outward => outward.push(job),
+                    }
+                }
+
+                let chores = move |group: Vec<JobState>| {
+                    group
+                        .into_iter()
+                        .map(|job| view! { <Chore job occupied running start set_asking /> })
+                        .collect_view()
+                };
 
                 view! {
                     <div class="chores">
-                        {[cleaning, database]
-                            .into_iter()
-                            .map(|group| {
-                                view! {
-                                    <div class="group">
-                                        {group
-                                            .into_iter()
-                                            .map(|job| {
-                                                view! {
-                                                    <Chore
-                                                        job
-                                                        occupied
-                                                        running
-                                                        start
-                                                        set_asking
-                                                    />
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </div>
-                                }
-                            })
-                            .collect_view()}
+                        <div class="group">{chores(cleaning)}</div>
+                        <div class="group">{chores(database)}</div>
+
+                        // The walk out for pictures and the way to throw away what
+                        // it brought back, in one box: they are the two halves of
+                        // the same decision, and neither is a job of the kind the
+                        // other four are.
+                        <div class="group">
+                            <Portraits on_expired />
+                            {chores(outward)}
+                        </div>
                     </div>
 
-                    <Portraits on_expired />
                     <Attention on_expired />
                     <Lately runs=state.lately />
                 }
@@ -281,37 +285,33 @@ fn Portraits(on_expired: Callback<()>) -> impl IntoView {
                     let allowed = read.allowed;
 
                     view! {
-                        <div class="chores">
-                            <div class="group">
-                                <div class="chore">
-                                    <div>
-                                        <span class="what">{t!("portraits.title")}</span>
-                                        <span class="why">{about_portraits(&read)}</span>
-                                        <span class="ran">{lately_portraits(&read.run)}</span>
+                        <div class="chore">
+                            <div>
+                                <span class="what">{t!("portraits.title")}</span>
+                                <span class="why">{about_portraits(&read)}</span>
+                                <span class="ran">{lately_portraits(&read.run)}</span>
 
-                                        {read
-                                            .run
-                                            .failure
-                                            .clone()
-                                            .map(|why| view! { <span class="wrong">{why}</span> })}
-                                    </div>
-
-                                    // No button where the setting is off. What
-                                    // would happen is a refusal, and a button whose
-                                    // whole behaviour is to be refused is a button
-                                    // that should not be there — the line above
-                                    // says where the switch is instead.
-                                    <Show when=move || allowed>
-                                        <button type="button" class="pill" on:click=press>
-                                            {if going {
-                                                t!("portraits.stop").to_string()
-                                            } else {
-                                                t!("portraits.start").to_string()
-                                            }}
-                                        </button>
-                                    </Show>
-                                </div>
+                                {read
+                                    .run
+                                    .failure
+                                    .clone()
+                                    .map(|why| view! { <span class="wrong">{why}</span> })}
                             </div>
+
+                            // No button where the setting is off. What would
+                            // happen is a refusal, and a button whose whole
+                            // behaviour is to be refused is a button that should
+                            // not be there — the line above says where the switch
+                            // is instead.
+                            <Show when=move || allowed>
+                                <button type="button" class="pill" on:click=press>
+                                    {if going {
+                                        t!("portraits.stop").to_string()
+                                    } else {
+                                        t!("portraits.start").to_string()
+                                    }}
+                                </button>
+                            </Show>
                         </div>
                     }
                 })
@@ -739,10 +739,21 @@ fn Purging(
 /// A match over every job rather than a list of the ones that clean, so that a
 /// job added later cannot quietly land in whichever group the code happened to
 /// default to — it will not compile until somebody says where it goes.
-fn cleans(job: Job) -> bool {
+/// Which box a job belongs in.
+enum Band {
+    /// Takes something away that is no longer wanted.
+    Cleaning,
+    /// Works on the database file itself.
+    Database,
+    /// Has to do with what came off somebody else's server.
+    Outward,
+}
+
+fn band(job: Job) -> Band {
     match job {
-        Job::Purge | Job::Covers => true,
-        Job::Compact | Job::Check => false,
+        Job::Purge | Job::Covers => Band::Cleaning,
+        Job::Compact | Job::Check => Band::Database,
+        Job::Forget => Band::Outward,
     }
 }
 
@@ -753,6 +764,7 @@ fn name(job: Job) -> String {
         Job::Compact => t!("chores.compact").to_string(),
         Job::Covers => t!("chores.covers").to_string(),
         Job::Check => t!("chores.check").to_string(),
+        Job::Forget => t!("chores.forget").to_string(),
     }
 }
 
@@ -773,6 +785,8 @@ fn about(job: Job, pending: Option<i64>) -> String {
         (Job::Covers, true) => t!("chores.covers_why", count = how_many).to_string(),
         (Job::Covers, false) => t!("chores.covers_idle").to_string(),
         (Job::Check, _) => t!("chores.check_why").to_string(),
+        (Job::Forget, true) => t!("chores.forget_why", count = how_many).to_string(),
+        (Job::Forget, false) => t!("chores.forget_idle").to_string(),
     }
 }
 
@@ -818,6 +832,7 @@ fn found(run: &Run) -> String {
         Job::Purge => t!("chores.removed", count = count).to_string(),
         Job::Compact => t!("chores.reclaimed", size = bytes(run.affected)).to_string(),
         Job::Covers => t!("chores.deleted", count = count).to_string(),
+        Job::Forget => t!("chores.forgotten", count = count).to_string(),
         Job::Check if run.affected == 0 => t!("chores.sound").to_string(),
         Job::Check => t!("chores.problems", count = count).to_string(),
     }

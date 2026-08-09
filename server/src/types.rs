@@ -831,6 +831,15 @@ pub enum Job {
     Covers,
     /// Reads the database through, and says whether anything is wrong with it.
     Check,
+    /// Throws away the pictures that were fetched from the network, and the
+    /// memory of having looked, so the collection is as it was before anybody
+    /// went looking.
+    ///
+    /// Apart from [`Job::Covers`] because what it deletes is not a cache. A
+    /// cached cover is read back out of the user's own files for nothing; one of
+    /// these is two or three requests to somebody else's server at one a second,
+    /// and having it again means going and asking for it again.
+    Forget,
 }
 
 impl Job {
@@ -841,6 +850,7 @@ impl Job {
             Self::Compact => "compact",
             Self::Covers => "covers",
             Self::Check => "check",
+            Self::Forget => "forget",
         }
     }
 }

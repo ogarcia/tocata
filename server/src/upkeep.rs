@@ -12,6 +12,13 @@
 //! The schedule is checked once a minute rather than slept until, because the
 //! hour can be changed from the panel while the server is running and a sleep
 //! decided an hour ago would not know.
+//!
+//! **Nothing here reaches the network.** Looking for pictures of the artists is
+//! not one of the things that follows a scan, and that is deliberate: a scan
+//! runs on a schedule and at startup, so hanging it off one would mean a server
+//! on an isolated network trying to reach the internet every night without
+//! anybody ever having asked it to. It happens when somebody presses the button
+//! and at no other time.
 
 use crate::db;
 use crate::scanner::{self, Mode};
@@ -54,23 +61,6 @@ async fn ran(state: &AppState) {
         Ok(settings) => settings,
         Err(e) => return warn!("could not read the settings after a scan: {e:#}"),
     };
-
-    // A scan is what brings new artists in, so it is the moment there is
-    // something new to look up. Spawned rather than awaited: this walk is
-    // measured in three quarters of an hour and the scan it follows is not
-    // waiting for it.
-    if settings.fetch_portraits {
-        let looking = state.clone();
-        tokio::spawn(async move {
-            crate::portraits::walk(
-                &looking.pool,
-                looking.config.data_dir(),
-                &looking.net,
-                &looking.portraits,
-            )
-            .await;
-        });
-    }
 
     // No quarantine means what a scan marks stays marked until somebody asks for
     // it to go, which is the safe default and what Tocata did before this was a

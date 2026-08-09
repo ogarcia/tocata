@@ -28,7 +28,13 @@ use tracing::{info, warn};
 
 /// Every job there is, in the order a screen should offer them: what somebody
 /// most often wants first, and the one that only reports last.
-pub const EVERY: [Job; 4] = [Job::Purge, Job::Covers, Job::Compact, Job::Check];
+pub const EVERY: [Job; 5] = [
+    Job::Purge,
+    Job::Covers,
+    Job::Compact,
+    Job::Check,
+    Job::Forget,
+];
 
 /// The job that answers to a name, or nothing if none does.
 pub fn named(name: &str) -> Option<Job> {
@@ -68,7 +74,13 @@ pub async fn pending(pool: &SqlitePool, data_dir: &Path, job: Job) -> Result<Opt
                 .context("counting what a purge would remove")?
         }
         Job::Compact => reclaimable(pool).await?,
-        Job::Covers => orphaned(pool, data_dir).await?.len() as i64 + unfound(pool).await?,
+        Job::Covers => {
+            orphaned(pool, data_dir, crate::artwork::CACHE_DIRECTORY)
+                .await?
+                .len() as i64
+                + unfound(pool).await?
+        }
+        Job::Forget => fetched(pool).await?,
         // It reads and reports. There is nothing to say in advance beyond that.
         Job::Check => return Ok(None),
     };
@@ -95,6 +107,7 @@ pub async fn run(pool: &SqlitePool, data_dir: &Path, job: Job) -> Result<Run> {
         Job::Purge => purge(pool, data_dir).await,
         Job::Compact => compact(pool).await,
         Job::Covers => covers(pool, data_dir).await,
+        Job::Forget => forget(pool, data_dir).await,
         Job::Check => check(pool).await,
     };
 
@@ -215,7 +228,7 @@ async fn compact(pool: &SqlitePool) -> Result<Outcome> {
 /// its own, and a job that cleaned half a cache would be a job somebody has to
 /// remember to run twice.
 async fn covers(pool: &SqlitePool, data_dir: &Path) -> Result<Outcome> {
-    let doomed = orphaned(pool, data_dir).await?;
+    let doomed = orphaned(pool, data_dir, crate::artwork::CACHE_DIRECTORY).await?;
     let mut gone = 0;
 
     for path in doomed {
@@ -247,6 +260,77 @@ async fn covers(pool: &SqlitePool, data_dir: &Path) -> Result<Outcome> {
         .rows_affected();
 
     Ok(Outcome::of(gone + forgotten as i64))
+}
+
+/// Throws away what was fetched from the network, and the memory of having
+/// asked.
+///
+/// Both halves, because half of it would be a collection that cannot get back to
+/// where it was: the pictures without the lookups leaves every artist without one
+/// and unable to be looked up again for three months, and the lookups without the
+/// pictures leaves files nothing names.
+///
+/// The artists are let go of first. A row nothing points at is what the sweep
+/// afterwards goes on, and the file has to outlive the row long enough for its
+/// hash to be read out of it.
+async fn forget(pool: &SqlitePool, data_dir: &Path) -> Result<Outcome> {
+    let mut tx = crate::db::writing(pool).await?;
+
+    sqlx::query(
+        "UPDATE artists SET artwork_id = NULL
+          WHERE artwork_id IN (SELECT id FROM artworks WHERE source = ?)",
+    )
+    .bind(crate::artwork::FROM_COMMONS)
+    .execute(&mut **tx)
+    .await
+    .context("letting go of the pictures that were fetched")?;
+
+    let gone = sqlx::query("DELETE FROM artworks WHERE source = ?")
+        .bind(crate::artwork::FROM_COMMONS)
+        .execute(&mut **tx)
+        .await
+        .context("forgetting the pictures that were fetched")?
+        .rows_affected() as i64;
+
+    // The memory of having asked goes with them. Left behind, every artist would
+    // be without a picture and out of reach of another look for three months —
+    // which is the opposite of what somebody pressing this asked for.
+    sqlx::query("DELETE FROM artwork_lookups WHERE source = ?")
+        .bind(crate::portraits::SOURCE)
+        .execute(&mut **tx)
+        .await
+        .context("forgetting where it had looked")?;
+
+    tx.commit().await?;
+
+    // After the commit, like every other deletion of a file here: one that will
+    // not unlink must not undo what the database already says.
+    //
+    // By the same walk the covers job uses, over the other directory. Nothing
+    // names anything in there now, so this takes the lot — including whatever a
+    // download that died between writing the file and writing the row left
+    // behind, which is the one kind of rubbish that collects in there.
+    for path in orphaned(pool, data_dir, crate::artwork::ACQUIRED_DIRECTORY).await? {
+        if let Err(e) = std::fs::remove_file(&path) {
+            warn!("could not remove {}: {e}", path.display());
+        }
+
+        if let Some(fan) = path.parent() {
+            let _ = std::fs::remove_dir(fan);
+        }
+    }
+
+    Ok(Outcome::of(gone))
+}
+
+/// How many pictures came off the network, which is what forgetting them would
+/// throw away.
+async fn fetched(pool: &SqlitePool) -> Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM artworks WHERE source = ?")
+        .bind(crate::artwork::FROM_COMMONS)
+        .fetch_one(pool)
+        .await
+        .context("counting the pictures that were fetched")
 }
 
 /// Albums the server looked in, found no cover, and stopped looking in.
@@ -330,7 +414,7 @@ async fn page_size(pool: &SqlitePool) -> Result<i64> {
 /// Files are left behind by anything that removes an artwork row without going
 /// through the purge, which deleting a library does: it cascades into the tracks
 /// and leaves the covers of albums nobody can reach.
-async fn orphaned(pool: &SqlitePool, data_dir: &Path) -> Result<Vec<PathBuf>> {
+async fn orphaned(pool: &SqlitePool, data_dir: &Path, directory: &str) -> Result<Vec<PathBuf>> {
     let wanted: HashSet<String> = sqlx::query_scalar("SELECT DISTINCT content_hash FROM artworks")
         .fetch_all(pool)
         .await
@@ -338,7 +422,7 @@ async fn orphaned(pool: &SqlitePool, data_dir: &Path) -> Result<Vec<PathBuf>> {
         .into_iter()
         .collect();
 
-    let cache = data_dir.join(crate::artwork::CACHE_DIRECTORY);
+    let cache = data_dir.join(directory);
 
     // Walking a directory is the filesystem's business rather than the
     // executor's, and a cache with thousands of covers in it would hold a thread
@@ -445,6 +529,110 @@ mod tests {
         assert_eq!(done.affected, 1);
         assert!(kept.exists(), "a row still names it");
         assert!(!doomed.exists());
+    }
+
+    /// Forgetting what was fetched puts the collection back where it was before
+    /// anybody went looking — which means both halves, and only those.
+    ///
+    /// Half of it would be worse than none. The pictures without the memory of
+    /// having asked leaves every artist without one and out of reach of another
+    /// look for three months; the memory without the pictures leaves files
+    /// nothing names. And a picture that came off the user's own disk is not
+    /// this job's to touch at all.
+    #[tokio::test]
+    async fn forgetting_what_was_fetched_puts_it_back_where_it_started() {
+        let pool = empty().await;
+        let data_dir = tempdir();
+        let at = db::now();
+
+        for (id, public, source, hash) in [
+            (1, "w1", "commons", "aabbcc"),
+            (2, "w2", "local_file", "ddeeff"),
+        ] {
+            sqlx::query(
+                "INSERT INTO artworks (id, public_id, kind, source, mime_type, content_hash,
+                                       fetched_at)
+                 VALUES (?, ?, 'artist', ?, 'image/jpeg', ?, ?)",
+            )
+            .bind(id)
+            .bind(public)
+            .bind(source)
+            .bind(hash)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO artists (id, public_id, name, artwork_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("ar{id}"))
+            .bind(format!("Artist {id}"))
+            .bind(id)
+            .bind(&at)
+            .bind(&at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Where each one's bytes live, which is the whole of the difference.
+        let bought = crate::artwork::acquired_path(&data_dir, "aabbcc");
+        std::fs::create_dir_all(bought.parent().unwrap()).unwrap();
+        std::fs::write(&bought, b"a portrait that cost a walk").unwrap();
+        let theirs = cached(&data_dir, "ddeeff");
+
+        // And a download that died between writing the file and writing the row,
+        // which is the one kind of rubbish that collects in there.
+        let half = crate::artwork::acquired_path(&data_dir, "001122");
+        std::fs::create_dir_all(half.parent().unwrap()).unwrap();
+        std::fs::write(&half, b"most of a picture").unwrap();
+
+        sqlx::query(
+            "INSERT INTO artwork_lookups (entity_type, entity_id, source, attempted_at, found)
+             VALUES ('artist', 1, 'commons', ?, 1)",
+        )
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            pending(&pool, &data_dir, Job::Forget).await.unwrap(),
+            Some(1),
+            "one picture came off the network"
+        );
+
+        let done = run(&pool, &data_dir, Job::Forget).await.unwrap();
+        assert_eq!(done.affected, 1);
+
+        assert!(!bought.exists(), "the fetched one goes");
+        assert!(!half.exists(), "and so does what a dead download left");
+        assert!(theirs.exists(), "and their own picture is untouched");
+
+        let left: Vec<String> = sqlx::query_scalar("SELECT source FROM artworks")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, vec!["local_file".to_string()]);
+
+        // The artist it belonged to is without a picture rather than pointing at
+        // a row that is gone, and can be looked up again — which is the whole
+        // point of pressing this.
+        let pointing: Vec<Option<i64>> =
+            sqlx::query_scalar("SELECT artwork_id FROM artists ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(pointing, vec![None, Some(2)]);
+
+        let remembered: i64 = sqlx::query_scalar("SELECT count(*) FROM artwork_lookups")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(remembered, 0, "or it could not be looked up again");
     }
 
     /// What came off the network is not in this job's reach, in either half.

@@ -598,11 +598,15 @@ chores:
   covers: "Poner en orden las carátulas"
   covers_why: "Limpia las %{count} cosas que sobran en la caché: ficheros de carátula que ya no son de nadie, y álbumes donde el servidor buscó, no encontró y dejó de mirar."
   covers_idle: "Borra las carátulas que ya no son de nadie y vuelve a mirar donde no encontró ninguna. Ahora mismo no sobra nada."
+  forget: "Olvidar las fotos descargadas"
+  forget_why: "Tira las %{count} fotos de artistas que vinieron de la red, y el recuerdo de haber mirado, para que se puedan volver a buscar. Recuperarlas es volver a descargarlas: un segundo por artista, y solo los que tenían foto."
+  forget_idle: "Tira las fotos de artistas que vinieron de la red. Ahora mismo no hay ninguna."
   check: "Comprobar la base de datos"
   check_why: "La lee de principio a fin y dice si algo va mal. No cambia nada."
 
   # Lo que se llevó la última vez, en los términos de cada trabajo.
   removed: "eliminó %{count}"
+  forgotten: "olvidó %{count}"
   reclaimed: "recuperó %{size}"
   deleted: "limpió %{count}"
   sound: "sin un problema"

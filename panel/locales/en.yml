@@ -602,11 +602,15 @@ chores:
   covers: "Put the covers in order"
   covers_why: "Clears the %{count} things the cache should not be holding: cover files that belong to nothing any more, and albums the server looked in, found nothing and stopped looking in."
   covers_idle: "Deletes covers that belong to nothing any more, and looks again where it found none. Nothing is left over right now."
+  forget: "Forget the pictures fetched"
+  forget_why: "Throws away the %{count} pictures of artists that came off the network, and the memory of having looked, so they can be looked for again. Having them back means fetching them again: a second each, and only for the artists that had one."
+  forget_idle: "Throws away the pictures of artists that came off the network. There are none right now."
   check: "Check the database"
   check_why: "Reads it from end to end and says whether anything is wrong. It changes nothing."
 
   # What it came to last time, in the terms of each job.
   removed: "removed %{count}"
+  forgotten: "forgot %{count}"
   reclaimed: "reclaimed %{size}"
   deleted: "cleared %{count}"
   sound: "nothing wrong"
