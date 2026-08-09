@@ -29,6 +29,7 @@ pub mod track;
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use rust_i18n::t;
+use tocata::types::Credit;
 
 /// Which panel is over the screen.
 #[derive(Clone, PartialEq, Eq)]
@@ -209,8 +210,209 @@ pub fn Figure(value: Option<String>, name: String) -> impl IntoView {
     })
 }
 
+/// One name in that line that leads somewhere, drawn as the words it stands for.
+#[component]
+pub fn Onward(what: Open, name: String) -> impl IntoView {
+    let what = StoredValue::new(what);
+
+    view! {
+        <button class="toward" on:click=move |_| open(what.get_value())>
+            {name}
+        </button>
+    }
+}
+
+/// A piece of a credit line.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Piece {
+    /// The tagger's own words: "feat.", an ampersand, the comma between two names.
+    Words(String),
+    /// A name, and who it is.
+    Name(Credit),
+}
+
+/// The credit line, cut into the names this server knows and whatever the tagger
+/// wrote around them.
+///
+/// The line stays exactly as it is — this only says which stretches of it are names.
+/// A name the line does not spell the way the database does ("Beatles, The" against
+/// "The Beatles") is simply not found, and reads as the words it always was: a piece
+/// of the sentence that leads nowhere is better than a piece that leads to the wrong
+/// place, and better than a line rewritten to make the matching easy.
+///
+/// Longest name first, so a group whose name contains a member's — "Bob" inside "Bob
+/// Dylan" — cannot claim the letters that belong to the longer one. What each name
+/// claims is one stretch, and the second time a name appears is left as words: a
+/// credit names somebody once, and the repetition is the tagger's.
+pub fn credited(line: &str, credits: &[Credit]) -> Vec<Piece> {
+    let mut found: Vec<(usize, usize, &Credit)> = Vec::new();
+
+    let mut by_length: Vec<&Credit> = credits.iter().collect();
+    by_length.sort_by_key(|who| std::cmp::Reverse(who.name.len()));
+
+    for who in by_length {
+        let claimed = line.match_indices(&who.name).find(|(at, name)| {
+            let ends = at + name.len();
+            !found.iter().any(|(from, to, _)| at < to && &ends > from)
+        });
+
+        if let Some((at, name)) = claimed {
+            found.push((at, at + name.len(), who));
+        }
+    }
+
+    found.sort_by_key(|(at, _, _)| *at);
+
+    let mut pieces = Vec::new();
+    let mut read_to = 0;
+
+    for (at, ends, who) in found {
+        if at > read_to {
+            pieces.push(Piece::Words(line[read_to..at].to_string()));
+        }
+        pieces.push(Piece::Name(who.clone()));
+        read_to = ends;
+    }
+
+    if read_to < line.len() {
+        pieces.push(Piece::Words(line[read_to..].to_string()));
+    }
+
+    pieces
+}
+
 /// What went wrong, where a panel has nothing else to show.
 #[component]
 pub fn Failed(why: crate::api::Failure) -> impl IntoView {
     view! { <p class="failure" role="alert">{crate::pages::said(&why)}</p> }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn credit(id: &str, name: &str) -> Credit {
+        Credit {
+            id: id.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    /// What is on screen, whatever each piece leads to: putting the line back
+    /// together must give the line back.
+    fn read_as(pieces: &[Piece]) -> String {
+        pieces
+            .iter()
+            .map(|piece| match piece {
+                Piece::Words(said) => said.as_str(),
+                Piece::Name(who) => who.name.as_str(),
+            })
+            .collect()
+    }
+
+    /// The whole rule of this in one test: what the tagger wrote survives, and the
+    /// names in it are the only thing that leads anywhere.
+    #[test]
+    fn a_credit_keeps_its_words_and_opens_its_names() {
+        let line = "Above & Beyond feat. Zoë Johnston";
+        let who = [credit("a1", "Above & Beyond"), credit("a2", "Zoë Johnston")];
+        let pieces = credited(line, &who);
+
+        assert_eq!(read_as(&pieces), line, "the tagger's sentence is untouched");
+        assert_eq!(
+            pieces,
+            vec![
+                Piece::Name(who[0].clone()),
+                Piece::Words(" feat. ".to_string()),
+                Piece::Name(who[1].clone()),
+            ],
+            "the ampersand is part of a name and the 'feat.' is not"
+        );
+    }
+
+    /// A name the line spells another way is not in the line. Leading nowhere is the
+    /// answer; leading to the wrong artist is not.
+    #[test]
+    fn a_name_the_line_does_not_spell_leads_nowhere() {
+        let line = "Beatles, The";
+        let pieces = credited(line, &[credit("a1", "The Beatles")]);
+
+        assert_eq!(pieces, vec![Piece::Words(line.to_string())]);
+    }
+
+    /// The short name must not claim the letters of the long one, which is what
+    /// happens on any collaboration between a band and one of its members.
+    #[test]
+    fn the_longer_name_claims_its_own_letters() {
+        let line = "Bob Dylan & Bob";
+        let short = credit("a2", "Bob");
+        let long = credit("a1", "Bob Dylan");
+
+        // Given in the order that gets it wrong if length is not what decides.
+        let pieces = credited(line, &[short.clone(), long.clone()]);
+
+        assert_eq!(
+            pieces,
+            vec![
+                Piece::Name(long),
+                Piece::Words(" & ".to_string()),
+                Piece::Name(short),
+            ]
+        );
+    }
+
+    /// Three names and two of the tagger's words between them, which is what a
+    /// collaboration on a real shelf looks like.
+    #[test]
+    fn every_name_in_a_long_credit_is_its_own_way_out() {
+        let line = "Alejandro Sanz con Juan Habichuela y Ketama";
+        let who = [
+            credit("a1", "Alejandro Sanz"),
+            credit("a2", "Juan Habichuela"),
+            credit("a3", "Ketama"),
+        ];
+
+        assert_eq!(
+            credited(line, &who),
+            vec![
+                Piece::Name(who[0].clone()),
+                Piece::Words(" con ".to_string()),
+                Piece::Name(who[1].clone()),
+                Piece::Words(" y ".to_string()),
+                Piece::Name(who[2].clone()),
+            ]
+        );
+    }
+
+    /// A tagger who wrote a name twice wrote it twice. One of them opens, and the
+    /// other stays what it is: two ways to the same panel, a foot apart, would read
+    /// as two different people.
+    #[test]
+    fn a_name_written_twice_is_opened_once() {
+        let line = "Sarah Brightman with Andrzej Lampert / Sarah Brightman";
+        let sarah = credit("a1", "Sarah Brightman");
+        let guest = credit("a2", "Andrzej Lampert");
+        let pieces = credited(line, &[sarah.clone(), guest.clone()]);
+
+        assert_eq!(read_as(&pieces), line);
+        assert_eq!(
+            pieces,
+            vec![
+                Piece::Name(sarah),
+                Piece::Words(" with ".to_string()),
+                Piece::Name(guest),
+                Piece::Words(" / Sarah Brightman".to_string()),
+            ]
+        );
+    }
+
+    /// The ordinary file: one name, and the whole line is it.
+    #[test]
+    fn one_name_is_the_whole_line() {
+        let who = credit("a1", "Alice");
+        assert_eq!(
+            credited("Alice", std::slice::from_ref(&who)),
+            vec![Piece::Name(who)]
+        );
+    }
 }

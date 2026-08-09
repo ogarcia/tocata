@@ -3746,11 +3746,26 @@ select.narrow { width: 12.5rem; }
   margin-top: 0.75rem;
 }
 
-.pills > span {
+/* Each of them opens that artist, so each is a button rather than a word: a guest on
+ * a record is the name somebody is most likely to want to follow. */
+.pills > button {
   padding: 0.25rem 0.6875rem;
   border: 1px solid var(--line);
   border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: var(--aside);
+  cursor: pointer;
+}
+
+/* Its edge, the way every other pill in the panel answers being pointed at — and no
+ * underline, which is what the shared class does in a line of running text. A shape
+ * with an edge has somewhere better to put the answer. */
+.pills > button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
 }
 
 /* An artist's most played songs, and their records. Two runs of rows in one panel that

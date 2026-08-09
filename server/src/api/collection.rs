@@ -798,11 +798,26 @@ pub async fn album(
     .await
     .map_err(|e| ApiError::internal(e, "listing what is on a record"))?;
 
+    // Who it is filed under, one by one. The line above says it the way the tag
+    // wrote it; this says who those names are, so the heading can lead on to them.
+    let credits: Vec<CreditRow> = sqlx::query_as(
+        "SELECT a.public_id, a.name
+           FROM albums al
+           JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
+           JOIN artists a ON a.id = aa.artist_id
+          WHERE al.public_id = ?
+          ORDER BY aa.position",
+    )
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading who a record is filed under"))?;
+
     // Everybody credited on its tracks. Not the same question as who it is filed
     // under, which is the point: this is where the guests are.
-    let players: Vec<String> = sqlx::query_scalar(concat!(
+    let players: Vec<CreditRow> = sqlx::query_as(concat!(
         visible_libraries!(),
-        "SELECT DISTINCT a.name
+        "SELECT DISTINCT a.public_id, a.name
            FROM tracks t
            JOIN albums al ON al.id = t.album_id
            JOIN track_artists ta ON ta.track_id = t.id AND ta.role = 'artist'
@@ -820,6 +835,7 @@ pub async fn album(
         id: row.public_id,
         name: row.name,
         artist: row.artist,
+        credits: credits.into_iter().map(Credit::from).collect(),
         year: row.year,
         genres: row.genres,
         label: row.label,
@@ -836,7 +852,7 @@ pub async fn album(
         // track's own panel: a record that said nothing did not say one.
         discs: row.discs.filter(|discs| *discs > 0),
         listing: listing.into_iter().map(AlbumTrack::from).collect(),
-        players,
+        players: players.into_iter().map(Credit::from).collect(),
     }))
 }
 
@@ -2068,6 +2084,58 @@ mod tests {
         assert!(track.credits.is_empty());
     }
 
+    /// The two questions a record's panel asks about people, kept apart and both
+    /// answered with something a panel can open.
+    ///
+    /// Who it is filed under is the heading. Who played on it is the list at the
+    /// foot, and on a compilation those are almost disjoint — a guest belongs in the
+    /// second and nowhere near the first.
+    #[tokio::test]
+    async fn who_signs_a_record_and_who_plays_on_it_both_open() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+        let at = db::now();
+
+        // A guest on one of its tracks, credited nowhere on the record itself.
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, sort_name, created_at, updated_at)
+             VALUES (2, 'ar2', 'Lole', 'Lole', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role, position)
+             VALUES (10, 2, 'artist', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let Json(read) = album(hers, State(pool.clone()), UrlPath("al1".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            read.credits
+                .iter()
+                .map(|who| who.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ar1"],
+            "the guest did not sign the record, so the heading does not name her"
+        );
+        assert_eq!(
+            read.players
+                .iter()
+                .map(|who| (who.id.as_str(), who.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("ar2", "Lole"), ("ar1", "Triana")],
+            "and the foot names everybody on its tracks, each with a way in"
+        );
+    }
+
     /// A record's own panel, and the two figures that have to be kept apart.
     #[tokio::test]
     async fn a_record_counts_what_is_there_and_says_what_is_not() {
@@ -2099,9 +2167,22 @@ mod tests {
 
         assert_eq!(
             read.players,
-            vec!["Triana".to_string()],
+            vec![Credit {
+                id: "ar1".to_string(),
+                name: "Triana".to_string(),
+            }],
             "credited on its tracks, which is a different question from who it is \
-             filed under"
+             filed under — and named with what it takes to open them"
+        );
+
+        // And who it is filed under, which is the other of the two questions.
+        assert_eq!(read.artist.as_deref(), Some("Triana"));
+        assert_eq!(
+            read.credits
+                .iter()
+                .map(|who| who.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ar1"]
         );
 
         let walled = somebody_else(&pool).await;

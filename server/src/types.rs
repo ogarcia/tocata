@@ -1097,6 +1097,10 @@ pub struct AlbumDetail {
     pub name: String,
     /// Who it is filed under, which on a compilation is not who played on it.
     pub artist: Option<String>,
+    /// The same names one by one, so a panel can lead on to any of them. Beside
+    /// the line rather than instead of it, for the reason [`TrackDetail::credits`]
+    /// gives: the line is what the tag says and this is who it says it about.
+    pub credits: Vec<Credit>,
     pub year: Option<i64>,
     /// Every genre its tracks carry, not the first one a row has room for.
     pub genres: Option<String>,
@@ -1122,7 +1126,10 @@ pub struct AlbumDetail {
     pub listing: Vec<AlbumTrack>,
     /// Everybody credited on its tracks, which is a different question from who the
     /// record is filed under: it is where the guests are.
-    pub players: Vec<String>,
+    ///
+    /// With their identifiers, because a guest is exactly the name somebody wants to
+    /// follow: it is how they find out what else of that person is here.
+    pub players: Vec<Credit>,
 }
 
 /// One track as a record's panel lists it: enough to read down the running order and

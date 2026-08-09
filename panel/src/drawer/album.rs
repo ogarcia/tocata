@@ -13,7 +13,7 @@
 //! find out what is missing. The figures above it count only what can be played, and
 //! say how many cannot on a line of their own.
 
-use super::{Fact, Failed, Figure, Frame, Head};
+use super::{Fact, Failed, Figure, Frame, Head, Onward, Open, Piece, credited};
 use crate::api;
 use crate::icon::Icon;
 use crate::pages;
@@ -78,7 +78,7 @@ pub fn Album(id: String) -> impl IntoView {
                         .with(|read| read.as_ref().map(|read| read.name.clone()))
                         .unwrap_or_else(|| t!("common.loading").to_string())
                 })
-                lead=move || detail.with(placing)
+                lead=move || view! { <Placing detail /> }
             />
 
             <div class="leafing">
@@ -214,8 +214,15 @@ fn Said(read: AlbumDetail) -> impl IntoView {
         <Show when=move || has_players>
             <p class="lettering">{t!("album.who_plays")}</p>
 
+            // Every one of them opens. A guest is the name somebody is most likely to
+            // want to follow — it is how they find out what else of that person is
+            // here — and on a compilation this list is the whole of the record.
             <div class="pills">
-                {players.clone().into_iter().map(|who| view! { <span>{who}</span> }).collect_view()}
+                {players
+                    .clone()
+                    .into_iter()
+                    .map(|who| view! { <Onward what=Open::Artist(who.id) name=who.name /> })
+                    .collect_view()}
             </div>
 
             <p class="quiet remark">{t!("album.from_the_tags")}</p>
@@ -248,20 +255,49 @@ fn Row(track: AlbumTrack) -> impl IntoView {
 }
 
 /// The line under a record's name: who made it, when, and what it is.
-fn placing(read: &Option<AlbumDetail>) -> String {
-    let Some(read) = read else {
-        return String::new();
-    };
+///
+/// The name it is filed under leads to them, the same as a song's does. A record is
+/// where somebody arrives from a shelf, and "what else did they make" is the next
+/// question — asking it should not mean going back and typing the name again.
+#[component]
+fn Placing(detail: RwSignal<Option<AlbumDetail>>) -> impl IntoView {
+    view! {
+        {move || {
+            detail
+                .get()
+                .map(|read| {
+                    // Cut the way a track's credit is cut, and for the same reason: a
+                    // record filed under two names is filed under whatever the tag
+                    // says about the two of them.
+                    let who = read
+                        .artist
+                        .as_deref()
+                        .map(|line| {
+                            credited(line, &read.credits)
+                                .into_iter()
+                                .map(|piece| match piece {
+                                    Piece::Words(said) => said.into_any(),
+                                    Piece::Name(who) => {
+                                        view! { <Onward what=Open::Artist(who.id) name=who.name /> }
+                                            .into_any()
+                                    }
+                                })
+                                .collect_view()
+                                .into_any()
+                        });
 
-    [
-        read.artist.clone(),
-        read.year.map(|year| year.to_string()),
-        read.genres.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ")
+                    let year = read.year.map(|year| year.to_string().into_any());
+                    let genres = read.genres.map(|genres| genres.into_any());
+
+                    [who, year, genres]
+                        .into_iter()
+                        .flatten()
+                        .enumerate()
+                        .map(|(nth, part)| view! { {(nth > 0).then_some(" · ")} {part} })
+                        .collect_view()
+                })
+        }}
+    }
 }
 
 /// How many files it is, said at the foot where a track's panel says where its own
