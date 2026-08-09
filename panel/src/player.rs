@@ -54,6 +54,15 @@ pub struct Player {
     /// Whether this track has already been counted, so holding still at the halfway
     /// mark does not count it twice.
     counted: RwSignal<bool>,
+
+    /// The queue as it stood before it was mixed, and nothing at all while it is in
+    /// the order it was given.
+    ///
+    /// One field doing both halves of the shuffle: it is the way back, and its being
+    /// there is what the lit button means. Nothing about the mix itself is kept —
+    /// mixing, ordering and mixing again gives a second mix with no relation to the
+    /// first, which is what a shuffle is.
+    ordered: RwSignal<Option<Vec<String>>>,
 }
 
 impl Player {
@@ -66,6 +75,7 @@ impl Player {
             elapsed: RwSignal::new(0.0),
             duration: RwSignal::new(0.0),
             counted: RwSignal::new(false),
+            ordered: RwSignal::new(None),
         }
     }
 
@@ -102,6 +112,9 @@ impl Player {
             return;
         }
 
+        // A new queue is a new order, so there is nothing to go back to any more and
+        // the button is not lit over the record that has just been put on.
+        self.ordered.set(None);
         self.queue.set(queue);
         self.step_to(from);
     }
@@ -211,6 +224,32 @@ impl Player {
     /// How many are still to come after the one sounding.
     pub fn ahead(&self) -> usize {
         self.queue.with(Vec::len).saturating_sub(self.at.get() + 1)
+    }
+
+    /// Whether what is coming has been mixed, which is what lights the button.
+    pub fn shuffled(&self) -> bool {
+        self.ordered.with(Option::is_some)
+    }
+
+    /// Mixes what is coming, or puts it back the way it came.
+    ///
+    /// Both halves leave what is sounding and everything behind it exactly where they
+    /// are — the same rule that governs dropping a track and moving one, and for the
+    /// same reason: `at` never needs adjusting and the music never jumps.
+    pub fn toggle_shuffle(&self) {
+        let at = self.at.get_untracked();
+
+        match self.ordered.get_untracked() {
+            Some(ordered) => {
+                self.queue
+                    .update(|queue| *queue = ordered_again(&ordered, queue, at));
+                self.ordered.set(None);
+            }
+            None => {
+                self.ordered.set(Some(self.queue.get_untracked()));
+                self.queue.update(|queue| mix(queue, at + 1, roll));
+            }
+        }
     }
 
     /// Takes a track out of what is coming, by where it sits in the queue.
@@ -343,9 +382,76 @@ fn settled(from: usize, to: usize, now: usize, len: usize) -> Option<usize> {
     (to != from).then_some(to)
 }
 
+/// Mixes everything from `from` onwards and leaves what is before it alone.
+///
+/// Fisher and Yates: walk the tail backwards and swap each track with one drawn from
+/// the part not yet walked. Every ordering comes out as often as every other, which
+/// the obvious "sort by a random number" does not manage and the equally obvious
+/// "swap each with any" does not either.
+///
+/// Where the numbers come from is handed in. It is the one thing here that is not
+/// about order, and a test cannot ask what a mix will be unless it can say.
+fn mix(queue: &mut [String], from: usize, mut roll: impl FnMut(usize) -> usize) {
+    for nth in (from + 1..queue.len()).rev() {
+        queue.swap(nth, from + roll(nth - from + 1));
+    }
+}
+
+/// A number under `n`, from the browser's own randomness.
+///
+/// Clamped because the multiplication is in floating point: `random` promises to stay
+/// under one, and one rounding away from that promise would be an index past the end
+/// of the queue.
+fn roll(n: usize) -> usize {
+    ((js_sys::Math::random() * n as f64) as usize).min(n.saturating_sub(1))
+}
+
+/// The queue back in the order it was given.
+///
+/// What is sounding and everything played stay exactly where the mix left them —
+/// putting a shuffle away is a claim about what is *coming*, and rewriting the last
+/// half hour of listening would be a different, stranger thing to do.
+///
+/// The old order is filtered against what is actually waiting rather than taken
+/// whole, which is what stops a track dropped out of the mix, or already heard in it,
+/// from walking back in with the order. Everything waiting is in there somewhere: a
+/// queue is only ever set whole, and setting one forgets the order it replaced.
+fn ordered_again(ordered: &[String], queue: &[String], at: usize) -> Vec<String> {
+    let mut waiting: Vec<&String> = queue.iter().skip(at + 1).collect();
+    let mut back: Vec<String> = queue.iter().take(at + 1).cloned().collect();
+
+    for id in ordered {
+        // By position rather than by containment, so the same track queued twice
+        // comes back twice and not four times.
+        if let Some(nth) = waiting.iter().position(|waits| *waits == id) {
+            waiting.remove(nth);
+            back.push(id.clone());
+        }
+    }
+
+    back
+}
+
 #[cfg(test)]
 mod tests {
-    use super::settled;
+    use super::{mix, ordered_again, settled};
+
+    /// A queue of single letters, which is all either function looks at.
+    fn queue(letters: &str) -> Vec<String> {
+        letters.chars().map(|one| one.to_string()).collect()
+    }
+
+    /// What a queue reads as, so a test can say the whole answer in one word.
+    fn spelt(queue: &[String]) -> String {
+        queue.concat()
+    }
+
+    /// Always the first of what is left to draw from, which is a mix a test can write
+    /// down and one that moves every waiting track — a roll that drew the last would
+    /// swap each track with itself and prove nothing.
+    fn first(_: usize) -> usize {
+        0
+    }
 
     /// A track dropped past either end of the queue goes to that end.
     ///
@@ -389,5 +495,87 @@ mod tests {
         assert_eq!(settled(0, 0, 0, 0), None);
         // And an index past the end of it, which is what a stale row would ask for.
         assert_eq!(settled(7, 1, 0, 3), None);
+    }
+
+    /// A mix touches what is coming and nothing else.
+    ///
+    /// Which is the rule the whole queue is built on: the track sounding stays
+    /// sounding and what has been heard stays where it was heard, so pressing shuffle
+    /// never interrupts the music.
+    #[test]
+    fn a_mix_leaves_what_is_sounding_and_what_is_behind_it_alone() {
+        // Five queued with the third sounding, so only the last two may move.
+        let mut queued = queue("ABCDE");
+        mix(&mut queued, 3, first);
+
+        assert_eq!(spelt(&queued), "ABCED");
+
+        // And from the top of the queue, where everything but the first is waiting.
+        let mut queued = queue("ABCDE");
+        mix(&mut queued, 1, first);
+
+        assert_eq!(spelt(&queued), "ACDEB");
+    }
+
+    /// Nothing to mix at the end of a queue, and nothing that falls over there either.
+    #[test]
+    fn a_queue_with_nothing_waiting_comes_out_as_it_went_in() {
+        let mut queued = queue("ABC");
+        mix(&mut queued, 2, first);
+        assert_eq!(spelt(&queued), "ABC", "one waiting is one ordering");
+
+        mix(&mut queued, 3, first);
+        assert_eq!(spelt(&queued), "ABC", "the last track is sounding");
+
+        // Past the end of it, which is what the last track of a queue asks for.
+        mix(&mut queued, 9, first);
+        assert_eq!(spelt(&queued), "ABC");
+    }
+
+    /// Putting the shuffle away gives back the order it was given.
+    #[test]
+    fn what_is_waiting_goes_back_into_the_order_it_came_in() {
+        let ordered = queue("ABCDE");
+        let mut queued = ordered.clone();
+        mix(&mut queued, 1, first);
+
+        assert_eq!(spelt(&ordered_again(&ordered, &queued, 0)), "ABCDE");
+    }
+
+    /// What has been heard in a shuffle stays heard, in the order it was heard in.
+    ///
+    /// The queue has moved on inside the mix, so the first three of `ACDEB` are what
+    /// this listening actually was. Ordering what is coming may not rewrite it.
+    #[test]
+    fn putting_it_back_does_not_reorder_what_has_already_sounded() {
+        let ordered = queue("ABCDE");
+        let queued = queue("ACDEB");
+
+        assert_eq!(spelt(&ordered_again(&ordered, &queued, 2)), "ACDBE");
+    }
+
+    /// A track taken out of the mix does not come back with the order.
+    #[test]
+    fn a_track_dropped_from_the_mix_stays_dropped() {
+        let ordered = queue("ABCDE");
+        // Mixed, and then D swiped out of what was coming.
+        let queued = queue("ACEB");
+
+        assert_eq!(spelt(&ordered_again(&ordered, &queued, 0)), "ABCE");
+    }
+
+    /// The same track queued twice comes back twice, and comes back once when one of
+    /// the two has gone.
+    ///
+    /// Which is why the old order is walked against a list that is consumed rather
+    /// than merely asked whether it holds something: a track named twice up there and
+    /// waiting once down here would otherwise be written back out twice, and one of
+    /// them is a copy the listener took out.
+    #[test]
+    fn a_track_queued_twice_comes_back_as_often_as_it_is_still_waiting() {
+        let ordered = queue("ABCB");
+
+        assert_eq!(spelt(&ordered_again(&ordered, &queue("ABBC"), 0)), "ABCB");
+        assert_eq!(spelt(&ordered_again(&ordered, &queue("ABC"), 0)), "ABC");
     }
 }

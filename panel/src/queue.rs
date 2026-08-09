@@ -107,6 +107,10 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
         }
     };
 
+    // Whether mixing would do anything. One waiting track has one ordering, and a
+    // button that cannot change what it names reads as a broken one.
+    let worth_mixing = move || player.ahead() > 1;
+
     view! {
         <Show when=move || open.get()>
             // Catches anything aimed at the screen behind, which on a wide window is
@@ -179,7 +183,16 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                     </Show>
 
                     <Show when=move || !coming.with(Vec::is_empty)>
-                        <p class="lettering next">{t!("queue.next")}</p>
+                        // The heading of what is waiting, and the way to mix exactly
+                        // that: the button sits on the line naming the run of tracks
+                        // it reorders, rather than up in the header where it would
+                        // have shared an edge with the way out.
+                        <p class="lettering next">
+                            <span>{t!("queue.next")}</span>
+                            <Show when=worth_mixing>
+                                <Mix player />
+                            </Show>
+                        </p>
 
                         <ul class="waiting">
                             <For
@@ -223,6 +236,40 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                 </div>
             </div>
         </Show>
+    }
+}
+
+/// Mixes what is coming, and puts it back.
+///
+/// A switch rather than an errand: pressing it mixes the queue and lights the button,
+/// pressing it again gives back the order the queue came in. Nothing about the mix is
+/// remembered, so a third press mixes afresh — which is what a shuffle is, and it
+/// saves keeping a mix nobody asked to keep.
+///
+/// **On the heading of what it reorders**, in both layouts, and not in the header
+/// beside the count. Up there it would have sat a finger's width from the way out of
+/// the queue, where a press meant for one lands on the other — and the two are not
+/// alike: closing the drawer is nothing, mixing it throws away the order you were
+/// listening in.
+#[component]
+fn Mix(player: Player) -> impl IntoView {
+    view! {
+        <button
+            class="mix"
+            class:mixing=move || player.shuffled()
+            aria-pressed=move || player.shuffled().to_string()
+            title=move || {
+                if player.shuffled() {
+                    t!("queue.ordering").to_string()
+                } else {
+                    t!("queue.shuffling").to_string()
+                }
+            }
+            on:click=move |_| player.toggle_shuffle()
+        >
+            <Glyph icon=Icon::Shuffle />
+            {t!("queue.shuffle")}
+        </button>
     }
 }
 

@@ -51,6 +51,8 @@ pub enum Icon {
     /// What a row is dragged by. Two columns of dots, which is the one shape that
     /// says "hold me" without saying anything else.
     Handle,
+    /// Two paths crossing: what is coming, in no order.
+    Shuffle,
     Plays,
     Favourites,
     Ratings,
@@ -90,6 +92,7 @@ impl Icon {
             Self::Sounding => include_str!("../icons/sounding.svg"),
             Self::Close => include_str!("../icons/close.svg"),
             Self::Handle => include_str!("../icons/handle.svg"),
+            Self::Shuffle => include_str!("../icons/shuffle.svg"),
             Self::Plays => include_str!("../icons/play.svg"),
             Self::Favourites => include_str!("../icons/heart.svg"),
             Self::Ratings => include_str!("../icons/star.svg"),

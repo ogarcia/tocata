@@ -4489,8 +4489,48 @@ select.narrow { width: 12.5rem; }
 .rolling .lettering { margin: 1.25rem 0 0.25rem; }
 
 /* Air over the second heading, so the two runs read as two rather than as one list
- * with a word in the middle of it. */
-.rolling .next { margin-top: 1.75rem; }
+ * with a word in the middle of it. And a row rather than a line, because on a phone
+ * this is what carries the way to mix what is under it. */
+.rolling .next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.75rem;
+}
+
+/* Mixes what is coming, and puts it back. Quiet like everything else that only offers
+ * something, and in the accent while what is coming is mixed — the same way the count
+ * in the sidebar says the queue is open.
+ *
+ * It undoes the small capitals of the heading it shares a line with. Wearing them it
+ * read as a second word of that heading; in its own voice it reads as the control it
+ * is, which is what the line needs at that end. */
+.mix {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--aside);
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.mix .icon {
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+.mix:hover, .mix:focus-visible { color: var(--accent); }
+
+.mix:focus-visible { outline: none; }
+
+.mix.mixing { color: var(--accent); }
 
 .rolling .waiting {
   margin: 0;
@@ -4672,6 +4712,15 @@ select.narrow { width: 12.5rem; }
 
   .rolling .row, .rolling .waiting > li {
     grid-template-columns: 1.75rem minmax(0, 1fr) auto auto;
+  }
+
+  /* And the same for the one control on the heading, which is a word and an icon and
+   * would otherwise be twenty pixels of target. It grows into the air around the
+   * heading instead of pushing it about: the row keeps the height it had and the
+   * thumb gets the 44px everything else here has. */
+  .mix {
+    margin-block: -0.75rem;
+    padding-block: 0.75rem;
   }
 }
 
