@@ -81,6 +81,17 @@ impl Player {
         self.queue.with(|queue| queue.get(at).cloned())
     }
 
+    /// What comes after it, which is what the second audio element loads while the
+    /// first one is still playing.
+    ///
+    /// Nothing at the end of the queue: there is nothing to hand over to, and the
+    /// element that would have held it stays empty rather than holding the track
+    /// that is already sounding.
+    pub fn upcoming(&self) -> Option<String> {
+        let next = self.at.get() + 1;
+        self.queue.with(|queue| queue.get(next).cloned())
+    }
+
     /// Takes a queue and starts at the top of it.
     ///
     /// `from` is where in that queue to begin, which is how pressing play on the

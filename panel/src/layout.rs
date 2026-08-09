@@ -360,28 +360,97 @@ fn ScanStrip(scan: ReadSignal<Option<Status>>) -> impl IntoView {
 ///
 /// What actually plays, drawn nowhere.
 ///
-/// One of these for the whole panel, and exactly one: there are two views of the
-/// player — the block in the column and the bar across the foot of a phone — and two
-/// `<audio>` elements would be two things sounding at once. So the machine is here on
-/// its own and the views only read from it and press its buttons.
+/// **Two elements, one sounding.** A record made without pauses between its tracks
+/// — which is most of Genesis and all of Dark Side of the Moon — used to fall
+/// silent at every join, and the silence was mostly not the decoder's: changing one
+/// element's `src` starts a fresh HTTP request, and against a server over the
+/// internet that measured 107 to 185 milliseconds before the first byte, plus
+/// whatever the browser buffers before it will start. So the track after this one
+/// is already loaded in the other element, and the join is a `play()` on something
+/// that is ready rather than a fetch.
 ///
-/// It carries no `controls`, because the browser's own would be a second set of
-/// buttons doing what the views already do.
+/// What is left is the file's own doing. An MP3 carries silence at each end because
+/// the encoder puts it there, and the only way to trim it is to be told how much by
+/// the LAME header — which the files this was built against do not carry. So this
+/// closes the gap it made and not the one that was already in the music.
+///
+/// Which of the two is sounding is a signal, and the sources are written rather
+/// than derived: at the handover the element that was holding the next track keeps
+/// exactly the source it already has, and reassigning it — even to the same string
+/// — would throw away the buffer that is the whole point.
 #[component]
 fn Sound() -> impl IntoView {
     let player = crate::player::player();
-    let sound = NodeRef::<leptos::html::Audio>::new();
+
+    let first = NodeRef::<leptos::html::Audio>::new();
+    let second = NodeRef::<leptos::html::Audio>::new();
+    let source = (RwSignal::new(String::new()), RwSignal::new(String::new()));
+
+    // False is the first element. Flipped at the end of a track, never anywhere
+    // else: everything that jumps — a button, a row, a new queue — keeps whichever
+    // is sounding and gives it the new track, because there is nothing prepared to
+    // hand over to.
+    let second_one = RwSignal::new(false);
+
+    let live = move || if second_one.get() { second } else { first };
+    let live_source = move || if second_one.get() { source.1 } else { source.0 };
+    let idle_source = move || if second_one.get() { source.0 } else { source.1 };
+
+    // Who holds what. The live element gets the current track and the other one
+    // gets the next, and neither is written unless what it holds is wrong — which
+    // is what makes the handover free: after the flip the new live element is
+    // already holding exactly what this would give it.
+    Effect::new(move |_| {
+        let wanted = player
+            .current()
+            .map(|id| api::audio(&id))
+            .unwrap_or_default();
+        let live = live_source();
+
+        if live.get_untracked() != wanted {
+            live.set(wanted);
+        }
+
+        let next = player
+            .upcoming()
+            .map(|id| api::audio(&id))
+            .unwrap_or_default();
+        let idle = idle_source();
+
+        if idle.get_untracked() != next {
+            idle.set(next);
+        }
+    });
 
     // Pressing play is asking the element to play, which can be refused — a file
     // that will not decode, a browser that wants a gesture first. So the signal is
     // followed rather than trusted: this asks, and what comes back is whatever the
     // element then reports through `on:play` and `on:pause`.
+    //
+    // It reads the live source as well as the flag, because both of the ways a new
+    // track starts leave `playing` already true: the flip at a join, and a jump
+    // that changes what the live element holds. With one element that needed no
+    // saying — a `src` swapped under an element that was already playing carries on
+    // by itself — and with two it has to be asked for.
     Effect::new(move |_| {
-        let Some(audio) = sound.get() else { return };
+        let wanted = player.playing.get();
+        let _ = live_source().get();
 
-        if player.playing.get() {
+        let Some(audio) = live().get() else { return };
+
+        if wanted {
             let _ = audio.play();
         } else {
+            let _ = audio.pause();
+        }
+
+        // And the other one is silent, always. Reaching the end of a track does
+        // not pause the element it played in — `paused` stays false — so the one
+        // that has just handed over would start sounding the moment it is given
+        // the track after next, and two would be playing at once.
+        let idle = if second_one.get() { first } else { second };
+
+        if let Some(audio) = idle.get() {
             let _ = audio.pause();
         }
     });
@@ -396,7 +465,7 @@ fn Sound() -> impl IntoView {
     // seeking on every tick. Nothing is lost — under a second is under the width of
     // a finger on this bar.
     Effect::new(move |_| {
-        let Some(audio) = sound.get() else { return };
+        let Some(audio) = live().get() else { return };
         let wanted = player.elapsed.get();
 
         if (wanted - audio.current_time()).abs() > 1.0 {
@@ -405,15 +474,69 @@ fn Sound() -> impl IntoView {
     });
 
     view! {
+        <Half node_ref=first mine=false sounding=second_one source=source.0 />
+        <Half node_ref=second mine=true sounding=second_one source=source.1 />
+    }
+}
+
+/// One of the two, which is only ever the clock while it is the one sounding.
+///
+/// Every event asks that first. The other element is loading a track nobody is
+/// listening to yet, and left to speak it would report a length that is not the one
+/// on screen, or a pause that nobody asked for.
+#[component]
+fn Half(
+    node_ref: NodeRef<leptos::html::Audio>,
+    /// Which of the two this is, against the flag that says which is sounding.
+    mine: bool,
+    sounding: RwSignal<bool>,
+    source: RwSignal<String>,
+) -> impl IntoView {
+    let player = crate::player::player();
+    let is_mine = move || sounding.get_untracked() == mine;
+
+    view! {
         <audio
-            node_ref=sound
-            src=move || player.current().map(|id| api::audio(&id)).unwrap_or_default()
-            on:timeupdate:target=move |e| {
-                player.ticked(e.target().current_time(), e.target().duration())
+            node_ref=node_ref
+            // Left off rather than left empty. `src=""` is a request for the page
+            // this panel is served from, read as audio — which is what the end of
+            // a queue would ask for, since there is nothing after the last track.
+            src=move || {
+                let source = source.get();
+                (!source.is_empty()).then_some(source)
             }
-            on:play=move |_| player.playing.set(true)
-            on:pause=move |_| player.playing.set(false)
-            on:ended=move |_| player.next()
+            // The whole point: the one that is not sounding fetches anyway, so that
+            // when its turn comes there is nothing left to wait for.
+            preload="auto"
+            on:timeupdate:target=move |e| {
+                if is_mine() {
+                    player.ticked(e.target().current_time(), e.target().duration())
+                }
+            }
+            on:play=move |_| {
+                if is_mine() {
+                    player.playing.set(true)
+                }
+            }
+            on:pause=move |_| {
+                if is_mine() {
+                    player.playing.set(false)
+                }
+            }
+            on:ended=move |_| {
+                if !is_mine() {
+                    return;
+                }
+
+                // Hand over first, then step. The two land together, so the effect
+                // that hands out sources sees the new pair at once and finds the
+                // element it is about to make live already holding the right track.
+                if player.upcoming().is_some() {
+                    sounding.set(!mine);
+                }
+
+                player.next();
+            }
         ></audio>
     }
 }
