@@ -12,8 +12,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tocata::types::{
     Account, AccountChanges, Albums, Artists, Closed, Credentials, Genres, Identity, Key, Library,
-    LibraryAccess, LibraryChanges, NewAccount, NewKey, NewLibrary, PreferenceChanges, Preferences,
-    Revoked, Settings, SettingsChanges, Stats, Track, Tracks,
+    LibraryAccess, LibraryChanges, NewAccount, NewKey, NewLibrary, Portraits, PreferenceChanges,
+    Preferences, Revoked, Settings, SettingsChanges, Stats, Track, Tracks,
 };
 use web_sys::RequestCredentials;
 
@@ -550,6 +550,39 @@ fn window(search: &str, offset: usize, limit: i64) -> String {
     }
 
     query
+}
+
+/// How the walk out for artist portraits is going, and how many artists are
+/// still without one.
+pub async fn portraits() -> Result<Portraits, Failure> {
+    read(get("/portraits")?).await
+}
+
+/// Sets one going. Refused where the setting that permits it is off.
+pub async fn start_portraits() -> Result<(), Failure> {
+    match Request::post(&url("/portraits"))
+        .credentials(RequestCredentials::SameOrigin)
+        .build()
+        .map_err(|_| Failure::Unreachable)?
+        .send()
+        .await
+    {
+        Ok(response) if response.ok() => Ok(()),
+        Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
+        Ok(response) => Err(Failure::Refused(response.status().to_string())),
+        Err(_) => Err(Failure::Unreachable),
+    }
+}
+
+/// Asks it to stop. Unlike a scan this really is a pause: what it found is
+/// already written down.
+pub async fn stop_portraits() -> Result<(), Failure> {
+    match delete("/portraits")?.send().await {
+        Ok(response) if response.ok() => Ok(()),
+        Ok(response) if response.status() == 401 => Err(Failure::Unauthenticated),
+        Ok(response) => Err(Failure::Refused(response.status().to_string())),
+        Err(_) => Err(Failure::Unreachable),
+    }
 }
 
 /// Asks the running scan to give up. What it had written is thrown away by the

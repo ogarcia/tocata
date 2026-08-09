@@ -23,6 +23,7 @@ impl From<settings::Settings> for Settings {
             scan_at: settings.scan_at,
             absent_grace_days: settings.absent_grace_days,
             session_days: settings.session_days,
+            fetch_portraits: settings.fetch_portraits,
         }
     }
 }
@@ -117,6 +118,10 @@ pub async fn change(
         }
 
         current.session_days = days;
+    }
+
+    if let Some(looking) = changes.fetch_portraits {
+        current.fetch_portraits = looking;
     }
 
     settings::store(&pool, &current)

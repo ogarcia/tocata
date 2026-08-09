@@ -129,6 +129,7 @@ fn Knobs(settings: Settings, save: Callback<SettingsChanges>) -> impl IntoView {
     });
 
     let (articles, set_articles) = signal(settings.ignored_articles.join(" "));
+    let (portraits, set_portraits) = signal(settings.fetch_portraits);
     let (session_days, set_session_days) = signal(settings.session_days);
 
     // The spans offered, and whatever this server actually has if it is not one of
@@ -175,6 +176,7 @@ fn Knobs(settings: Settings, save: Callback<SettingsChanges>) -> impl IntoView {
                 Absent::After => Some(typed(&days.get()).unwrap_or(A_WEEK)),
             }),
             session_days: Some(session_days.get()),
+            fetch_portraits: Some(portraits.get()),
         });
     };
 
@@ -297,6 +299,30 @@ fn Knobs(settings: Settings, save: Callback<SettingsChanges>) -> impl IntoView {
                                     placeholder=t!("settings.no_articles")
                                     on:input:target=move |e| set_articles.set(e.target().value())
                                 />
+                            </Setting>
+                        </div>
+                    </section>
+
+                    // Its own block rather than a line under the collection,
+                    // because it is not a fact about the music: it is the one
+                    // switch on this screen that decides whether this server
+                    // talks to anybody at all.
+                    <section>
+                        <h2 class="part">{t!("settings.reaching_out")}</h2>
+
+                        <div class="settings">
+                            <Setting
+                                label=t!("settings.portraits").to_string()
+                                why=t!("settings.portraits_why").to_string()
+                            >
+                                <label class="checkbox">
+                                    <input
+                                        type="checkbox"
+                                        prop:checked=portraits
+                                        on:change:target=move |e| set_portraits.set(e.target().checked())
+                                    />
+                                    <span>{t!("settings.portraits_on")}</span>
+                                </label>
                             </Setting>
                         </div>
                     </section>

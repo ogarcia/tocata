@@ -78,6 +78,48 @@ const IMAGE: &str = "image";
 /// Where a Commons file's own page lives, which is how a relation names one.
 const FILE_PAGE: &str = "https://commons.wikimedia.org/wiki/";
 
+/// What a service says when it wants the caller to slow down rather than to go
+/// away.
+///
+/// MusicBrainz answers 503 for it and Wikimedia answers 429, and neither means
+/// the service is broken: both mean "not yet". Treating either as a failure
+/// throws away the rest of a walk that is three quarters of an hour long,
+/// because of one answer that asked for a pause.
+const NOT_YET: [u16; 2] = [429, 503];
+
+/// How long to wait when one of them says that and does not say how long.
+///
+/// Both publish a limit of about one request a second, so a refusal means
+/// something further upstream than our own pacing — a shared address, a busy
+/// hour. Long enough to be a real pause rather than the same request again.
+const BACK_OFF: Duration = Duration::from_secs(5);
+
+/// Asks, and asks once more if the answer was "not yet".
+///
+/// Once. A second refusal is a service that is not going to answer this minute,
+/// and the walk gives up rather than standing at the door: whatever is left
+/// unasked is still wanting, and starting again picks it up where this stopped.
+async fn patiently(net: &Net, url: &str, who: &'static str) -> Result<crate::net::Answer> {
+    let asked = net
+        .ask(url)
+        .await
+        .with_context(|| format!("asking {who}"))?;
+
+    if !NOT_YET.contains(&asked.status) {
+        return Ok(asked);
+    }
+
+    let wait = asked
+        .seconds("retry-after")
+        .map(Duration::from_secs)
+        .unwrap_or(BACK_OFF);
+
+    debug!("{who} answered {}; waiting {:?}", asked.status, wait);
+    tokio::time::sleep(wait).await;
+
+    net.ask(url).await.with_context(|| format!("asking {who}"))
+}
+
 /// Everything a fetched portrait carries: the bytes, and what using them asks
 /// for.
 pub struct Portrait {
@@ -98,13 +140,10 @@ pub struct Portrait {
 /// not: a service that was down for an hour has not said anything about this
 /// artist.
 pub async fn look_up(net: &Net, mbid: &str) -> Result<Option<Portrait>> {
-    let asked = net
-        .ask(&relations_url(mbid))
-        .await
-        .context("asking MusicBrainz what an artist is related to")?;
+    let asked = patiently(net, &relations_url(mbid), "MusicBrainz").await?;
 
     if !asked.ok() {
-        anyhow::bail!("MusicBrainz answered {}", asked.status);
+        anyhow::bail!("MusicBrainz answered {}: {}", asked.status, said(&asked));
     }
 
     let Some(file) = pictured_at(&asked.body()) else {
@@ -113,13 +152,10 @@ pub async fn look_up(net: &Net, mbid: &str) -> Result<Option<Portrait>> {
 
     tokio::time::sleep(PACE).await;
 
-    let asked = net
-        .ask(&commons_url(&file))
-        .await
-        .context("asking Commons about a file")?;
+    let asked = patiently(net, &commons_url(&file), "Commons").await?;
 
     if !asked.ok() {
-        anyhow::bail!("Commons answered {}", asked.status);
+        anyhow::bail!("Commons answered {}: {}", asked.status, said(&asked));
     }
 
     let Some(told) = told_about(&asked.body()) else {
@@ -135,10 +171,34 @@ pub async fn look_up(net: &Net, mbid: &str) -> Result<Option<Portrait>> {
 
     tokio::time::sleep(PACE).await;
 
-    let bytes = net
+    let fetched = net
         .fetch(&told.url)
         .await
         .context("fetching a picture from Commons")?;
+
+    // The same patience as the two questions, and it is needed in the same
+    // place: the file itself comes off a different host with its own limit.
+    let fetched = if NOT_YET.contains(&fetched.status) {
+        tokio::time::sleep(
+            fetched
+                .seconds("retry-after")
+                .map(Duration::from_secs)
+                .unwrap_or(BACK_OFF),
+        )
+        .await;
+
+        net.fetch(&told.url)
+            .await
+            .context("fetching a picture from Commons")?
+    } else {
+        fetched
+    };
+
+    if !fetched.ok() {
+        anyhow::bail!("fetching a picture answered {}", fetched.status);
+    }
+
+    let bytes = fetched.bytes;
 
     // Trusted from the bytes rather than from the name or the header, like every
     // other image here.
@@ -298,6 +358,20 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Wanted {
             mbid: row.try_get("mbid")?,
         })
     }
+}
+
+/// The first line of what a refusal said, for a log that has to be enough to act
+/// on. These answer with prose or with JSON; either way the first line names the
+/// reason, and the rest is a page of HTML nobody wants in a log.
+fn said(answer: &crate::net::Answer) -> String {
+    answer
+        .body()
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default()
+        .chars()
+        .take(200)
+        .collect()
 }
 
 fn relations_url(mbid: &str) -> String {

@@ -21,7 +21,7 @@ use crate::pages;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
-use tocata::types::{ArtistAlbum, ArtistDetail, PlayedTrack};
+use tocata::types::{ArtistAlbum, ArtistDetail, Attribution, PlayedTrack};
 
 #[component]
 pub fn Artist(id: String) -> impl IntoView {
@@ -81,7 +81,20 @@ pub fn Artist(id: String) -> impl IntoView {
             </div>
 
             <footer>
-                <span class="quiet">{t!("artist.credited_on")}</span>
+                // What the picture asks for, where it is somebody else's work,
+                // and what this panel is otherwise for where it is not. One line
+                // either way: the foot of a drawer says where what is on screen
+                // came from, and for a fetched photograph that is a name and a
+                // licence rather than a sentence about tags.
+                <span class="quiet">
+                    {move || {
+                        detail
+                            .get()
+                            .and_then(|read| read.credit)
+                            .map(|credit| view! { <Credit credit /> }.into_any())
+                            .unwrap_or_else(|| t!("artist.credited_on").into_any())
+                    }}
+                </span>
 
                 <span class="deeds">
                     <Show when=move || {
@@ -147,6 +160,41 @@ fn Said(read: ArtistDetail) -> impl IntoView {
                 {records.clone().into_iter().map(|record| view! { <Record record /> }).collect_view()}
             </div>
         </Show>
+    }
+}
+
+/// Who to credit for the picture above, and under what terms.
+///
+/// Both of them links out to somebody else's site, which nothing else in this
+/// panel does — and here it is the point rather than a leak: an attribution
+/// that cannot be followed back to the file it names is not an attribution.
+/// They open in a tab of their own, because pressing one is a detour and
+/// nobody meant to leave the panel.
+#[component]
+fn Credit(credit: Attribution) -> impl IntoView {
+    let terms = credit.license.clone();
+
+    view! {
+        {match credit.author {
+            Some(author) => t!("artist.picture_by", author = author).to_string(),
+            None => t!("artist.picture_from").to_string(),
+        }}
+        " "
+        <a href=credit.source_url target="_blank" rel="noreferrer">
+            {t!("artist.on_commons")}
+        </a>
+        " · "
+        {match credit.license_url {
+            Some(url) => {
+                view! {
+                    <a href=url target="_blank" rel="noreferrer">
+                        {terms}
+                    </a>
+                }
+                    .into_any()
+            }
+            None => terms.into_any(),
+        }}
     }
 }
 

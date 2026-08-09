@@ -71,7 +71,18 @@ const HOPS: usize = 4;
 ///
 /// The version is in it because a service with a broken client wants to know
 /// which one, and a name with no version leaves them nothing to say.
-const CALLING: &str = concat!("Tocata/", env!("CARGO_PKG_VERSION"));
+///
+/// And the address of the project, which is not decoration: MusicBrainz and
+/// Wikimedia both ask in writing for a way to reach whoever is calling, and both
+/// answer a bare name with 429. Measured — three artists in, Wikimedia refused
+/// the download with exactly that, and this is what it wanted.
+const CALLING: &str = concat!(
+    "Tocata/",
+    env!("CARGO_PKG_VERSION"),
+    " ( ",
+    env!("CARGO_PKG_REPOSITORY"),
+    " )"
+);
 
 /// What came back: the status, the headers, and the body — however much of the
 /// body was worth reading.
@@ -176,7 +187,12 @@ impl Net {
     /// Bytes rather than text, and not sniffed here: what an image is gets
     /// decided by [`crate::artwork::mime_of`], which reads the bytes rather than
     /// believing a header.
-    pub async fn fetch(&self, url: &str) -> Result<Vec<u8>> {
+    ///
+    /// A refusal comes back as the answer rather than as an error, like every
+    /// other call here. What a status means is the caller's business: to this
+    /// one 429 is a failure, and to whoever knows it is talking to a catalogue
+    /// with a published rate limit it is "wait and ask again".
+    pub async fn fetch(&self, url: &str) -> Result<Answer> {
         let mut url = url.to_string();
 
         for _ in 0..=HOPS {
@@ -189,10 +205,6 @@ impl Net {
 
             let answer = self.send_reading(request, MOST_OF_A_PICTURE).await?;
 
-            if answer.ok() {
-                return Ok(answer.bytes);
-            }
-
             // Only a redirect that says where. One that does not is an answer
             // with nothing in it, and there is nowhere to go from here.
             let elsewhere = matches!(answer.status, 301 | 302 | 303 | 307 | 308)
@@ -203,7 +215,7 @@ impl Net {
 
             match elsewhere {
                 Some(next) => url = next,
-                None => bail!("it answered {}", answer.status),
+                None => return Ok(answer),
             }
         }
 

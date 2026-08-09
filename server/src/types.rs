@@ -597,6 +597,10 @@ pub struct Settings {
     /// How long a panel login lasts, in days.
     #[schema(example = 30)]
     pub session_days: i64,
+    /// Whether the server may walk out to MusicBrainz and Wikimedia Commons
+    /// looking for pictures of the artists. Off unless somebody said otherwise:
+    /// everything else here happens between this machine and its own disk.
+    pub fetch_portraits: bool,
 }
 
 /// What may be changed. Anything left out is left alone.
@@ -630,6 +634,9 @@ pub struct SettingsChanges {
     /// expiry it was given.
     #[schema(example = 30)]
     pub session_days: Option<i64>,
+    /// Whether the server may go looking for pictures of the artists on
+    /// MusicBrainz and Wikimedia Commons.
+    pub fetch_portraits: Option<bool>,
 }
 
 /// What the server is costing the machine, right now.

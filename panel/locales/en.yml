@@ -225,6 +225,9 @@ artist:
   # What "theirs" means, and it is not what the drawings said: every track that credits
   # them, guest appearances included, which is what the listing counts as well.
   credited_on: Every record they are credited on.
+  picture_by: "Picture by %{author},"
+  picture_from: "Picture from"
+  on_commons: "Wikimedia Commons"
 
 artists:
   search: Search artists
@@ -619,6 +622,22 @@ chores:
   tracks: "Tracks"
   in_playlists: "In playlists"
 
+portraits:
+  title: "Pictures of the artists"
+  # What it would do, or what it is doing.
+  not_allowed: "Switched off. This server is not asking anybody for anything. The switch is in Settings, under \"Out to the network\"."
+  nobody_wanting: "Every artist that could have a picture has one. It looks again in three months for the ones nobody has photographed."
+  one_wanting: "One artist is without a picture and carries an identifier to look one up by."
+  many_wanting: "%{count} artists are without a picture and carry an identifier to look one up by. About a second each."
+  starting: "Starting…"
+  looking_at: "Looking up %{artist}…"
+  # Where it got to. "found" is properly a small fraction: most artists have no
+  # photograph anywhere.
+  got_through: "%{done} of %{total} looked up, %{found} found"
+  stopped: "stopped"
+  start: "Look for them"
+  stop: "Stop"
+
 settings:
   lead: "How the server behaves for everybody. Your own look and language are in Preferences."
   scanning: "Scanning"
@@ -650,6 +669,10 @@ settings:
   after: "After"
   day: "day"
   days_plain: "days"
+  reaching_out: "Out to the network"
+  portraits: "Pictures of the artists"
+  portraits_why: "Off, this server talks to nobody. On, it may ask MusicBrainz and Wikimedia Commons for a photograph of each artist that has none, at one request a second — three quarters of an hour for a large collection. Nothing about your music is sent: it asks by the identifier a tag already carries."
+  portraits_on: "Let it look"
   collection: "The collection"
   ignored_articles: "Articles that do not count"
   ignored_articles_why: "Words skipped when deciding which letter a name files under, separated by spaces, so that \"The Beatles\" sits under B."

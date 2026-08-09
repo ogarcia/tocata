@@ -115,6 +115,7 @@ pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
                             .collect_view()}
                     </div>
 
+                    <Portraits on_expired />
                     <Attention on_expired />
                     <Lately runs=state.lately />
                 }
@@ -186,6 +187,169 @@ fn Chore(
                 }}
             </button>
         </div>
+    }
+}
+
+/// How long between asking again while a walk is going.
+///
+/// It moves once a second at best — that is the pace the far end asks for — so
+/// anything faster is asking to be told the same number. This is a progress bar
+/// for something measured in three quarters of an hour.
+const WATCHING: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Looking for pictures of the artists: whether the server may, how many are
+/// without one, and the way to set it going or stop it.
+///
+/// Its own block rather than a fifth job, because it is not one. A job runs
+/// inside the request that asked for it and is over in seconds; this is a walk
+/// out to two other people's servers at one request a second, and the useful
+/// thing on screen is not "run it" but where it has got to.
+#[component]
+fn Portraits(on_expired: Callback<()>) -> impl IntoView {
+    let state = RwSignal::new(None::<tocata::types::Portraits>);
+    let failure = RwSignal::new(None::<String>);
+
+    // Asked again while one is going, and not otherwise: a panel open on a
+    // server doing nothing should be a panel asking nothing.
+    let watch = StoredValue::new(None::<Callback<()>>);
+    let look = Callback::new(move |()| {
+        spawn_local(async move {
+            match api::portraits().await {
+                Ok(fresh) => {
+                    let going = fresh.fetching;
+                    state.set(Some(fresh));
+
+                    if going {
+                        let again = watch.get_value();
+                        let _ = set_timeout_with_handle(
+                            move || {
+                                if let Some(again) = again {
+                                    again.run(());
+                                }
+                            },
+                            WATCHING,
+                        );
+                    }
+                }
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => failure.set(Some(said(&why))),
+            }
+        });
+    });
+    watch.set_value(Some(look));
+
+    look.run(());
+
+    let press = move |_| {
+        let going = state.with(|read| read.as_ref().is_some_and(|read| read.fetching));
+        failure.set(None);
+
+        spawn_local(async move {
+            let asked = if going {
+                api::stop_portraits().await
+            } else {
+                api::start_portraits().await
+            };
+
+            match asked {
+                Ok(()) => look.run(()),
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => failure.set(Some(said(&why))),
+            }
+        });
+    };
+
+    view! {
+        {move || {
+            state
+                .get()
+                .map(|read| {
+                    let going = read.fetching;
+                    let allowed = read.allowed;
+
+                    view! {
+                        <div class="chores">
+                            <div class="group">
+                                <div class="chore">
+                                    <div>
+                                        <span class="what">{t!("portraits.title")}</span>
+                                        <span class="why">{about_portraits(&read)}</span>
+                                        <span class="ran">{lately_portraits(&read)}</span>
+
+                                        {read
+                                            .failure
+                                            .clone()
+                                            .map(|why| view! { <span class="wrong">{why}</span> })}
+                                    </div>
+
+                                    // No button where the setting is off. What
+                                    // would happen is a refusal, and a button whose
+                                    // whole behaviour is to be refused is a button
+                                    // that should not be there — the line above
+                                    // says where the switch is instead.
+                                    <Show when=move || allowed>
+                                        <button type="button" class="pill" on:click=press>
+                                            {if going {
+                                                t!("portraits.stop").to_string()
+                                            } else {
+                                                t!("portraits.start").to_string()
+                                            }}
+                                        </button>
+                                    </Show>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                })
+        }}
+
+        {move || failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })}
+    }
+}
+
+/// What it would do, or what it is doing — which are different sentences.
+fn about_portraits(read: &tocata::types::Portraits) -> String {
+    if !read.allowed {
+        return t!("portraits.not_allowed").to_string();
+    }
+
+    if read.fetching {
+        return match &read.artist {
+            Some(artist) => t!("portraits.looking_at", artist = artist).to_string(),
+            None => t!("portraits.starting").to_string(),
+        };
+    }
+
+    match read.wanting {
+        0 => t!("portraits.nobody_wanting").to_string(),
+        1 => t!("portraits.one_wanting").to_string(),
+        count => t!("portraits.many_wanting", count = thousands(count as i64)).to_string(),
+    }
+}
+
+/// Where it has got to, or where the last one got to. Empty before anything has
+/// ever run, which is the one state with nothing to say.
+fn lately_portraits(read: &tocata::types::Portraits) -> String {
+    if read.started_at.is_none() {
+        return String::new();
+    }
+
+    let counted = t!(
+        "portraits.got_through",
+        done = thousands(read.done as i64),
+        total = thousands(read.total as i64),
+        found = thousands(read.found as i64)
+    )
+    .to_string();
+
+    if read.fetching {
+        return counted;
+    }
+
+    match (read.cancelled, read.finished_at.as_deref()) {
+        (true, _) => format!("{counted} · {}", t!("portraits.stopped")),
+        (false, Some(when)) => format!("{counted} · {}", since(when)),
+        (false, None) => counted,
     }
 }
 

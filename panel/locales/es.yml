@@ -223,6 +223,9 @@ artist:
   # Qué quiere decir «suyos», y no es lo que decían los diseños: toda pista que les
   # acredite, colaboraciones incluidas, que es lo mismo que cuenta el listado.
   credited_on: Todos los discos en los que aparece acreditado.
+  picture_by: "Foto de %{author},"
+  picture_from: "Foto de"
+  on_commons: "Wikimedia Commons"
 
 artists:
   search: Buscar artistas
@@ -615,6 +618,19 @@ chores:
   tracks: "Pistas"
   in_playlists: "En listas"
 
+portraits:
+  title: "Fotos de los artistas"
+  not_allowed: "Apagado. Este servidor no le pide nada a nadie. El interruptor está en Ajustes, en «Salir a la red»."
+  nobody_wanting: "Todos los artistas que pueden tener foto la tienen. Dentro de tres meses vuelve a mirar los que nadie ha fotografiado."
+  one_wanting: "Un artista está sin foto y trae un identificador con el que buscarla."
+  many_wanting: "%{count} artistas están sin foto y traen un identificador con el que buscarla. Alrededor de un segundo cada uno."
+  starting: "Empezando…"
+  looking_at: "Buscando a %{artist}…"
+  got_through: "%{done} de %{total} consultados, %{found} encontradas"
+  stopped: "detenido"
+  start: "Buscarlas"
+  stop: "Parar"
+
 settings:
   lead: "Cómo se comporta el servidor para todo el mundo. Tu aspecto y tu idioma están en Preferencias."
   scanning: "Escaneo"
@@ -646,6 +662,10 @@ settings:
   after: "Después de"
   day: "día"
   days_plain: "días"
+  reaching_out: "Salir a la red"
+  portraits: "Fotos de los artistas"
+  portraits_why: "Apagado, este servidor no habla con nadie. Encendido, puede preguntar a MusicBrainz y a Wikimedia Commons por una foto de cada artista que no tenga ninguna, a una petición por segundo: tres cuartos de hora en una colección grande. No se envía nada de tu música: pregunta por el identificador que ya trae la etiqueta."
+  portraits_on: "Que busque"
   collection: "La colección"
   ignored_articles: "Artículos que no cuentan"
   ignored_articles_why: "Palabras que se saltan al decidir por qué letra va un nombre, separadas por espacios: así «The Beatles» está en la B."
