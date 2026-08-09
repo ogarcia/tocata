@@ -140,7 +140,7 @@ fn Sleeve(album: Album) -> impl IntoView {
         let mine = id.get_value();
 
         spawn_local(async move {
-            if let Ok(queue) = api::queue("", Some(&mine), None, false, None).await {
+            if let Ok(queue) = api::queue("", Some(&mine), None, None, false, None).await {
                 player.play(queue, 0);
             }
         });

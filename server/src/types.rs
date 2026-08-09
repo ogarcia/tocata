@@ -1343,6 +1343,32 @@ pub struct Genre {
     pub tracks: i64,
 }
 
+/// Everything one genre's own panel shows.
+///
+/// Apart from [`Genre`] for the usual reason and one of its own. The usual: a listing
+/// of eighty of them must not pay for figures only a panel reads. The one of its own:
+/// a genre has no row to keep these on. It is a name, and every figure here is a
+/// question asked of the tracks wearing it, so each of them is a walk of that set
+/// however few are asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreDetail {
+    pub name: String,
+    /// Records with at least one track in it, which is not the same as records that
+    /// *are* it: a compilation lends one song to a genre and belongs to none.
+    pub albums: i64,
+    pub tracks: i64,
+    /// How many of them are files that have gone. Left out of every figure above, and
+    /// said on its own line, the same as a record's.
+    pub missing: i64,
+    /// How many names are credited across them.
+    pub artists: i64,
+    /// Seconds, over everything still there.
+    pub duration: Option<i64>,
+    /// How many times anything wearing it has been played, by everybody.
+    pub plays: i64,
+}
+
 /// What to play, as identifiers and nothing else.
 ///
 /// Playing what you are looking at means playing everything the filter matches

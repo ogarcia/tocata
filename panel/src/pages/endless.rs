@@ -96,7 +96,15 @@ fn reached(top: f64, window_height: f64) -> bool {
 /// One window of a listing: how many there are in total, and the rows themselves.
 pub type Window<T> = Pin<Box<dyn Future<Output = Result<(i64, Vec<T>), Failure>>>>;
 
-/// How a screen fetches a window: what was searched for, from where, and how many.
+/// How a screen fetches a window: what the listing is narrowed by, from where, and
+/// how many.
+///
+/// What narrows it is what was typed, on the four screens that have a search field.
+/// On the one listing that has no field — a genre's tracks, inside its panel — it is
+/// the genre, which is fixed when the panel opens and never changes after. Either way
+/// it is the one thing the window is *about*, which is what the machinery here needs:
+/// a change of it starts the listing over, and every answer says which one it belongs
+/// to so a late one cannot land on the wrong list.
 ///
 /// A plain function pointer rather than a generic, so that [`Reel`] stays one type
 /// however many screens use it. Each screen writes the three lines that wrap its
@@ -155,6 +163,16 @@ impl<T: Send + Sync + 'static> Reel<T> {
     /// the first, because until there is something on screen there is nothing for it
     /// to sit under.
     pub fn new(window: Fetch<T>, expired: Callback<()>) -> Self {
+        Self::about(String::new(), window, expired)
+    }
+
+    /// The same, for a listing that is about one thing and has no field to type in.
+    ///
+    /// The subject is handed to the fetcher exactly as a search would be, so a panel
+    /// listing a genre's tracks gets the debouncing it will never use and the two
+    /// things it does need: a window at a time, and a refetch when a scan changes what
+    /// there is.
+    pub fn about(subject: String, window: Fetch<T>, expired: Callback<()>) -> Self {
         let reel = Self {
             rows: RwSignal::new(Vec::new()),
             total: RwSignal::new(None),
@@ -162,7 +180,7 @@ impl<T: Send + Sync + 'static> Reel<T> {
             failure: RwSignal::new(None),
             held: RwSignal::new(None),
             typing: RwSignal::new(String::new()),
-            asked: StoredValue::new(String::new()),
+            asked: StoredValue::new(subject),
             run: StoredValue::new(0),
             waiting: StoredValue::new(None),
             window: StoredValue::new(window),

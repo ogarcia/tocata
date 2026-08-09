@@ -24,6 +24,7 @@
 
 pub mod album;
 pub mod artist;
+pub mod genre;
 pub mod track;
 
 use crate::icon::{Glyph, Icon};
@@ -40,6 +41,8 @@ pub enum Open {
     Album(String),
     /// One artist.
     Artist(String),
+    /// One genre, by the only thing it has: its name.
+    Genre(String),
 }
 
 /// The one signal that says. Held above the router so it survives nothing and
@@ -86,6 +89,7 @@ pub fn Drawers() -> impl IntoView {
                     Open::Track(id) => view! { <track::Track id /> }.into_any(),
                     Open::Album(id) => view! { <album::Album id /> }.into_any(),
                     Open::Artist(id) => view! { <artist::Artist id /> }.into_any(),
+                    Open::Genre(name) => view! { <genre::Genre name /> }.into_any(),
                 })
         }}
     }

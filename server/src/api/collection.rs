@@ -24,8 +24,8 @@ use super::error::ApiError;
 use super::session::Panel;
 use crate::types::{
     Album, AlbumDetail, AlbumTrack, Albums, Artist, ArtistAlbum, ArtistDetail, Artists,
-    Attribution, Credit, ErrorBody, Genre, Genres, LyricLine, LyricSource, Lyrics, PlayedTrack,
-    Queue, Tags, Track, TrackDetail, Tracks,
+    Attribution, Credit, ErrorBody, Genre, GenreDetail, Genres, LyricLine, LyricSource, Lyrics,
+    PlayedTrack, Queue, Tags, Track, TrackDetail, Tracks,
 };
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -1135,6 +1135,95 @@ pub async fn genres(
     }))
 }
 
+/// Which genre is being asked about.
+///
+/// A query parameter where everything else with a panel has a path segment, because a
+/// genre is not an object: the name is the identity, and names carry slashes. "Pop/Rock"
+/// is one of the commonest tags there is and it is one genre, not two segments.
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct Named {
+    /// Spelt exactly as the listing spells it.
+    pub name: String,
+}
+
+/// All about one genre
+///
+/// Its figures, counted over the tracks wearing it — which is where they have to come
+/// from, since a genre has no row of its own to keep a count on. What it is made of is
+/// not here: the tracks are a listing like any other and arrive a window at a time.
+#[utoipa::path(
+    get,
+    path = "/genres/detail",
+    tag = "collection",
+    params(Named),
+    responses(
+        (status = 200, description = "Everything known about it", body = GenreDetail),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such genre, or nothing in it you may see", body = ErrorBody),
+    )
+)]
+pub async fn genre(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    Query(which): Query<Named>,
+) -> Result<Json<GenreDetail>, ApiError> {
+    let who = panel.user.id;
+
+    let row: Option<GenreRow2> = sqlx::query_as(concat!(
+        visible_libraries!(),
+        "SELECT g.name,
+                (SELECT count(DISTINCT t.album_id) FROM tracks t
+                   JOIN track_genres tg ON tg.track_id = t.id
+                  WHERE tg.genre_id = g.id AND t.missing_since IS NULL
+                    AND t.album_id IS NOT NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS albums,
+                (SELECT count(*) FROM tracks t
+                   JOIN track_genres tg ON tg.track_id = t.id
+                  WHERE tg.genre_id = g.id AND t.missing_since IS NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS tracks,
+                (SELECT count(*) FROM tracks t
+                   JOIN track_genres tg ON tg.track_id = t.id
+                  WHERE tg.genre_id = g.id AND t.missing_since IS NOT NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS missing,
+                (SELECT count(DISTINCT ta.artist_id) FROM tracks t
+                   JOIN track_genres tg ON tg.track_id = t.id
+                   JOIN track_artists ta ON ta.track_id = t.id
+                  WHERE tg.genre_id = g.id AND t.missing_since IS NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS artists,
+                (SELECT sum(t.duration_ms) / 1000 FROM tracks t
+                   JOIN track_genres tg ON tg.track_id = t.id
+                  WHERE tg.genre_id = g.id AND t.missing_since IS NULL
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS duration,
+                (SELECT coalesce(sum(s.play_count), 0)
+                   FROM user_track_stats s
+                   JOIN tracks t ON t.id = s.track_id
+                   JOIN track_genres tg ON tg.track_id = t.id
+                  WHERE tg.genre_id = g.id
+                    AND t.library_id IN (SELECT id FROM visible_libraries)) AS plays
+           FROM genres g
+          WHERE g.name = ? AND ",
+        has_a_visible_track!("JOIN track_genres tg ON tg.track_id = t.id WHERE tg.genre_id = g.id")
+    ))
+    .bind(who)
+    .bind(&which.name)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading everything about a genre"))?;
+
+    let row = row.ok_or(ApiError::NotFound)?;
+
+    Ok(Json(GenreDetail {
+        name: row.name,
+        albums: row.albums,
+        tracks: row.tracks,
+        missing: row.missing,
+        artists: row.artists,
+        duration: row.duration,
+        plays: row.plays,
+    }))
+}
+
 /// Count a play
 ///
 /// Writes down that this track was listened to, which is what keeps the play
@@ -1698,6 +1787,17 @@ struct GenreRow {
     name: String,
     albums: i64,
     tracks: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct GenreRow2 {
+    name: String,
+    albums: i64,
+    tracks: i64,
+    missing: i64,
+    artists: i64,
+    duration: Option<i64>,
+    plays: i64,
 }
 
 impl From<GenreRow> for Genre {
@@ -2406,6 +2506,125 @@ mod tests {
             (2, 1),
             "and the figure moves with the list it stands for, for each of them"
         );
+    }
+
+    /// A genre's figures are the tracks wearing it, counted through the wall.
+    ///
+    /// Every one of them is asked of that set rather than read off a row, so the wall
+    /// has to be written into each of them separately — which is exactly the shape of
+    /// mistake where one figure is left counting the whole collection and nothing on
+    /// screen says which.
+    #[tokio::test]
+    async fn a_genres_figures_stop_at_the_wall() {
+        let pool = a_collection().await;
+
+        // A second name, credited only in the library behind the wall, so that the
+        // count of names has something to lose when the wall is up.
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, sort_name, created_at, updated_at)
+             VALUES (2, 'ar2', 'Lole y Manuel', 'Lole y Manuel', ?, ?)",
+        )
+        .bind(db::now())
+        .bind(db::now())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role, position)
+             VALUES (20, 2, 'artist', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let asked = |who: Panel| {
+            let pool = pool.clone();
+            async move {
+                genre(
+                    who,
+                    State(pool),
+                    Query(Named {
+                        name: "Flamenco".to_string(),
+                    }),
+                )
+                .await
+                .unwrap()
+                .0
+            }
+        };
+
+        let everything = asked(somebody(&pool, false).await).await;
+
+        assert_eq!(
+            (everything.tracks, everything.albums, everything.artists),
+            (3, 2, 2),
+            "four tracks wear it, one of them has gone"
+        );
+        assert_eq!(everything.missing, 1, "and the one that has gone is said");
+        assert_eq!(
+            everything.duration,
+            Some(540),
+            "three minutes each, over the three that are there"
+        );
+
+        let walled = asked(somebody_else(&pool).await).await;
+
+        assert_eq!(
+            (walled.tracks, walled.albums, walled.artists),
+            (1, 1, 1),
+            "the library she may not open counts for none of it"
+        );
+        assert_eq!(
+            walled.missing, 1,
+            "and the file that has gone is in the library she may see"
+        );
+        assert_eq!(walled.duration, Some(180));
+    }
+
+    /// A genre nothing visible wears is a genre that is not there.
+    ///
+    /// Not an empty answer: a panel about nothing would be a panel, and the row that
+    /// could have opened it is not in the listing either — the listing and this ask
+    /// the same question about what may be seen.
+    #[tokio::test]
+    async fn a_genre_with_nothing_to_show_is_not_found() {
+        let pool = a_collection().await;
+
+        // A genre in the walled library and nowhere else.
+        sqlx::query("INSERT INTO genres (id, name) VALUES (2, 'Rumba')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO track_genres (track_id, genre_id) VALUES (20, 2)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let read = genre(
+            somebody_else(&pool).await,
+            State(pool.clone()),
+            Query(Named {
+                name: "Rumba".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(
+            matches!(read, Err(ApiError::NotFound)),
+            "behind the wall is not there"
+        );
+
+        // And a name nobody has ever used.
+        let never = genre(
+            somebody(&pool, false).await,
+            State(pool.clone()),
+            Query(Named {
+                name: "Bakalao".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(matches!(never, Err(ApiError::NotFound)));
     }
 
     /// The figure above an artist's records counts those records, whatever became

@@ -2297,14 +2297,22 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   list-style: none;
 }
 
+/* Pressable, since a genre opens its own panel now. The twelve pixels either side
+ * are what lets the tint run past the text while the text stays lined up with the
+ * heading above it — the same trick every other listing plays, done here with a
+ * margin because these rows sit in the cells of a grid. */
 .kinds > li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 1rem;
-  padding: 0.8125rem 0;
+  margin: 0 -0.75rem;
+  padding: 0.8125rem 0.75rem;
   border-bottom: 1px solid var(--line);
+  cursor: pointer;
 }
+
+.kinds > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
 
 .kinds .what {
   min-width: 0;
@@ -3780,13 +3788,13 @@ select.narrow { width: 12.5rem; }
 }
 
 /* The one that is sounding says so across the whole row, like a track listing's does. */
-.running .sounding { color: var(--accent); }
+.running .sounding, .wearing .sounding { color: var(--accent); }
 
-.running .sounding .figure { color: inherit; }
+.running .sounding .figure, .wearing .sounding .figure { color: inherit; }
 
 /* A file that has gone stays in the order — this is where somebody comes to find out
  * what is gone — and says so by going quiet rather than by leaving a gap. */
-.running .gone { opacity: 0.55; }
+.running .gone, .wearing .gone { opacity: 0.55; }
 
 /* Which disc the rows under it are from, on a record that came on more than one. Not a
  * `lettering` heading: those name a section of the panel, and this names a run of rows
@@ -3833,7 +3841,7 @@ select.narrow { width: 12.5rem; }
 /* An artist's most played songs, and their records. Two runs of rows in one panel that
  * both read as "a thing, and a figure or two about it", so they share their shape and
  * differ only in what the first column is: nothing at all, or a cover. */
-.charted > div, .discography > div {
+.charted > div, .discography > div, .wearing > div {
   display: grid;
   gap: 0.875rem;
   align-items: center;
@@ -3842,23 +3850,27 @@ select.narrow { width: 12.5rem; }
   cursor: pointer;
 }
 
-.charted, .discography { margin: 0 -0.75rem; }
+.charted, .discography, .wearing { margin: 0 -0.75rem; }
 
 .charted > div { grid-template-columns: minmax(0, 1fr) auto auto; }
 
 .discography > div { grid-template-columns: 2.75rem minmax(0, 1fr) auto; }
 
-.charted > div:hover, .discography > div:hover {
+/* What it is and how long it runs, and nothing between them: these songs share only
+ * the word, so there is no third column of anything they have in common. */
+.wearing > div { grid-template-columns: minmax(0, 1fr) auto; }
+
+.charted > div:hover, .discography > div:hover, .wearing > div:hover {
   background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
 
-.charted > div:last-child, .discography > div:last-child {
+.charted > div:last-child, .discography > div:last-child, .wearing > div:last-child {
   border-bottom: 1px solid var(--line);
 }
 
 /* What it is, over what it is off. Two lines in one cell rather than two cells, because
  * they are one label for one thing. */
-.charted .what, .discography .what {
+.charted .what, .discography .what, .wearing .what {
   display: block;
   min-width: 0;
   overflow: hidden;
@@ -3866,7 +3878,7 @@ select.narrow { width: 12.5rem; }
   white-space: nowrap;
 }
 
-.charted .by, .discography .by {
+.charted .by, .discography .by, .wearing .by {
   display: block;
   overflow: hidden;
   font-size: var(--aside);
@@ -3875,7 +3887,7 @@ select.narrow { width: 12.5rem; }
   white-space: nowrap;
 }
 
-.charted .figure, .discography .figure {
+.charted .figure, .discography .figure, .wearing .figure {
   font-size: var(--aside);
   color: var(--quiet);
   font-variant-numeric: tabular-nums;

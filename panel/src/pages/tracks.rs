@@ -184,7 +184,7 @@ fn Row(track: Track, reel: Reel<Track>) -> impl IntoView {
         spawn_local(async move {
             let cap = needle.is_empty().then_some(A_SITTING);
 
-            if let Ok(queue) = api::queue(&needle, None, None, false, cap).await {
+            if let Ok(queue) = api::queue(&needle, None, None, None, false, cap).await {
                 // Where the row sits in that queue, which is not where it sits on
                 // screen: a missing track has no button but still holds a row, so the
                 // two can differ by the time you are far enough down.

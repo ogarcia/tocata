@@ -231,6 +231,22 @@ artists:
   many: "%{count} artistas"
   none_found: Nadie de aquí coincide con lo que has escrito.
 
+# El cajón de un género: cifras y las canciones que lo llevan.
+genre:
+  albums: álbumes
+  tracks: pistas
+  length: duración
+  plays: escuchas
+  one_track_by: "1 pista de %{artists} artistas"
+  many_tracks_by: "%{count} pistas de %{artists} artistas"
+  one_gone: Falta 1 fichero de los que lo llevan.
+  many_gone: "Faltan %{count} ficheros de los que lo llevan."
+  what_wears_it: Lo que lo lleva
+  a_title_opens_it: Pulsa una para ver lo que se sabe de ella.
+  # De dónde sale un género, que no es una decisión de este servidor.
+  from_the_tags: Tal y como lo escriben las etiquetas de los ficheros.
+  play_everything: Reproducir todo
+
 genres:
   search: Buscar géneros
   one: Un género

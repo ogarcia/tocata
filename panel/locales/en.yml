@@ -233,6 +233,22 @@ artists:
   many: "%{count} artists"
   none_found: Nobody here matches what you typed.
 
+# A genre's own panel: its figures, and the songs wearing it.
+genre:
+  albums: albums
+  tracks: tracks
+  length: length
+  plays: plays
+  one_track_by: "1 track by %{artists} artists"
+  many_tracks_by: "%{count} tracks by %{artists} artists"
+  one_gone: One of the files wearing it is not there.
+  many_gone: "%{count} of the files wearing it are not there."
+  what_wears_it: What wears it
+  a_title_opens_it: Press one to see what is known about it.
+  # Where a genre comes from, which is not a decision this server made.
+  from_the_tags: Spelt the way the files' own tags spell it.
+  play_everything: Play all of it
+
 genres:
   search: Search genres
   one: One genre

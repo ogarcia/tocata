@@ -176,6 +176,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(collection::artists))
         .routes(routes!(collection::artist))
         .routes(routes!(collection::genres))
+        .routes(routes!(collection::genre))
         .routes(routes!(collection::played))
         .routes(routes!(media::audio))
         .routes(routes!(media::cover))

@@ -7,11 +7,10 @@
 //! like the artists, for the same reason and with the same caveat about which way
 //! they fill.
 //!
-//! Two things it does not have, both because a genre is the one thing in the
-//! collection that is not an object. It has no identifier of its own — the name is
-//! the name — and there is no page behind it, so its rows do not tint under the
-//! pointer and do not bleed past their text. A row that lights up when you reach it
-//! has promised something, and here there would be nothing to give.
+//! A genre is still the one thing in the collection that is not an object: it has no
+//! identifier, because the name is the name. What it does have now is a panel — the
+//! songs wearing it, read a window at a time — so its rows lead somewhere and light up
+//! under the pointer like everything else that does.
 //!
 //! And one figure rather than the artists' two. A genre lives on a song: how many
 //! records are "partly folk" is a number about tagging rather than about music.
@@ -85,10 +84,20 @@ pub fn Genres(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             // Keyed by the name, which is all a genre has: the column is unique, so
             // it is the identifier as well as the label.
             <For each=move || reel.rows.get() key=|genre| genre.name.clone() let:genre>
-                <li>
-                    <span class="what">{genre.name}</span>
-                    <span class="figure">{songs(genre.tracks)}</span>
-                </li>
+                {
+                    // The name is what the panel is opened by, so the row hands over a
+                    // copy of it rather than the one it prints.
+                    let word = genre.name.clone();
+
+                    view! {
+                        <li on:click=move |_| {
+                            crate::drawer::open(crate::drawer::Open::Genre(word.clone()))
+                        }>
+                            <span class="what">{genre.name}</span>
+                            <span class="figure">{songs(genre.tracks)}</span>
+                        </li>
+                    }
+                }
             </For>
         </ul>
 

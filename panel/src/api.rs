@@ -369,6 +369,19 @@ pub async fn tracks(search: &str, offset: usize, limit: i64) -> Result<Tracks, F
     read(get(&format!("/tracks?{}", window(search, offset, limit)))?).await
 }
 
+/// A window of one genre's tracks.
+///
+/// The same listing as [`tracks`] narrowed to a name instead of to what was typed,
+/// which is the whole of what a genre's panel shows: everything else about a genre is
+/// a figure, and the figures come in one answer of their own.
+pub async fn tracks_in(genre: &str, offset: usize, limit: i64) -> Result<Tracks, Failure> {
+    let named = String::from(js_sys::encode_uri_component(genre));
+    read(get(&format!(
+        "/tracks?offset={offset}&limit={limit}&genre={named}"
+    ))?)
+    .await
+}
+
 /// A window of the collection's albums, narrowed the same way.
 pub async fn albums(search: &str, offset: usize, limit: i64) -> Result<Albums, Failure> {
     read(get(&format!("/albums?{}", window(search, offset, limit)))?).await
@@ -432,6 +445,7 @@ pub async fn queue(
     search: &str,
     album: Option<&str>,
     artist: Option<&str>,
+    genre: Option<&str>,
     shuffle: bool,
     limit: Option<i64>,
 ) -> Result<Vec<String>, Failure> {
@@ -448,6 +462,14 @@ pub async fn queue(
     }
     if let Some(artist) = artist {
         query.push_str(&format!("artist={artist}&"));
+    }
+    // Escaped where the other two are not: those are identifiers this server made,
+    // and a genre is whatever a tagger typed.
+    if let Some(genre) = genre {
+        query.push_str(&format!(
+            "genre={}&",
+            String::from(js_sys::encode_uri_component(genre))
+        ));
     }
     if shuffle {
         query.push_str("shuffle=true&");
@@ -510,6 +532,15 @@ pub async fn announce_play(id: &str) -> Result<(), Failure> {
             .map_err(|_| Failure::Unreachable)?,
     )
     .await
+}
+
+/// Everything the database holds about one genre, which is what its own panel draws.
+///
+/// By name, which is all a genre has, and as a query rather than as a path segment:
+/// names carry slashes, and "Pop/Rock" is one genre.
+pub async fn genre(name: &str) -> Result<tocata::types::GenreDetail, Failure> {
+    let named = String::from(js_sys::encode_uri_component(name));
+    read(get(&format!("/genres/detail?name={named}"))?).await
 }
 
 /// A window of the collection's genres, narrowed the same way.
