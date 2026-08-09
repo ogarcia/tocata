@@ -78,7 +78,7 @@ pub fn Album(id: String) -> impl IntoView {
                         .with(|read| read.as_ref().map(|read| read.name.clone()))
                         .unwrap_or_else(|| t!("common.loading").to_string())
                 })
-                lead=Signal::derive(move || detail.with(placing))
+                lead=move || detail.with(placing)
             />
 
             <div class="leafing">

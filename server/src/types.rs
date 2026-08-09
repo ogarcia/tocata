@@ -878,6 +878,18 @@ pub struct Track {
     pub missing: bool,
 }
 
+/// One name on a track, and who that name is.
+///
+/// Enough to draw it and enough to open it, which is all anybody needs of a credit:
+/// the panel that shows it already has the sentence it appears in, and what it wants
+/// from here is where the name goes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Credit {
+    pub id: String,
+    pub name: String,
+}
+
 /// Everything a track's own panel says about it, as the database holds it.
 ///
 /// The wide answer to [`Track`]'s narrow one, and a second call rather than a wider
@@ -898,6 +910,16 @@ pub struct TrackDetail {
     pub title: String,
     /// Everybody credited on the recording, joined the way a line prints them.
     pub artists: Option<String>,
+    /// The same people, one by one, so a panel can lead on to any of them.
+    ///
+    /// Not a replacement for the line above and not the same thing said twice. That
+    /// line is what the file credits, which on a track with more than one name is a
+    /// sentence the tagger wrote — "Above & Beyond feat. Zoë Johnston" — and nothing
+    /// here may rewrite it into a list. This is who those names are, which is the
+    /// question the line cannot answer.
+    ///
+    /// In the order the file listed them, which is the order the credit reads in.
+    pub credits: Vec<Credit>,
     pub album: Option<String>,
     /// So a panel can lead on to the record's own.
     pub album_id: Option<String>,

@@ -23,9 +23,9 @@
 use super::error::ApiError;
 use super::session::Panel;
 use crate::types::{
-    Album, AlbumDetail, AlbumTrack, Albums, Artist, ArtistAlbum, ArtistDetail, Artists, ErrorBody,
-    Genre, Genres, LyricLine, LyricSource, Lyrics, PlayedTrack, Queue, Tags, Track, TrackDetail,
-    Tracks,
+    Album, AlbumDetail, AlbumTrack, Albums, Artist, ArtistAlbum, ArtistDetail, Artists, Credit,
+    ErrorBody, Genre, Genres, LyricLine, LyricSource, Lyrics, PlayedTrack, Queue, Tags, Track,
+    TrackDetail, Tracks,
 };
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -393,8 +393,29 @@ pub async fn detail(
     .await
     .map_err(|e| ApiError::internal(e, "reading everything about a track"))?;
 
-    row.map(|row| Json(TrackDetail::from(row)))
-        .ok_or(ApiError::NotFound)
+    let row = row.ok_or(ApiError::NotFound)?;
+
+    // Who the names in that credit are. Asked apart from the rest because it is a
+    // list and the row is a row — and only once the track has been found, so a
+    // track nobody may see is refused before anything is looked up about it.
+    //
+    // In the order the file listed them, which is the order they read in.
+    let credits: Vec<CreditRow> = sqlx::query_as(
+        "SELECT a.public_id, a.name
+           FROM tracks t
+           JOIN track_artists ta ON ta.track_id = t.id AND ta.role = 'artist'
+           JOIN artists a ON a.id = ta.artist_id
+          WHERE t.public_id = ?
+          ORDER BY ta.position",
+    )
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading who is credited on a track"))?;
+
+    Ok(Json(
+        row.about(credits.into_iter().map(Credit::from).collect()),
+    ))
 }
 
 /// A track's tags, as the file holds them
@@ -1412,37 +1433,55 @@ struct DetailRow {
     missing: bool,
 }
 
-impl From<DetailRow> for TrackDetail {
-    fn from(row: DetailRow) -> Self {
+#[derive(sqlx::FromRow)]
+struct CreditRow {
+    public_id: String,
+    name: String,
+}
+
+impl From<CreditRow> for Credit {
+    fn from(row: CreditRow) -> Self {
         Self {
             id: row.public_id,
-            title: row.title,
-            artists: row.artists,
-            album: row.album,
-            album_id: row.album_id,
-            album_artist: row.album_artist,
-            genres: row.genres,
-            track_number: row.track_number,
+            name: row.name,
+        }
+    }
+}
+
+impl DetailRow {
+    /// Everything the row says, and the names the row could not carry: a list does
+    /// not fit in a column, so the credits are read separately and joined on here.
+    fn about(self, credits: Vec<Credit>) -> TrackDetail {
+        TrackDetail {
+            id: self.public_id,
+            title: self.title,
+            artists: self.artists,
+            credits,
+            album: self.album,
+            album_id: self.album_id,
+            album_artist: self.album_artist,
+            genres: self.genres,
+            track_number: self.track_number,
             // Counted with a subquery, so a track with no record at all comes back
             // as nought rather than as null. Nought records hold nothing, and "of 0"
             // is not a thing to print.
-            album_tracks: row.album_tracks.filter(|count| *count > 0),
-            disc_number: row.disc_number,
-            album_discs: row.album_discs.filter(|count| *count > 0),
-            year: row.year,
-            duration: row.duration_ms.map(|ms| ms / 1000),
-            suffix: row.suffix,
-            bit_rate: row.bit_rate,
-            sampling_rate: row.sampling_rate,
-            bit_depth: row.bit_depth,
-            path: row.path,
-            library: row.library,
-            size: row.file_size,
-            read_at: row.updated_at,
-            isrc: row.isrc,
-            mbid_recording: row.mbid_recording,
-            comment: row.comment,
-            missing: row.missing,
+            album_tracks: self.album_tracks.filter(|count| *count > 0),
+            disc_number: self.disc_number,
+            album_discs: self.album_discs.filter(|count| *count > 0),
+            year: self.year,
+            duration: self.duration_ms.map(|ms| ms / 1000),
+            suffix: self.suffix,
+            bit_rate: self.bit_rate,
+            sampling_rate: self.sampling_rate,
+            bit_depth: self.bit_depth,
+            path: self.path,
+            library: self.library,
+            size: self.file_size,
+            read_at: self.updated_at,
+            isrc: self.isrc,
+            mbid_recording: self.mbid_recording,
+            comment: self.comment,
+            missing: self.missing,
         }
     }
 }
@@ -1943,6 +1982,90 @@ mod tests {
             ),
             "the second library is not hers to read about either"
         );
+    }
+
+    /// A credit is a sentence, and this says who the names in it are.
+    ///
+    /// Both halves matter. The sentence goes out exactly as the tagger wrote it,
+    /// because "feat." is a fact about who did what and joining the names with a
+    /// comma would throw it away — and the names go out with their identifiers,
+    /// because a line of words is not something a panel can open.
+    #[tokio::test]
+    async fn the_names_in_a_credit_come_with_somewhere_to_go() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+        let at = db::now();
+
+        // A guest, credited first, and the tagger's own sentence about the two of
+        // them. Credited first while carrying the later identifier, so the order
+        // this answers in can only have come from the file.
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+             VALUES (2, 'ar2', 'Zoë Johnston', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role, position)
+             VALUES (10, 2, 'artist', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE track_artists SET position = 1 WHERE track_id = 10 AND artist_id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tracks SET artist_credit = 'Zoë Johnston with Triana' WHERE id = 10")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let Json(track) = detail(hers, State(pool.clone()), UrlPath("t10".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            track.artists.as_deref(),
+            Some("Zoë Johnston with Triana"),
+            "the sentence the tagger wrote, word for word"
+        );
+        assert_eq!(
+            track
+                .credits
+                .iter()
+                .map(|who| (who.id.as_str(), who.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("ar2", "Zoë Johnston"), ("ar1", "Triana")],
+            "who those names are, in the order the file listed them"
+        );
+
+        // The album is already an identifier and always was. Named here because the
+        // heading leads on to it beside the artists, and the two are one answer.
+        assert_eq!(track.album_id.as_deref(), Some("al1"));
+    }
+
+    /// Nobody credited is an empty list rather than a list with nothing in it worth
+    /// drawing: a file that names no artist has no name in its heading to press.
+    #[tokio::test]
+    async fn a_track_nobody_is_credited_on_leads_nowhere() {
+        let pool = a_collection().await;
+        let hers = somebody(&pool, false).await;
+
+        sqlx::query("DELETE FROM track_artists WHERE track_id = 10")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let Json(track) = detail(hers, State(pool.clone()), UrlPath("t10".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(track.artists, None);
+        assert!(track.credits.is_empty());
     }
 
     /// A record's own panel, and the two figures that have to be kept apart.

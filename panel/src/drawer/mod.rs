@@ -126,7 +126,12 @@ pub fn Head(
     heading: Signal<String>,
     /// The line under it, which every one of these has and none of them needs: it is
     /// empty until what was asked for arrives.
-    lead: Signal<String>,
+    ///
+    /// A view rather than a string, because on a track it is not only words: the name
+    /// of an artist and the name of a record are places to go, and the line is where
+    /// somebody who opened a song goes looking for either.
+    #[prop(into)]
+    lead: ViewFn,
 ) -> impl IntoView {
     // Whether asking came back with nothing. Asked for rather than checked first, for
     // the same reason a shelf of records asks: the flag a listing carries says a cover
@@ -151,7 +156,7 @@ pub fn Head(
 
             <div>
                 <h2>{heading}</h2>
-                <p class="quiet">{lead}</p>
+                <p class="quiet">{move || lead.run()}</p>
             </div>
 
             <button class="tap" title=t!("common.close") on:click=move |_| shut()>

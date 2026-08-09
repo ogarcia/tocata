@@ -17,14 +17,14 @@
 //! length of what is on screen is itself the answer to how well tagged a song is, and
 //! there is no wall of dashes to read past to find the two things that are there.
 
-use super::{Fact, Failed, Figure, Frame, Head};
+use super::{Fact, Failed, Figure, Frame, Head, Open};
 use crate::api;
 use crate::icon::Icon;
 use crate::pages;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
-use tocata::types::{LyricSource, Lyrics, Tags, TrackDetail};
+use tocata::types::{Credit, LyricSource, Lyrics, Tags, TrackDetail};
 
 /// Which of the three is showing.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,7 +100,7 @@ pub fn Track(id: String) -> impl IntoView {
                     detail.with(|read| read.as_ref().map(|read| read.title.clone()))
                         .unwrap_or_else(|| t!("common.loading").to_string())
                 })
-                lead=Signal::derive(move || detail.with(placing))
+                lead=move || view! { <Placing detail /> }
             />
 
             // Only where there is somewhere else to go. One tab is not a choice, and
@@ -431,20 +431,126 @@ fn Every(read: Tags) -> impl IntoView {
 /// Joined rather than laid out, so a song with no year is not a song whose year is
 /// blank. Empty until the answer arrives, which is what the heading's own "loading"
 /// is already saying.
-fn placing(read: &Option<TrackDetail>) -> String {
-    let Some(read) = read else {
-        return String::new();
-    };
+///
+/// Two of the three are somewhere to go. Somebody who opened a song and then wants
+/// the artist has the name in front of them, and the alternative was going back to a
+/// listing and finding it again by typing it — which is the same name, further away.
+#[component]
+fn Placing(detail: RwSignal<Option<TrackDetail>>) -> impl IntoView {
+    view! {
+        {move || {
+            detail
+                .get()
+                .map(|read| {
+                    // The credit as the file wrote it, with the names in it opened
+                    // up. Never rebuilt out of the names: "Above & Beyond feat. Zoë
+                    // Johnston" is a lead and a guest, and printing the two of them
+                    // with a comma between would be this panel deciding they are
+                    // equals.
+                    let who = read
+                        .artists
+                        .as_deref()
+                        .map(|line| {
+                            credited(line, &read.credits)
+                                .into_iter()
+                                .map(|piece| match piece {
+                                    Piece::Words(said) => said.into_any(),
+                                    Piece::Name(who) => view! { <Onward what=Open::Artist(who.id) name=who.name /> }
+                                        .into_any(),
+                                })
+                                .collect_view()
+                                .into_any()
+                        });
 
-    [
-        read.artists.clone(),
-        read.album.clone(),
-        read.year.map(|year| year.to_string()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ")
+                    let record = read
+                        .album
+                        .zip(read.album_id)
+                        .map(|(name, id)| {
+                            view! { <Onward what=Open::Album(id) name /> }.into_any()
+                        });
+
+                    let year = read.year.map(|year| year.to_string().into_any());
+
+                    [who, record, year]
+                        .into_iter()
+                        .flatten()
+                        .enumerate()
+                        .map(|(nth, part)| view! { {(nth > 0).then_some(" · ")} {part} })
+                        .collect_view()
+                })
+        }}
+    }
+}
+
+/// One name in that line that leads somewhere, drawn as the words it stands for.
+#[component]
+fn Onward(what: Open, name: String) -> impl IntoView {
+    let what = StoredValue::new(what);
+
+    view! {
+        <button class="toward" on:click=move |_| super::open(what.get_value())>
+            {name}
+        </button>
+    }
+}
+
+/// A piece of a credit line.
+#[derive(Debug, PartialEq, Eq)]
+enum Piece {
+    /// The tagger's own words: "feat.", an ampersand, the comma between two names.
+    Words(String),
+    /// A name, and who it is.
+    Name(Credit),
+}
+
+/// The credit line, cut into the names this server knows and whatever the tagger
+/// wrote around them.
+///
+/// The line stays exactly as it is — this only says which stretches of it are names.
+/// A name the line does not spell the way the database does ("Beatles, The" against
+/// "The Beatles") is simply not found, and reads as the words it always was: a piece
+/// of the sentence that leads nowhere is better than a piece that leads to the wrong
+/// place, and better than a line rewritten to make the matching easy.
+///
+/// Longest name first, so a group whose name contains a member's — "Bob" inside "Bob
+/// Dylan" — cannot claim the letters that belong to the longer one. What each name
+/// claims is one stretch, and the second time a name appears is left as words: a
+/// credit names somebody once, and the repetition is the tagger's.
+fn credited(line: &str, credits: &[Credit]) -> Vec<Piece> {
+    let mut found: Vec<(usize, usize, &Credit)> = Vec::new();
+
+    let mut by_length: Vec<&Credit> = credits.iter().collect();
+    by_length.sort_by_key(|who| std::cmp::Reverse(who.name.len()));
+
+    for who in by_length {
+        let claimed = line.match_indices(&who.name).find(|(at, name)| {
+            let ends = at + name.len();
+            !found.iter().any(|(from, to, _)| at < to && &ends > from)
+        });
+
+        if let Some((at, name)) = claimed {
+            found.push((at, at + name.len(), who));
+        }
+    }
+
+    found.sort_by_key(|(at, _, _)| *at);
+
+    let mut pieces = Vec::new();
+    let mut read_to = 0;
+
+    for (at, ends, who) in found {
+        if at > read_to {
+            pieces.push(Piece::Words(line[read_to..at].to_string()));
+        }
+        pieces.push(Piece::Name(who.clone()));
+        read_to = ends;
+    }
+
+    if read_to < line.len() {
+        pieces.push(Piece::Words(line[read_to..].to_string()));
+    }
+
+    pieces
 }
 
 /// Where it sits on its record.
@@ -573,6 +679,7 @@ mod tests {
             id: "t1".to_string(),
             title: "Song".to_string(),
             artists: None,
+            credits: Vec::new(),
             album: None,
             album_id: None,
             album_artist: None,
@@ -596,6 +703,86 @@ mod tests {
             comment: None,
             missing: false,
         }
+    }
+
+    fn credit(id: &str, name: &str) -> Credit {
+        Credit {
+            id: id.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    /// What is on screen, whatever each piece leads to: putting the line back
+    /// together must give the line back.
+    fn read_as(pieces: &[Piece]) -> String {
+        pieces
+            .iter()
+            .map(|piece| match piece {
+                Piece::Words(said) => said.as_str(),
+                Piece::Name(who) => who.name.as_str(),
+            })
+            .collect()
+    }
+
+    /// The whole rule of this in one test: what the tagger wrote survives, and the
+    /// names in it are the only thing that leads anywhere.
+    #[test]
+    fn a_credit_keeps_its_words_and_opens_its_names() {
+        let line = "Above & Beyond feat. Zoë Johnston";
+        let who = [credit("a1", "Above & Beyond"), credit("a2", "Zoë Johnston")];
+        let pieces = credited(line, &who);
+
+        assert_eq!(read_as(&pieces), line, "the tagger's sentence is untouched");
+        assert_eq!(
+            pieces,
+            vec![
+                Piece::Name(who[0].clone()),
+                Piece::Words(" feat. ".to_string()),
+                Piece::Name(who[1].clone()),
+            ],
+            "the ampersand is part of a name and the 'feat.' is not"
+        );
+    }
+
+    /// A name the line spells another way is not in the line. Leading nowhere is the
+    /// answer; leading to the wrong artist is not.
+    #[test]
+    fn a_name_the_line_does_not_spell_leads_nowhere() {
+        let line = "Beatles, The";
+        let pieces = credited(line, &[credit("a1", "The Beatles")]);
+
+        assert_eq!(pieces, vec![Piece::Words(line.to_string())]);
+    }
+
+    /// The short name must not claim the letters of the long one, which is what
+    /// happens on any collaboration between a band and one of its members.
+    #[test]
+    fn the_longer_name_claims_its_own_letters() {
+        let line = "Bob Dylan & Bob";
+        let short = credit("a2", "Bob");
+        let long = credit("a1", "Bob Dylan");
+
+        // Given in the order that gets it wrong if length is not what decides.
+        let pieces = credited(line, &[short.clone(), long.clone()]);
+
+        assert_eq!(
+            pieces,
+            vec![
+                Piece::Name(long),
+                Piece::Words(" & ".to_string()),
+                Piece::Name(short),
+            ]
+        );
+    }
+
+    /// The ordinary file: one name, and the whole line is it.
+    #[test]
+    fn one_name_is_the_whole_line() {
+        let who = credit("a1", "Alice");
+        assert_eq!(
+            credited("Alice", std::slice::from_ref(&who)),
+            vec![Piece::Name(who)]
+        );
     }
 
     /// Asserted on the numbers rather than on the wording, because the locale is

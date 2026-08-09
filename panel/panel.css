@@ -4741,6 +4741,31 @@ select.narrow { width: 12.5rem; }
   white-space: nowrap;
 }
 
+/* The two pieces of that line that are somewhere to go: the artist and the record.
+ *
+ * Inline rather than the button's own inline-block, so the line still clips with an
+ * ellipsis — a row of blocks is cut off square where the text would have trailed off,
+ * and the whole point of that line is that it is allowed to be too long.
+ *
+ * Not in the accent, which every other link here is: the line is quiet on purpose and
+ * a compilation would light three names up in it, over the title it sits under. What
+ * says it can be pressed is the underline, which is what a name in a list does. */
+.toward {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.toward:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 0.1875rem;
+}
+
 .drawer .tap {
   display: grid;
   flex: none;
