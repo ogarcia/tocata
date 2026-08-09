@@ -775,6 +775,51 @@ mod tests {
         );
     }
 
+    /// Three names and two of the tagger's words between them, which is what a
+    /// collaboration on a real shelf looks like.
+    #[test]
+    fn every_name_in_a_long_credit_is_its_own_way_out() {
+        let line = "Alejandro Sanz con Juan Habichuela y Ketama";
+        let who = [
+            credit("a1", "Alejandro Sanz"),
+            credit("a2", "Juan Habichuela"),
+            credit("a3", "Ketama"),
+        ];
+
+        assert_eq!(
+            credited(line, &who),
+            vec![
+                Piece::Name(who[0].clone()),
+                Piece::Words(" con ".to_string()),
+                Piece::Name(who[1].clone()),
+                Piece::Words(" y ".to_string()),
+                Piece::Name(who[2].clone()),
+            ]
+        );
+    }
+
+    /// A tagger who wrote a name twice wrote it twice. One of them opens, and the
+    /// other stays what it is: two ways to the same panel, a foot apart, would read
+    /// as two different people.
+    #[test]
+    fn a_name_written_twice_is_opened_once() {
+        let line = "Sarah Brightman with Andrzej Lampert / Sarah Brightman";
+        let sarah = credit("a1", "Sarah Brightman");
+        let guest = credit("a2", "Andrzej Lampert");
+        let pieces = credited(line, &[sarah.clone(), guest.clone()]);
+
+        assert_eq!(read_as(&pieces), line);
+        assert_eq!(
+            pieces,
+            vec![
+                Piece::Name(sarah),
+                Piece::Words(" with ".to_string()),
+                Piece::Name(guest),
+                Piece::Words(" / Sarah Brightman".to_string()),
+            ]
+        );
+    }
+
     /// The ordinary file: one name, and the whole line is it.
     #[test]
     fn one_name_is_the_whole_line() {
