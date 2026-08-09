@@ -139,13 +139,37 @@ pub fn Head(
     // has been *found* already, and the finding is what the asking does.
     let missing = RwSignal::new(false);
 
+    // Whether the picture is being looked at rather than glanced at. A sleeve is
+    // a thing people want to see, and 56 pixels in the corner of a panel is not
+    // seeing it.
+    let there = move || picture.get().is_some() && !missing.get();
+    let enlarged = RwSignal::new(false);
+
     view! {
         <header>
-            <span class="emblem" class:round=round>
-                <Show
-                    when=move || picture.get().is_some() && !missing.get()
-                    fallback=move || view! { <Glyph icon /> }
-                >
+            // A button only where there is a picture: the glyph that stands in
+            // for one leads nowhere, and a button that does nothing is worse
+            // than a picture that cannot be pressed.
+            <span
+                class="emblem"
+                class:round=round
+                class:pressable=there
+                role=move || there().then_some("button")
+                tabindex=move || there().then_some("0")
+                on:click=move |_| enlarged.set(there())
+                // Which a role of "button" promises and a span does not
+                // provide: without this it is a control a keyboard can reach
+                // and cannot press, which is worse than one it cannot reach.
+                on:keydown=move |event: web_sys::KeyboardEvent| {
+                    if there() && matches!(event.key().as_str(), "Enter" | " ") {
+                        // Or the space scrolls the panel behind the picture it
+                        // just opened.
+                        event.prevent_default();
+                        enlarged.set(true);
+                    }
+                }
+            >
+                <Show when=there fallback=move || view! { <Glyph icon /> }>
                     <img
                         class="art"
                         src=move || picture.get().unwrap_or_default()
@@ -164,6 +188,57 @@ pub fn Head(
                 <Glyph icon=Icon::Close />
             </button>
         </header>
+
+        <Enlarged showing=enlarged picture heading />
+    }
+}
+
+/// The picture on its own, as big as it goes.
+///
+/// A real `dialog` opened with `show_modal`, like the one that asks before a
+/// purge: Escape closes it, the focus stays inside it, and the page behind it
+/// cannot be reached by accident. None of that is worth writing again for a
+/// picture.
+///
+/// As big as it goes means whichever is smaller — the screen, or the picture
+/// itself. A sleeve scanned at 300 pixels blown up to fill a 4K display is a
+/// blurred square, so nothing here is ever drawn above its own size.
+#[component]
+fn Enlarged(
+    showing: RwSignal<bool>,
+    picture: Signal<Option<String>>,
+    /// What it is a picture of, which is the alternative text: a screen reader
+    /// on a dialogue holding one image has nothing else to go on.
+    heading: Signal<String>,
+) -> impl IntoView {
+    let plate: NodeRef<leptos::html::Dialog> = NodeRef::new();
+
+    Effect::new(move |_| {
+        let Some(element) = plate.get() else { return };
+
+        if showing.get() {
+            let _ = element.show_modal();
+        } else {
+            element.close();
+        }
+    });
+
+    view! {
+        <dialog
+            node_ref=plate
+            class="enlarged"
+            on:close=move |_| showing.set(false)
+            // Anywhere at all, which is what a picture with nothing else on the
+            // screen should answer to. There is no button to find and no corner
+            // to aim at.
+            on:click=move |_| showing.set(false)
+        >
+            {move || {
+                picture
+                    .get()
+                    .map(|source| view! { <img src=source alt=heading.get() /> })
+            }}
+        </dialog>
     }
 }
 

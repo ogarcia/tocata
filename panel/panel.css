@@ -891,6 +891,56 @@ h1 {
   background: light-dark(rgb(28 28 30 / 34%), rgb(0 0 0 / 62%));
 }
 
+/* --- the picture, looked at rather than glanced at ------------------------ */
+
+/* A sleeve at 56 pixels in the corner of a panel is a label, not a picture. This is
+ * the picture.
+ *
+ * A `dialog` like the one above, and for the same reasons — Escape, the trapped
+ * focus, the inert page behind — but with nothing of the box about it: no border,
+ * no background, no padding. What is on screen is the image and the darkened page.
+ *
+ * As big as it goes, and never bigger than itself. `vmin` bounds it by whichever
+ * edge of the screen is shorter, so it is a square that fits however the window is
+ * shaped; `width: auto` is what stops a sleeve scanned at 300 pixels being blown up
+ * into a blurred square on a large display. Between those two, whichever is smaller
+ * wins, which is the whole rule. */
+.enlarged {
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: none;
+  background: none;
+  overflow: visible;
+}
+
+.enlarged img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 88vmin;
+  max-height: 88vmin;
+  cursor: zoom-out;
+  /* Its own edge, because a white sleeve on a dark backdrop otherwise ends
+   * nowhere in particular. */
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+
+.enlarged::backdrop {
+  color-scheme: light dark;
+  background: light-dark(rgb(28 28 30 / 62%), rgb(0 0 0 / 78%));
+}
+
+/* Says the picture in a drawer's heading can be pressed. Only the frame that holds
+ * one: the glyph that stands in for a missing picture leads nowhere. */
+.emblem.pressable {
+  cursor: zoom-in;
+}
+
+.emblem.pressable:hover {
+  border-color: var(--accent);
+}
+
 /* What is being asked, and what it is about. No ✕ in the corner: Escape, the
  * backdrop and the cancel action are three ways out already, and a fourth drawn in
  * the corner is the only thing in the box that is about the box. */

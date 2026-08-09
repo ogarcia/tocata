@@ -34,15 +34,29 @@ const ASK_EVERY_TIME: &str = "no-cache";
 /// keep forever.
 ///
 /// Trunk writes them as `panel-1b959b7158768c33.css`, and the wasm as
-/// `tocata-panel-3a135bac20405c57_bg.wasm`. Sixteen hex digits after the last
-/// dash, which is specific enough that a file arriving without one falls to the
-/// careful side rather than being kept for a year by accident.
+/// `tocata-panel-3a135bac20405c57_bg.wasm`: a 64 bit number in hex after the
+/// last dash.
+///
+/// **Up to** sixteen digits rather than exactly sixteen, which is a fix rather
+/// than a loosening. Trunk prints that number without leading zeros, so one
+/// build in sixteen produces a fifteen digit name — `panel-ea04cc6bae15834.css`,
+/// which is what caught it — and one in two hundred and fifty six produces
+/// fourteen. Asking for exactly sixteen quietly served those with `no-cache`:
+/// not wrong, but a hashed file fetched again on every load for no reason.
+///
+/// Twelve is the floor, so a word that happens to be hex — `panel-added.css`,
+/// `something-decade.js` — is not mistaken for a fingerprint and kept for a
+/// year. Nothing trunk writes is anywhere near it.
 fn hashed(path: &str) -> bool {
+    const SHORTEST: usize = 12;
+    const LONGEST: usize = 16;
+
     let stem = path.rsplit_once('.').map_or(path, |(stem, _)| stem);
     let stem = stem.strip_suffix("_bg").unwrap_or(stem);
 
-    stem.rsplit_once('-')
-        .is_some_and(|(_, hash)| hash.len() == 16 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+    stem.rsplit_once('-').is_some_and(|(_, hash)| {
+        (SHORTEST..=LONGEST).contains(&hash.len()) && hash.chars().all(|c| c.is_ascii_hexdigit())
+    })
 }
 
 /// Enough of a table for what a panel is made of. Guessing from a crate would
@@ -117,6 +131,12 @@ mod tests {
         assert!(hashed("tocata-panel-3a135bac20405c57.js"));
         assert!(hashed("tocata-panel-3a135bac20405c57_bg.wasm"));
         assert!(hashed("favicon-cf508203782903d2.svg"));
+
+        // The one that caught this: trunk prints the number without leading
+        // zeros, so one build in sixteen is a digit short. These were being
+        // served with no-cache — fetched again on every load for no reason.
+        assert!(hashed("panel-ea04cc6bae15834.css"), "fifteen digits");
+        assert!(hashed("panel-a04cc6bae15834.css"), "and fourteen");
     }
 
     #[test]
@@ -130,6 +150,14 @@ mod tests {
         // The right length and not hex, which is what a word of sixteen letters
         // would be.
         assert!(!hashed("something-abcdefghijklmnop.css"));
+        // Hex and far too short to be a fingerprint: a word that happens to be
+        // spellable in hex must not buy a file a year of caching.
+        assert!(!hashed("panel-added.css"));
+        assert!(!hashed("something-decade.js"));
+        assert!(
+            !hashed("a-deadbeef.css"),
+            "eight digits is a word, not a hash"
+        );
     }
 
     /// The rule this rests on: everything in the built panel carries a hash except
