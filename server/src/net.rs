@@ -4,9 +4,16 @@
 //! The one place that talks to somebody else's server.
 //!
 //! Everything Tocata does otherwise happens between a request, a database and a
-//! disk. This is the exception, and it is a narrow one: a GET and a POST that
-//! carry a token and come back with a status and some text. Both are small,
-//! both time out, and neither follows a redirect.
+//! disk. This is the exception, and it is a narrow one: four calls, all of them
+//! bounded in time and in how much they will read.
+//!
+//! Two of them carry a token and go where somebody typed — passing listens on.
+//! Those never follow a redirect: a service answering "look over there" has been
+//! configured wrongly, and following it would hand the token to a host nobody
+//! named. The other two are questions put to public catalogues with nothing to
+//! identify us, and one of those does follow redirects, because it fetches a
+//! picture and being sent to where the file actually is *is* the answer. It can
+//! afford to for the same reason it has to: there is no token on it to lose.
 //!
 //! Not reqwest, which does all of this and much more. What it adds over the
 //! `hyper` axum already brings — a connection pool worth tuning, redirects,
@@ -45,6 +52,21 @@ const PATIENCE: Duration = Duration::from_secs(15);
 /// firehose would be read into memory until there was none left.
 const MOST: usize = 64 * 1024;
 
+/// And how much of a picture is, which is a different order of thing.
+///
+/// Generous against what is actually asked for — a scaled copy a few hundred
+/// kilobytes big — because the point is not to be tight but to have a bound at
+/// all. What this stops is a URL that turns out to be a firehose, not a
+/// photograph that came out larger than expected.
+const MOST_OF_A_PICTURE: usize = 8 * 1024 * 1024;
+
+/// How many times one fetch will be told to look somewhere else.
+///
+/// Commons answers with the file's own address on another host, which may
+/// itself redirect. Four is more than that path has ever needed and few enough
+/// that a pair of servers pointing at each other stops being our problem.
+const HOPS: usize = 4;
+
 /// What Tocata calls itself when it knocks on somebody's door.
 ///
 /// The version is in it because a service with a broken client wants to know
@@ -59,7 +81,9 @@ pub struct Answer {
     /// depends on whose server it is. Reading them belongs to whoever knows what
     /// they are talking to, not here.
     pub headers: hyper::HeaderMap,
-    pub body: String,
+    /// However much of it was worth reading. Bytes rather than text, because one
+    /// of the things this fetches is a photograph.
+    pub bytes: Vec<u8>,
 }
 
 impl Answer {
@@ -67,6 +91,14 @@ impl Answer {
     /// because what a refusal means differs by what was being asked for.
     pub fn ok(&self) -> bool {
         (200..300).contains(&self.status)
+    }
+
+    /// What it said, as text. Lossy on purpose: a service answering a question
+    /// about music with bytes that are not UTF-8 has already gone wrong, and the
+    /// useful thing then is to be able to log what came back rather than to fail
+    /// twice.
+    pub fn body(&self) -> std::borrow::Cow<'_, str> {
+        String::from_utf8_lossy(&self.bytes)
     }
 
     /// A header read as a number of seconds, for the several ways a server has of
@@ -113,7 +145,69 @@ impl Net {
             .body(Full::default())
             .context("building the request")?;
 
-        self.send(request).await
+        self.send_reading(request, MOST).await
+    }
+
+    /// Asks a question of somebody who did not ask us to identify ourselves.
+    ///
+    /// No `Authorization`, which is the whole difference and the reason it is a
+    /// call of its own rather than an `Option<&str>`: the services this reaches
+    /// are public catalogues, and a header carrying a token somebody meant for
+    /// their own scrobbler has no business on a request to one.
+    pub async fn ask(&self, url: &str) -> Result<Answer> {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(url)
+            .header(USER_AGENT, CALLING)
+            .body(Full::default())
+            .context("building the request")?;
+
+        self.send_reading(request, MOST).await
+    }
+
+    /// Fetches a picture, following the redirects that lead to it.
+    ///
+    /// The one call here that does follow them, and it can afford to for the
+    /// same reason it has to: it carries no token, so there is nothing a host
+    /// nobody named could be handed. What sends it somewhere else is Commons
+    /// answering with the file's real address, which is how that catalogue is
+    /// built rather than a sign of anything being wrong.
+    ///
+    /// Bytes rather than text, and not sniffed here: what an image is gets
+    /// decided by [`crate::artwork::mime_of`], which reads the bytes rather than
+    /// believing a header.
+    pub async fn fetch(&self, url: &str) -> Result<Vec<u8>> {
+        let mut url = url.to_string();
+
+        for _ in 0..=HOPS {
+            let request = Request::builder()
+                .method(Method::GET)
+                .uri(&url)
+                .header(USER_AGENT, CALLING)
+                .body(Full::default())
+                .context("building the request")?;
+
+            let answer = self.send_reading(request, MOST_OF_A_PICTURE).await?;
+
+            if answer.ok() {
+                return Ok(answer.bytes);
+            }
+
+            // Only a redirect that says where. One that does not is an answer
+            // with nothing in it, and there is nowhere to go from here.
+            let elsewhere = matches!(answer.status, 301 | 302 | 303 | 307 | 308)
+                .then(|| answer.headers.get(hyper::header::LOCATION))
+                .flatten()
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+
+            match elsewhere {
+                Some(next) => url = next,
+                None => bail!("it answered {}", answer.status),
+            }
+        }
+
+        bail!("it kept pointing somewhere else after {HOPS} hops")
     }
 
     /// Hands over some JSON, with a token.
@@ -127,18 +221,18 @@ impl Net {
             .body(Full::from(Bytes::from(json)))
             .context("building the request")?;
 
-        self.send(request).await
+        self.send_reading(request, MOST).await
     }
 
-    /// The half both of them share: send it, wait no longer than [`PATIENCE`],
+    /// The half they all share: send it, wait no longer than [`PATIENCE`],
     /// and read no more than [`MOST`].
     ///
-    /// A redirect comes back as the redirect. Nothing here follows one, because
-    /// the two calls this makes are both to an address somebody typed: a service
-    /// that answers a POST with "look over there" is a service that has been
-    /// configured wrongly, and following it would send a token to a host nobody
-    /// named.
-    async fn send(&self, request: Request<Full<Bytes>>) -> Result<Answer> {
+    /// A redirect comes back as the redirect. Nothing here follows one, and only
+    /// [`Net::fetch`] does anything about it: the calls that carry a token go to
+    /// an address somebody typed, so a service answering one with "look over
+    /// there" has been configured wrongly, and following it would hand that token
+    /// to a host nobody named.
+    async fn send_reading(&self, request: Request<Full<Bytes>>, most: usize) -> Result<Answer> {
         let response = tokio::time::timeout(PATIENCE, self.client.request(request))
             .await
             .map_err(|_| anyhow::anyhow!("it did not answer within {}s", PATIENCE.as_secs()))?
@@ -147,7 +241,7 @@ impl Net {
         let status = response.status().as_u16();
         let headers = response.headers().clone();
 
-        let read = Limited::new(response.into_body(), MOST).collect().await;
+        let read = Limited::new(response.into_body(), most).collect().await;
 
         let body = match read {
             Ok(body) => body.to_bytes(),
@@ -163,7 +257,7 @@ impl Net {
         Ok(Answer {
             status,
             headers,
-            body: String::from_utf8_lossy(&body).into_owned(),
+            bytes: body.to_vec(),
         })
     }
 }

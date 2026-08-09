@@ -283,7 +283,7 @@ async fn offer(net: &Net, destination: &Destination, listens: &[Listen]) -> Verd
         Err(e) => return Verdict::Failed(format!("{e:#}")),
     };
 
-    let said = answer.body.trim().chars().take(200).collect::<String>();
+    let said = answer.body().trim().chars().take(200).collect::<String>();
 
     match answer.status {
         status if (200..300).contains(&status) => Verdict::Taken,

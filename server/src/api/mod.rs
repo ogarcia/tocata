@@ -26,6 +26,7 @@ mod jobs;
 mod keys;
 mod libraries;
 mod media;
+mod portraits;
 mod preferences;
 mod purge;
 mod resources;
@@ -87,6 +88,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "libraries", description = "The directories music is read from"),
         (name = "users", description = "Accounts"),
         (name = "keys", description = "API keys, for clients that authenticate with one"),
+        (name = "portraits", description = "Looking for pictures of the artists"),
         (name = "sessions", description = "The panel logins an account has open"),
         (name = "settings", description = "What the server knows about the collection"),
         (name = "preferences", description = "How the panel looks and speaks, per account"),
@@ -131,6 +133,11 @@ fn v1() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(session::log_in, session::log_out, session::current))
         .routes(routes!(scan::status, scan::start, scan::cancel))
+        .routes(routes!(
+            portraits::status,
+            portraits::start,
+            portraits::cancel
+        ))
         .routes(routes!(events::stream))
         .routes(routes!(libraries::list, libraries::add))
         .routes(routes!(libraries::change, libraries::remove))
@@ -224,6 +231,7 @@ mod every_endpoint {
         let state = AppState {
             pool,
             scan: Arc::new(scanner::Progress::default()),
+            portraits: Arc::new(crate::portraits::Fetching::default()),
             attempts: Arc::new(attempts::Attempts::new()),
             config: Arc::new(Config::for_tests(
                 std::env::temp_dir().join("tocata-panel-endpoints"),

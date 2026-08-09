@@ -281,6 +281,41 @@ pub struct Status {
     pub cancelled: bool,
 }
 
+/// How the walk out for portraits is going, or how the last one went.
+///
+/// Its own shape rather than a scan's, because the two are not the same kind of
+/// work told apart by a flag: a scan is bounded by a disk and counts files, and
+/// this is bounded by somebody else's server at one request a second and counts
+/// artists it has been through.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Portraits {
+    /// Whether one is going now. Everything else describes that walk while it is
+    /// true, and the walk before it once it is not.
+    pub fetching: bool,
+    /// Whether the server is allowed out at all. False means the setting is off,
+    /// and then nothing here has ever run or can be started.
+    pub allowed: bool,
+    /// Who it was asking about when this was sampled.
+    pub artist: Option<String>,
+    pub done: u64,
+    pub total: u64,
+    /// Of those, the ones that came back with a picture. Most artists have none
+    /// anywhere, so this is properly a small fraction of `done`.
+    pub found: u64,
+    /// How many are still without a picture and have an identifier to look one
+    /// up by — what a walk started now would go through.
+    pub wanting: u64,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    /// True when the last walk was told to stop. What it had already found is
+    /// kept: every artist is written down as it goes.
+    pub cancelled: bool,
+    /// Why it stopped early, when it was not a person that stopped it — a
+    /// service that went away, most likely.
+    pub failure: Option<String>,
+}
+
 /// A library and how much of it there is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1190,9 +1225,34 @@ pub struct ArtistDetail {
     /// Whether a picture of them has been found. Same meaning as the listing's, which
     /// is "found already" rather than "exists".
     pub image: bool,
+    /// Who to credit for that picture and under what terms, where it is somebody
+    /// else's work. Absent for one read out of the user's own files, which is
+    /// nobody's to attribute.
+    pub credit: Option<Attribution>,
     pub records: Vec<ArtistAlbum>,
     /// Their most played songs, across everybody who listens here.
     pub played_most: Vec<PlayedTrack>,
+}
+
+/// What a fetched picture asks of whoever shows it.
+///
+/// Every field optional but the terms, because what Commons holds about a file
+/// is whatever the person who uploaded it filled in — and a picture whose terms
+/// could not be read is not kept at all, so by the time one of these exists
+/// there is always a licence to name and a page to point at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Attribution {
+    /// Whoever made it, as the file's own page names them. Absent where nobody
+    /// filled that in, which happens and is not a reason to refuse the picture:
+    /// the licence still governs it and the page still says who to ask.
+    pub author: Option<String>,
+    /// The terms, short: "CC BY-SA 4.0", "Public domain".
+    pub license: String,
+    /// Where those terms are written out.
+    pub license_url: Option<String>,
+    /// The file's own page, which is where a credit is meant to point.
+    pub source_url: String,
 }
 
 /// One of an artist's records, as their panel lists it.

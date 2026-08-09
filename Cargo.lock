@@ -3054,6 +3054,7 @@ dependencies = [
  "include_dir",
  "lofty",
  "mime",
+ "percent-encoding",
  "quick-xml",
  "serde",
  "serde_html_form",

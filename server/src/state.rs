@@ -6,6 +6,7 @@
 use crate::attempts::Attempts;
 use crate::config::Config;
 use crate::net::Net;
+use crate::portraits::Fetching;
 use crate::resources::Meter;
 use crate::scanner::Progress;
 use axum::extract::FromRef;
@@ -17,6 +18,10 @@ use tokio::sync::watch;
 pub struct AppState {
     pub pool: SqlitePool,
     pub scan: Arc<Progress>,
+    /// The walk out to MusicBrainz and Commons for pictures of the artists.
+    /// Shared for the same reason a scan's progress is: it is what stops two of
+    /// them from going at once, and what a panel watching it reads.
+    pub portraits: Arc<Fetching>,
     pub config: Arc<Config>,
     /// Shared rather than made per request, because a share of the processor is a
     /// difference between two readings and something has to remember the first
@@ -47,6 +52,12 @@ impl FromRef<AppState> for SqlitePool {
 impl FromRef<AppState> for Arc<Progress> {
     fn from_ref(state: &AppState) -> Self {
         state.scan.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Fetching> {
+    fn from_ref(state: &AppState) -> Self {
+        state.portraits.clone()
     }
 }
 

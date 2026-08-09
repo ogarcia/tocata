@@ -18,8 +18,6 @@ use crate::scanner::{self, Mode};
 use crate::settings;
 use crate::state::AppState;
 use chrono::{Duration, Local, NaiveDateTime, NaiveTime};
-use sqlx::SqlitePool;
-use std::path::Path;
 use std::time::Duration as Wait;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{error, info, warn};
@@ -38,7 +36,7 @@ pub async fn scan(state: &AppState, mode: Mode) {
                 outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
             );
 
-            ran(&state.pool, state.config.data_dir()).await;
+            ran(state).await;
         }
         // Either another scan was already running, or this one was cancelled.
         // Neither has a reliable idea of what is absent, so nothing follows it.
@@ -48,11 +46,31 @@ pub async fn scan(state: &AppState, mode: Mode) {
 }
 
 /// What a finished scan leads to.
-async fn ran(pool: &SqlitePool, data_dir: &Path) {
+async fn ran(state: &AppState) {
+    let pool = &state.pool;
+    let data_dir = state.config.data_dir();
+
     let settings = match settings::load(pool).await {
         Ok(settings) => settings,
         Err(e) => return warn!("could not read the settings after a scan: {e:#}"),
     };
+
+    // A scan is what brings new artists in, so it is the moment there is
+    // something new to look up. Spawned rather than awaited: this walk is
+    // measured in three quarters of an hour and the scan it follows is not
+    // waiting for it.
+    if settings.fetch_portraits {
+        let looking = state.clone();
+        tokio::spawn(async move {
+            crate::portraits::walk(
+                &looking.pool,
+                looking.config.data_dir(),
+                &looking.net,
+                &looking.portraits,
+            )
+            .await;
+        });
+    }
 
     // No quarantine means what a scan marks stays marked until somebody asks for
     // it to go, which is the safe default and what Tocata did before this was a

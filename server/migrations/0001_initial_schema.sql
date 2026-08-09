@@ -742,6 +742,13 @@ CREATE TABLE settings (
                                               OR absent_grace_days >= 0),
     -- How long a panel login lasts, in days. Absolute: see the sessions table.
     session_days      INTEGER NOT NULL CHECK (session_days > 0),
+    -- Whether the server may walk out to MusicBrainz and Wikimedia Commons
+    -- looking for photographs of the artists it holds. Off, and off is what a
+    -- collection that has never been asked gets: everything else here happens
+    -- between this machine and its own disk, and reaching somebody else's
+    -- server is a thing to be asked for rather than assumed.
+    fetch_portraits   INTEGER NOT NULL DEFAULT 0
+                                       CHECK (fetch_portraits IN (0, 1)),
     updated_at        TEXT    NOT NULL
 );
 

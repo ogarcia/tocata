@@ -224,6 +224,7 @@ pub mod net;
 pub mod panel;
 #[cfg(feature = "server")]
 pub mod plays;
+pub mod portraits;
 #[cfg(feature = "server")]
 pub mod purge;
 #[cfg(feature = "server")]

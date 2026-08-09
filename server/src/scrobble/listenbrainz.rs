@@ -56,7 +56,7 @@ pub struct Checked {
 /// API at all — which is not the same as a refusal, and the caller treats it
 /// differently: a service that has no such call is not a service saying no.
 pub fn read_check(answer: &Answer) -> Option<Checked> {
-    serde_json::from_str(&answer.body).ok()
+    serde_json::from_str(&answer.body()).ok()
 }
 
 /// One listen as the wire wants it.
@@ -286,7 +286,7 @@ mod tests {
         let answer = Answer {
             status: 200,
             headers: hyper::HeaderMap::new(),
-            body: r#"{"code":200,"message":"Token invalid.","valid":false}"#.into(),
+            bytes: br#"{"code":200,"message":"Token invalid.","valid":false}"#.to_vec(),
         };
 
         let checked = read_check(&answer).unwrap();
@@ -299,7 +299,7 @@ mod tests {
         let answer = Answer {
             status: 200,
             headers: hyper::HeaderMap::new(),
-            body: r#"{"code":200,"message":"Token valid.","user_name":"ogarcia","valid":true}"#
+            bytes: br#"{"code":200,"message":"Token valid.","user_name":"ogarcia","valid":true}"#
                 .into(),
         };
 
@@ -315,7 +315,7 @@ mod tests {
         let answer = Answer {
             status: 404,
             headers: hyper::HeaderMap::new(),
-            body: "<html><body>Not Found</body></html>".into(),
+            bytes: b"<html><body>Not Found</body></html>".to_vec(),
         };
 
         assert!(read_check(&answer).is_none());

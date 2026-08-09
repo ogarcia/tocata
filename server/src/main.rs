@@ -9,7 +9,8 @@ use std::time::Duration;
 use tocata::config::Config;
 use tocata::state::AppState;
 use tocata::{
-    api, attempts, db, net, panel, resources, scanner, scrobble, settings, subsonic, upkeep, user,
+    api, attempts, db, net, panel, portraits, resources, scanner, scrobble, settings, subsonic,
+    upkeep, user,
 };
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
@@ -62,6 +63,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         pool: pool.clone(),
         scan: Arc::new(scanner::Progress::default()),
+        portraits: Arc::new(portraits::Fetching::default()),
         attempts: Arc::new(attempts::Attempts::new()),
         config: config.clone(),
         meter: Arc::new(meter),
@@ -109,6 +111,7 @@ async fn main() -> Result<()> {
     // of from now.
     let (asked, was_asked) = oneshot::channel();
     let scan = state.scan.clone();
+    let fetching = state.portraits.clone();
 
     let shutdown = async move {
         tokio::select! {
@@ -119,6 +122,10 @@ async fn main() -> Result<()> {
         // that holds a transaction open for minutes, and nothing can close the
         // database under it.
         scan.cancel();
+        // And the walk out for portraits, which holds no transaction but does
+        // hold a task that would otherwise sit out a one second pace, and then
+        // another, for as long as the drain allows.
+        fetching.cancel();
         // Streams that would otherwise stay open until their client goes away.
         let _ = stopping.send(true);
         let _ = asked.send(());

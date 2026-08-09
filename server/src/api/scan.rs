@@ -171,6 +171,7 @@ mod tests {
         let state = AppState {
             pool,
             scan: Arc::new(Progress::default()),
+            portraits: Arc::new(crate::portraits::Fetching::default()),
             attempts: Arc::new(attempts::Attempts::new()),
             config: Arc::new(Config::for_tests(
                 std::env::temp_dir().join("tocata-scan-api"),

@@ -294,7 +294,7 @@ pub async fn announce(net: &Net, pool: &SqlitePool, user_id: i64, track_id: i64)
                 "{} would not take what is sounding: {} {}",
                 destination.service.name(),
                 answer.status,
-                answer.body.trim()
+                answer.body().trim()
             ),
             Err(e) => warn!(
                 "could not tell {} what is sounding: {e:#}",

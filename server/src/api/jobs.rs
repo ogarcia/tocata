@@ -136,6 +136,7 @@ mod tests {
         AppState {
             pool,
             scan: Arc::new(scanner::Progress::default()),
+            portraits: Arc::new(crate::portraits::Fetching::default()),
             attempts: Arc::new(attempts::Attempts::new()),
             config: Arc::new(Config::for_tests(data_dir)),
             meter: Arc::new(resources::Meter::new().unwrap()),

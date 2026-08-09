@@ -23,9 +23,9 @@
 use super::error::ApiError;
 use super::session::Panel;
 use crate::types::{
-    Album, AlbumDetail, AlbumTrack, Albums, Artist, ArtistAlbum, ArtistDetail, Artists, Credit,
-    ErrorBody, Genre, Genres, LyricLine, LyricSource, Lyrics, PlayedTrack, Queue, Tags, Track,
-    TrackDetail, Tracks,
+    Album, AlbumDetail, AlbumTrack, Albums, Artist, ArtistAlbum, ArtistDetail, Artists,
+    Attribution, Credit, ErrorBody, Genre, Genres, LyricLine, LyricSource, Lyrics, PlayedTrack,
+    Queue, Tags, Track, TrackDetail, Tracks,
 };
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -1043,6 +1043,20 @@ pub async fn artist(
     .await
     .map_err(|e| ApiError::internal(e, "reading what of an artist's gets played"))?;
 
+    // What showing their picture asks of us, where it is somebody else's work.
+    // Read here rather than joined into the row above: it is one row, it is null
+    // for every picture that came off the user's own disk, and the row above is
+    // already carrying eight figures.
+    let credit: Option<CreditRow2> = sqlx::query_as(
+        "SELECT w.author, w.license, w.license_url, w.source_url
+           FROM artists a JOIN artworks w ON w.id = a.artwork_id
+          WHERE a.id = ? AND w.license IS NOT NULL AND w.source_url IS NOT NULL",
+    )
+    .bind(row.id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "reading what a picture asks for"))?;
+
     Ok(Json(ArtistDetail {
         id: row.public_id,
         name: row.name,
@@ -1052,6 +1066,7 @@ pub async fn artist(
         duration: row.duration,
         plays: row.plays,
         image: row.image,
+        credit: credit.map(Attribution::from),
         records: records.into_iter().map(ArtistAlbum::from).collect(),
         played_most: played_most.into_iter().map(PlayedTrack::from).collect(),
     }))
@@ -1453,6 +1468,28 @@ struct DetailRow {
 struct CreditRow {
     public_id: String,
     name: String,
+}
+
+/// What a fetched picture asks for, as the artwork row holds it. Its own struct
+/// rather than four columns on the artist's, which is already wide and is read
+/// whether or not there is a picture at all.
+#[derive(sqlx::FromRow)]
+struct CreditRow2 {
+    author: Option<String>,
+    license: String,
+    license_url: Option<String>,
+    source_url: String,
+}
+
+impl From<CreditRow2> for Attribution {
+    fn from(row: CreditRow2) -> Self {
+        Self {
+            author: row.author,
+            license: row.license,
+            license_url: row.license_url,
+            source_url: row.source_url,
+        }
+    }
 }
 
 impl From<CreditRow> for Credit {
@@ -2082,6 +2119,68 @@ mod tests {
 
         assert_eq!(track.artists, None);
         assert!(track.credits.is_empty());
+    }
+
+    /// A picture that came off Commons carries what showing it asks for; one read
+    /// out of the user's own files carries nothing, because it is nobody's to
+    /// attribute.
+    #[tokio::test]
+    async fn a_fetched_picture_says_who_to_credit_and_a_local_one_does_not() {
+        let pool = a_collection().await;
+        let at = db::now();
+
+        // First the one off their own disk, which is the ordinary case.
+        sqlx::query(
+            "INSERT INTO artworks (id, public_id, kind, source, mime_type, content_hash, fetched_at)
+             VALUES (1, 'w1', 'artist', 'local_file', 'image/jpeg', 'aa', ?)",
+        )
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE artists SET artwork_id = 1 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let hers = somebody(&pool, false).await;
+        let Json(read) = artist(hers, State(pool.clone()), UrlPath("ar1".to_string()))
+            .await
+            .unwrap();
+
+        assert!(read.image, "there is a picture");
+        assert_eq!(
+            read.credit, None,
+            "and nothing to say about it: it came off their own disk"
+        );
+
+        // Now one that did not.
+        sqlx::query(
+            "INSERT INTO artworks (id, public_id, kind, source, source_ref, mime_type,
+                                   content_hash, fetched_at, author, license, license_url,
+                                   source_url)
+             VALUES (2, 'w2', 'artist', 'commons', 'File:Triana.jpg', 'image/jpeg', 'bb', ?,
+                     'Someone', 'CC BY-SA 4.0', 'https://creativecommons.org/licenses/by-sa/4.0',
+                     'https://commons.wikimedia.org/wiki/File:Triana.jpg')",
+        )
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE artists SET artwork_id = 2 WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let hers = somebody_else(&pool).await;
+        let Json(read) = artist(hers, State(pool.clone()), UrlPath("ar1".to_string()))
+            .await
+            .unwrap();
+
+        let credit = read.credit.expect("somebody else's work says so");
+        assert_eq!(credit.author.as_deref(), Some("Someone"));
+        assert_eq!(credit.license, "CC BY-SA 4.0");
+        assert!(credit.source_url.contains("commons.wikimedia.org"));
     }
 
     /// The two questions a record's panel asks about people, kept apart and both

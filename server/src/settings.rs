@@ -42,6 +42,10 @@ pub struct Settings {
     /// leave that to whoever asks for a purge.
     pub absent_grace_days: Option<i64>,
     pub session_days: i64,
+    /// Whether the server may go looking for pictures of the artists on
+    /// somebody else's servers. Off until asked, like every other way out of
+    /// this machine.
+    pub fetch_portraits: bool,
 }
 
 /// Writes the initial row if there is none, leaving an existing one alone.
@@ -69,15 +73,23 @@ pub async fn seed(pool: &SqlitePool, ignored_articles: &[String]) -> Result<()> 
 
 /// Reads the settings. The row exists because seeding runs at startup.
 pub async fn load(pool: &SqlitePool) -> Result<Settings> {
-    let row: (String, bool, Option<String>, Option<i64>, i64) = sqlx::query_as(
-        "SELECT ignored_articles, scan_at_startup, scan_at, absent_grace_days, session_days
+    let row: (String, bool, Option<String>, Option<i64>, i64, bool) = sqlx::query_as(
+        "SELECT ignored_articles, scan_at_startup, scan_at, absent_grace_days, session_days,
+                fetch_portraits
            FROM settings WHERE id = 1",
     )
     .fetch_one(pool)
     .await
     .context("reading the settings")?;
 
-    let (ignored_articles, scan_at_startup, scan_at, absent_grace_days, session_days) = row;
+    let (
+        ignored_articles,
+        scan_at_startup,
+        scan_at,
+        absent_grace_days,
+        session_days,
+        fetch_portraits,
+    ) = row;
 
     Ok(Settings {
         ignored_articles: ignored_articles
@@ -88,6 +100,7 @@ pub async fn load(pool: &SqlitePool) -> Result<Settings> {
         scan_at,
         absent_grace_days,
         session_days,
+        fetch_portraits,
     })
 }
 
@@ -101,7 +114,8 @@ pub async fn store(pool: &SqlitePool, settings: &Settings) -> Result<()> {
     sqlx::query(
         "UPDATE settings
             SET ignored_articles = ?, scan_at_startup = ?, scan_at = ?,
-                absent_grace_days = ?, session_days = ?, updated_at = ?
+                absent_grace_days = ?, session_days = ?, fetch_portraits = ?,
+                updated_at = ?
           WHERE id = 1",
     )
     .bind(settings.ignored_articles.join(" "))
@@ -109,6 +123,7 @@ pub async fn store(pool: &SqlitePool, settings: &Settings) -> Result<()> {
     .bind(&settings.scan_at)
     .bind(settings.absent_grace_days)
     .bind(settings.session_days)
+    .bind(settings.fetch_portraits)
     .bind(now())
     .in_turn(pool)
     .await
@@ -200,6 +215,7 @@ mod tests {
             scan_at: Some("04:00".to_string()),
             absent_grace_days: Some(0),
             session_days: 1,
+            fetch_portraits: true,
         };
         store(&pool, &chosen).await.unwrap();
 

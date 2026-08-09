@@ -30,6 +30,10 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-le
 include_dir = { version = "0.7", optional = true }
 lofty = { version = "0.24", optional = true }
 mime = { version = "0.3", optional = true }
+# Already in the tree by way of the TLS stack; declared because a title going
+# into a query string has to stop being a file name, and getting that wrong by
+# hand is how a name with an ampersand in it becomes two parameters.
+percent-encoding = { version = "2.3", optional = true }
 quick-xml = { version = "0.41", optional = true }
 serde.workspace = true
 serde_html_form = { version = "0.4", optional = true }
@@ -56,7 +60,7 @@ server = [
     "dep:anyhow", "dep:argon2", "dep:axum", "dep:bytes", "dep:chrono",
     "dep:futures-util", "dep:getrandom", "dep:http-body-util", "dep:hyper",
     "dep:hyper-rustls", "dep:hyper-util", "dep:include_dir", "dep:lofty",
-    "dep:mime", "dep:quick-xml", "dep:serde_html_form", "dep:serde_json",
+    "dep:mime", "dep:percent-encoding", "dep:quick-xml", "dep:serde_html_form", "dep:serde_json",
     "dep:sha2", "dep:sqlx", "dep:tokio", "dep:tower", "dep:tower-http",
     "dep:tracing", "dep:tracing-subscriber", "dep:utoipa-axum",
     "dep:utoipa-scalar", "dep:walkdir",
