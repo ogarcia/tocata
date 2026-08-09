@@ -317,6 +317,10 @@ player:
   next: Siguiente
   queued: Cuántas hay en la cola
   play_this: Reproducir esta
+  # Lo que ofrece el mismo botón cuando ya hay algo sonando, y lo que dice justo
+  # después de hacerlo.
+  queue_this: Encolar esta
+  queued_it: Añadida a la cola
   play_record: Reproducir este disco
   open: Qué está sonando
   from: "De %{album}"

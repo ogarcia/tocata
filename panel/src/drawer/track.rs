@@ -24,7 +24,14 @@ use crate::pages;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
+use std::time::Duration;
 use tocata::types::{LyricSource, Lyrics, Tags, TrackDetail};
+
+/// How long the button says what it just did before offering to do it again.
+///
+/// Long enough to be read after the eye has gone back to the sidebar, short enough
+/// that a second song can be queued without waiting on it.
+const SAID: Duration = Duration::from_secs(2);
 
 /// Which of the three is showing.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -74,6 +81,31 @@ pub fn Track(id: String) -> impl IntoView {
             }
         }
     });
+
+    // What the one button at the foot does, which is not the same deed twice. With
+    // nothing playing it puts this song on; with something playing it puts it behind
+    // what is playing, because throwing away a queue is not what somebody looking a
+    // song up while listening to another one asked for.
+    //
+    // `told` is the acknowledgement: queueing is a deed with nothing to show for it —
+    // the sidebar's count goes up by one somewhere else on screen — so the foot of the
+    // panel says so itself for a moment and then goes back to offering the deed again.
+    //
+    // The acknowledgement is not a button. A word that replaces a button under the
+    // cursor and is still pressable is a second copy of the song for anybody who
+    // double-clicked, and waiting two seconds to queue the same song twice is the
+    // lesser of those two.
+    let told = RwSignal::new(false);
+
+    let deed = move |_| {
+        if player.loaded() {
+            player.queue_up(id.get_value());
+            told.set(true);
+            set_timeout(move || told.set(false), SAID);
+        } else {
+            player.play(vec![id.get_value()], 0);
+        }
+    };
 
     // A file with no tag in it is a file with nothing to list, so there is no tab —
     // and the count goes on the tab, because how many tags a file carries is worth
@@ -174,12 +206,24 @@ pub fn Track(id: String) -> impl IntoView {
                     <Show when=move || {
                         detail.with(|read| read.as_ref().is_some_and(|read| !read.missing))
                     }>
-                        <button
-                            class="leading"
-                            on:click=move |_| player.play(vec![id.get_value()], 0)
+                        <Show
+                            when=move || told.get()
+                            fallback=move || {
+                                view! {
+                                    <button class="leading" on:click=deed>
+                                        {move || {
+                                            if player.loaded() {
+                                                t!("player.queue_this").to_string()
+                                            } else {
+                                                t!("player.play_this").to_string()
+                                            }
+                                        }}
+                                    </button>
+                                }
+                            }
                         >
-                            {t!("player.play_this")}
-                        </button>
+                            <span class="quiet">{t!("player.queued_it")}</span>
+                        </Show>
                     </Show>
                 </span>
             </footer>

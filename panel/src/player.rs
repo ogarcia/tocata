@@ -119,6 +119,26 @@ impl Player {
         self.step_to(from);
     }
 
+    /// Puts a track at the end of what is coming.
+    ///
+    /// Nothing else moves: not `at`, not what is sounding, not a track already
+    /// waiting. Adding to a queue is the one way of putting music on that promises
+    /// not to interrupt the music, which is the whole of why it exists beside
+    /// `play`.
+    pub fn queue_up(&self, id: String) {
+        // While the queue is mixed there are two orders to keep. A track added to
+        // only the mixed one would vanish the moment the shuffle was put away:
+        // ordering walks the order it was given and keeps nothing that is not named
+        // in it.
+        self.ordered.update(|ordered| {
+            if let Some(ordered) = ordered {
+                ordered.push(id.clone());
+            }
+        });
+
+        self.queue.update(|queue| queue.push(id));
+    }
+
     /// Pauses if it is sounding and starts it again if it is not. Does nothing at
     /// all with an empty queue, which is what the sidebar not being there means.
     pub fn toggle(&self) {
@@ -562,6 +582,26 @@ mod tests {
         let queued = queue("ACEB");
 
         assert_eq!(spelt(&ordered_again(&ordered, &queued, 0)), "ABCE");
+    }
+
+    /// A track queued while the mix is on is still there when the mix is put away.
+    ///
+    /// Which is what `queue_up` keeps two orders for: `ABCDE` mixed into `ACDEB` and
+    /// then `F` added goes on the end of both, and this is the half that says why —
+    /// anything waiting that the old order does not name is dropped on the way back.
+    #[test]
+    fn a_track_queued_during_a_mix_is_still_there_after_ordering() {
+        assert_eq!(
+            spelt(&ordered_again(&queue("ABCDEF"), &queue("ACDEBF"), 0)),
+            "ABCDEF"
+        );
+
+        // And the same track without it, which is what forgetting the second order
+        // would leave behind.
+        assert_eq!(
+            spelt(&ordered_again(&queue("ABCDE"), &queue("ACDEBF"), 0)),
+            "ABCDE"
+        );
     }
 
     /// The same track queued twice comes back twice, and comes back once when one of

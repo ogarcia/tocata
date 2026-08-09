@@ -5131,6 +5131,17 @@ select.narrow { width: 12.5rem; }
 
 .deeds .leading:hover { color: var(--accent); }
 
+/* The word that stands where a button stood, for the two seconds after queueing a
+ * track. It has to measure the same as the button it replaced — same size, same box —
+ * or the foot of the panel changes height the moment somebody presses it and changes
+ * back afterwards. Worst on a phone, where the button is a 44px target and a line of
+ * text is half that. */
+.deeds .quiet {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--control);
+}
+
 /* A note in its own words rather than a row, in the two directions a note comes in.
  * `.remark` follows what it is about and `.preface` comes before it — which is the
  * whole difference between them, and the reason they are two names: one rule with one
@@ -5307,5 +5318,5 @@ select.narrow { width: 12.5rem; }
   /* Every one of these is a 44px target on a phone. */
   .tabs button { padding: 0.9375rem 0; }
 
-  .deeds button { min-height: 2.75rem; }
+  .deeds button, .deeds .quiet { min-height: 2.75rem; }
 }

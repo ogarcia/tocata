@@ -319,6 +319,10 @@ player:
   next: Next
   queued: How many are queued
   play_this: Play this
+  # What the same button offers while something is already sounding, and what it
+  # says for a moment after doing it.
+  queue_this: Queue this
+  queued_it: Added to the queue
   play_record: Play this record
   open: What is playing
   from: "From %{album}"
