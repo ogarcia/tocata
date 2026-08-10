@@ -14,6 +14,8 @@ nav:
   albums: Álbumes
   artists: Artistas
   genres: Géneros
+  yours: Lo tuyo
+  favourites: Favoritos
   server: El servidor
   libraries: Bibliotecas
   accounts: Cuentas
@@ -247,6 +249,22 @@ genre:
   from_the_tags: Tal y como lo escriben las etiquetas de los ficheros.
   play_everything: Reproducir todo
 
+# Lo que has marcado, en tres listas que son la colección estrechada a lo tuyo. La
+# columna «Marcada» ocupa el sitio del género: cuándo lo marcaste es lo único que esta
+# pantalla sabe y las otras no.
+favourites:
+  search: Buscar en lo tuyo
+  marked: Marcada
+  # Cuando no has marcado nada de nada, en la línea bajo el título.
+  none_at_all: Aún no has marcado nada.
+  no_tracks: No has marcado ninguna pista.
+  no_albums: No has marcado ningún álbum.
+  no_artists: No has marcado ningún artista.
+  # De dónde salen las marcas hoy, que es la pregunta que deja ese vacío. El panel
+  # todavía no marca nada, y decir dónde sí se puede es más útil que callarlo.
+  whence: Se marcan desde cualquier cliente de OpenSubsonic, y aparecen aquí.
+  none_found: Nada de lo que has marcado coincide con lo que has escrito.
+
 genres:
   search: Buscar géneros
   one: Un género
@@ -308,6 +326,10 @@ collection:
   many_tracks: "%{count} pistas"
   one_album: "1 álbum"
   many_albums: "%{count} álbumes"
+  # La tercera, para la línea que suma las tres. Con cifra como las otras dos: en
+  # «2 pistas · 1 álbum · un artista» el que va escrito con letra canta.
+  one_artist: "1 artista"
+  many_artists: "%{count} artistas"
 
 # El reproductor al pie de la barra, y los botones que lo llenan.
 player:

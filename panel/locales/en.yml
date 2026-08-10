@@ -18,6 +18,8 @@ nav:
   albums: Albums
   artists: Artists
   genres: Genres
+  yours: Yours
+  favourites: Favourites
   server: The server
   libraries: Libraries
   accounts: Accounts
@@ -249,6 +251,22 @@ genre:
   from_the_tags: Spelt the way the files' own tags spell it.
   play_everything: Play all of it
 
+# What you have marked, as three listings that are the collection narrowed to yours.
+# The "Marked" column stands where the genre does: when you marked something is the one
+# thing this screen knows that the others do not.
+favourites:
+  search: Search what is yours
+  marked: Marked
+  # With nothing marked at all, on the line under the title.
+  none_at_all: You have not marked anything yet.
+  no_tracks: You have not marked a track.
+  no_albums: You have not marked an album.
+  no_artists: You have not marked an artist.
+  # Where marks come from today, which is the question that emptiness raises. The panel
+  # does not mark anything yet, and saying where it can be done beats saying nothing.
+  whence: Anything you star from an OpenSubsonic client turns up here.
+  none_found: Nothing you have marked matches what you typed.
+
 genres:
   search: Search genres
   one: One genre
@@ -310,6 +328,10 @@ collection:
   many_tracks: "%{count} tracks"
   one_album: "1 album"
   many_albums: "%{count} albums"
+  # The third, for the line that adds all three up. A figure like the other two: in
+  # "2 tracks · 1 album · one artist" the one written out is the one that shows.
+  one_artist: "1 artist"
+  many_artists: "%{count} artists"
 
 # The player at the foot of the sidebar, and the buttons that fill it.
 player:

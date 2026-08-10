@@ -85,6 +85,18 @@ const COLLECTION: [Section; 4] = [
     },
 ];
 
+/// What is the account's own rather than the server's.
+///
+/// A heading of its own because the sections are grouped by whose the contents are:
+/// the collection is the server's, and this is yours. One entry for now — the
+/// playlists belong here too, and the heading is what will say they are the same kind
+/// of thing when they arrive.
+const YOURS: [Section; 1] = [Section {
+    path: "/favourites",
+    label: || t!("nav.favourites").to_string(),
+    exact: false,
+}];
+
 /// What only an administrator can reach.
 ///
 /// Under a heading that says what they have in common — they are the server — which
@@ -195,6 +207,9 @@ pub fn Shell(
                         .iter()
                         .map(|section| view! { <Entry section fold /> })
                         .collect_view()}
+
+                    <p class="nav-title">{t!("nav.yours")}</p>
+                    {YOURS.iter().map(|section| view! { <Entry section fold /> }).collect_view()}
 
                     <Show when=move || admin>
                         <p class="nav-title">{t!("nav.server")}</p>

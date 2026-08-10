@@ -392,6 +392,40 @@ pub async fn artists(search: &str, offset: usize, limit: i64) -> Result<Artists,
     read(get(&format!("/artists?{}", window(search, offset, limit)))?).await
 }
 
+/// The same three listings, narrowed to what this account has marked.
+///
+/// Three calls of one line each and no screen of their own on the server: favourites
+/// are the collection filtered, so what answers them is what answers everything else,
+/// and a search inside them is the search that was already there.
+pub async fn starred_tracks(search: &str, offset: usize, limit: i64) -> Result<Tracks, Failure> {
+    read(get(&format!(
+        "/tracks?starred=true&{}",
+        window(search, offset, limit)
+    ))?)
+    .await
+}
+
+pub async fn starred_albums(search: &str, offset: usize, limit: i64) -> Result<Albums, Failure> {
+    read(get(&format!(
+        "/albums?starred=true&{}",
+        window(search, offset, limit)
+    ))?)
+    .await
+}
+
+pub async fn starred_artists(search: &str, offset: usize, limit: i64) -> Result<Artists, Failure> {
+    read(get(&format!(
+        "/artists?starred=true&{}",
+        window(search, offset, limit)
+    ))?)
+    .await
+}
+
+/// How much of the collection this account has marked, for the tabs that count it.
+pub async fn favourites() -> Result<tocata::types::Favourites, Failure> {
+    read(get("/favourites")?).await
+}
+
 /// One track, by identifier.
 ///
 /// What the player asks as it steps onto a track: a queue is identifiers, so this is
@@ -437,24 +471,45 @@ pub async fn lyrics(id: &str) -> Result<tocata::types::Lyrics, Failure> {
     read(get(&format!("/tracks/{id}/lyrics"))?).await
 }
 
+/// What a listing, or the queue drawn from one, is narrowed to.
+///
+/// This side of the server's own filter, and assembled as a value rather than passed
+/// as five arguments: two of them are yes-or-no, and a pair of bare `false`s in a call
+/// is a bug waiting for somebody to write them the wrong way round.
+#[derive(Default)]
+pub struct Narrowing {
+    /// What was typed. Empty narrows nothing.
+    pub search: String,
+    /// The identifier of an album, an artist, or a genre by name.
+    pub album: Option<String>,
+    pub artist: Option<String>,
+    pub genre: Option<String>,
+    /// Only what this account has marked as a favourite.
+    pub starred: bool,
+}
+
 /// Everything a filter matches, as identifiers, to be played.
 ///
 /// `shuffle` draws the order before any limit is applied, so a shuffled few hundred
 /// are a sample of the whole rather than the first few hundred in a jumble.
 pub async fn queue(
-    search: &str,
-    album: Option<&str>,
-    artist: Option<&str>,
-    genre: Option<&str>,
+    narrowing: Narrowing,
     shuffle: bool,
     limit: Option<i64>,
 ) -> Result<Vec<String>, Failure> {
+    let Narrowing {
+        search,
+        album,
+        artist,
+        genre,
+        starred,
+    } = narrowing;
     let mut query = String::new();
 
     if !search.is_empty() {
         query.push_str(&format!(
             "search={}&",
-            String::from(js_sys::encode_uri_component(search))
+            String::from(js_sys::encode_uri_component(&search))
         ));
     }
     if let Some(album) = album {
@@ -463,12 +518,15 @@ pub async fn queue(
     if let Some(artist) = artist {
         query.push_str(&format!("artist={artist}&"));
     }
+    if starred {
+        query.push_str("starred=true&");
+    }
     // Escaped where the other two are not: those are identifiers this server made,
     // and a genre is whatever a tagger typed.
     if let Some(genre) = genre {
         query.push_str(&format!(
             "genre={}&",
-            String::from(js_sys::encode_uri_component(genre))
+            String::from(js_sys::encode_uri_component(&genre))
         ));
     }
     if shuffle {

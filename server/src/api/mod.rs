@@ -21,6 +21,7 @@ mod attention;
 mod collection;
 mod error;
 mod events;
+mod favourites;
 mod health;
 mod jobs;
 mod keys;
@@ -164,6 +165,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(resources::read))
         .routes(routes!(purge::preview))
         .routes(routes!(attention::needing_attention))
+        .routes(routes!(favourites::counts))
         .routes(routes!(collection::tracks))
         .routes(routes!(collection::track))
         .routes(routes!(collection::detail))

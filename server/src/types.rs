@@ -927,6 +927,21 @@ pub struct Tracks {
     pub tracks: Vec<Track>,
 }
 
+/// How much of the collection somebody has marked as theirs.
+///
+/// One answer for the three kinds, because the screen about them draws three tabs and
+/// each carries its own count before it is opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Favourites {
+    pub tracks: i64,
+    pub albums: i64,
+    pub artists: i64,
+    /// How long the marked tracks run, in seconds, counting only the ones still
+    /// there. Absent where none of them has a length.
+    pub duration: Option<i64>,
+}
+
 /// A track as a list shows it.
 ///
 /// Not what `/rest` calls a Child: that carries everything a player might want,
@@ -960,6 +975,13 @@ pub struct Track {
     /// Its file is not where it was. The row says so and stays in the listing,
     /// because a scan marks rather than deletes.
     pub missing: bool,
+    /// When whoever is asking marked it as a favourite, and nothing at all where
+    /// they have not.
+    ///
+    /// The one field here that is about the reader rather than the music, which is
+    /// why it is a date and not a yes: on a listing of what somebody has marked, when
+    /// they marked it is the only fact that is new.
+    pub starred_at: Option<String>,
 }
 
 /// One name on a track, and who that name is.

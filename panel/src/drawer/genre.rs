@@ -71,7 +71,16 @@ pub fn Genre(name: String) -> impl IntoView {
         let mine = name.get_value();
 
         spawn_local(async move {
-            if let Ok(queue) = api::queue("", None, None, Some(&mine), true, None).await {
+            if let Ok(queue) = api::queue(
+                api::Narrowing {
+                    genre: Some(mine),
+                    ..Default::default()
+                },
+                true,
+                None,
+            )
+            .await
+            {
                 player.play(queue, 0);
             }
         });

@@ -94,11 +94,54 @@ macro_rules! a_tracks_row {
                 (SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
                   WHERE tg.track_id = t.id ORDER BY g.name LIMIT 1) AS genre,
                 t.track_number, t.duration_ms, t.suffix, t.bit_rate,
-                t.missing_since IS NOT NULL AS missing
+                t.missing_since IS NOT NULL AS missing,
+                s.starred_at
            FROM tracks t
            LEFT JOIN albums al ON al.id = t.album_id
            LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.role = 'albumartist'
-           LEFT JOIN artists ar ON ar.id = aa.artist_id"
+           LEFT JOIN artists ar ON ar.id = aa.artist_id
+           -- The one column in a row that is not a fact about the music but about
+           -- whoever is reading it. Left open at the end, like the visible
+           -- libraries: whoever assembles the statement binds the account here.
+           LEFT JOIN user_track_stats s ON s.track_id = t.id AND s.user_id = "
+    };
+}
+
+/// Whether this account has marked something as a favourite.
+///
+/// One shape for the three kinds, because the three tables are the same table with a
+/// different column in the middle. Left open at the end for the account, the same as
+/// everything else here that has to know who is asking.
+macro_rules! is_starred {
+    ($table:literal, $column:literal, $id:literal) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM ",
+            $table,
+            " st WHERE st.",
+            $column,
+            " = ",
+            $id,
+            " AND st.starred_at IS NOT NULL AND st.user_id = "
+        )
+    };
+}
+
+/// When they marked it, for the listings that are ordered by that.
+///
+/// The same question as `is_starred!` asked for a value instead of a yes, and it has
+/// to be a second question: the row this orders is drawn from the music's tables, and
+/// only a track's row joins the marks directly.
+macro_rules! starred_when {
+    ($table:literal, $column:literal, $id:literal) => {
+        concat!(
+            "(SELECT st.starred_at FROM ",
+            $table,
+            " st WHERE st.",
+            $column,
+            " = ",
+            $id,
+            " AND st.user_id = "
+        )
     };
 }
 
@@ -150,6 +193,18 @@ pub struct Filter {
     /// asked knows what order they wanted, and reordering fifty rows client-side is
     /// nothing next to a second statement here that could not use the index.
     pub ids: Option<String>,
+    /// Only what this account has marked as a favourite.
+    ///
+    /// Favourites are not a fifth kind of thing to list, they are the collection
+    /// narrowed by who is reading it — so they are a filter beside the other four and
+    /// compound with them the same way. Which is what makes searching your own
+    /// favourites, or playing them, the listings that already exist.
+    ///
+    /// It is the one filter that reorders what it narrows: newest marked first.
+    /// Everywhere else the order is the music's own, but on a screen about what you
+    /// have marked, when you marked it is the only fact that is new.
+    #[serde(default)]
+    pub starred: bool,
 }
 
 impl Filter {
@@ -244,27 +299,33 @@ pub async fn tracks(
 
     let mut builder = QueryBuilder::new(visible_libraries_head!());
     builder.push_bind(who);
-    builder.push(concat!(
-        visible_libraries_tail!(),
-        a_tracks_row!(),
-        " WHERE t.library_id IN (SELECT id FROM visible_libraries)"
-    ));
-    narrow(&mut builder, &filter);
-    // By artist, then record, then the order the songs are in on it.
-    //
-    // The sort is over three tables and no index covers it, so SQLite orders the
-    // lot before it takes the page. Measured against twenty-four thousand tracks:
-    // twelve milliseconds for the first page and fifty-four for the last, which
-    // is only reached by somebody who has scrolled through four hundred of them.
-    // Worth knowing if it ever wants improving — the answer would be a sort key
-    // written by the scanner — and not worth carrying that key around before
-    // then.
-    builder.push(
-        " ORDER BY ar.sort_name COLLATE NOCASE, ar.name COLLATE NOCASE,
-                   al.year, al.name COLLATE NOCASE,
-                   t.disc_number, t.track_number, t.title COLLATE NOCASE
-            LIMIT ",
-    );
+    builder.push(concat!(visible_libraries_tail!(), a_tracks_row!()));
+    builder.push_bind(who);
+    builder.push(" WHERE t.library_id IN (SELECT id FROM visible_libraries)");
+    narrow(&mut builder, who, &filter);
+
+    if filter.starred {
+        // Newest first, and it costs nothing extra: the marks are already joined for
+        // the column, and the index on (user, starred_at) is the order asked for.
+        builder.push(" ORDER BY s.starred_at DESC LIMIT ");
+    } else {
+        // By artist, then record, then the order the songs are in on it.
+        //
+        // The sort is over three tables and no index covers it, so SQLite orders the
+        // lot before it takes the page. Measured against twenty-four thousand tracks:
+        // twelve milliseconds for the first page and fifty-four for the last, which
+        // is only reached by somebody who has scrolled through four hundred of them.
+        // Worth knowing if it ever wants improving — the answer would be a sort key
+        // written by the scanner — and not worth carrying that key around before
+        // then.
+        builder.push(
+            " ORDER BY ar.sort_name COLLATE NOCASE, ar.name COLLATE NOCASE,
+                       al.year, al.name COLLATE NOCASE,
+                       t.disc_number, t.track_number, t.title COLLATE NOCASE
+                LIMIT ",
+        );
+    }
+
     builder.push_bind(limit);
     builder.push(" OFFSET ");
     builder.push_bind(offset);
@@ -312,8 +373,9 @@ pub async fn track(
     let row: Option<TrackRow> = sqlx::query_as(concat!(
         visible_libraries!(),
         a_tracks_row!(),
-        " WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
+        "? WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
     ))
+    .bind(panel.user.id)
     .bind(panel.user.id)
     .bind(&id)
     .fetch_optional(&pool)
@@ -611,10 +673,21 @@ pub async fn queue(
           WHERE t.library_id IN (SELECT id FROM visible_libraries)
             AND t.missing_since IS NULL"
     ));
-    narrow(&mut builder, &filter);
+    narrow(&mut builder, panel.user.id, &filter);
 
     if playing.shuffle {
         builder.push(" ORDER BY random()");
+    } else if filter.starred {
+        // The order the listing is in, for the same reason the listing is in it: what
+        // plays has to be what you are looking at. A queue ordered by artist under a
+        // screen ordered by when you marked things would put a different song after
+        // this one than the row below it.
+        builder.push(concat!(
+            " ORDER BY ",
+            starred_when!("user_track_stats", "track_id", "t.id")
+        ));
+        builder.push_bind(panel.user.id);
+        builder.push(") DESC");
     } else {
         builder.push(
             " ORDER BY ar.sort_name COLLATE NOCASE, ar.name COLLATE NOCASE,
@@ -685,12 +758,23 @@ pub async fn albums(
           WHERE ",
         album_is_visible!("al.id")
     ));
-    narrow_albums(&mut builder, &filter);
-    builder.push(
-        " ORDER BY ar.sort_name COLLATE NOCASE, ar.name COLLATE NOCASE,
-                   al.year, al.name COLLATE NOCASE
-            LIMIT ",
-    );
+    narrow_albums(&mut builder, who, &filter);
+
+    if filter.starred {
+        builder.push(concat!(
+            " ORDER BY ",
+            starred_when!("user_album_stats", "album_id", "al.id")
+        ));
+        builder.push_bind(who);
+        builder.push(") DESC LIMIT ");
+    } else {
+        builder.push(
+            " ORDER BY ar.sort_name COLLATE NOCASE, ar.name COLLATE NOCASE,
+                       al.year, al.name COLLATE NOCASE
+                LIMIT ",
+        );
+    }
+
     builder.push_bind(limit);
     builder.push(" OFFSET ");
     builder.push_bind(offset);
@@ -900,7 +984,24 @@ pub async fn artists(
         builder.push_bind(matching);
         builder.push(")");
     }
-    builder.push(" ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE LIMIT ");
+    only_starred(
+        &mut builder,
+        who,
+        &filter,
+        is_starred!("user_artist_stats", "artist_id", "a.id"),
+    );
+
+    if filter.starred {
+        builder.push(concat!(
+            " ORDER BY ",
+            starred_when!("user_artist_stats", "artist_id", "a.id")
+        ));
+        builder.push_bind(who);
+        builder.push(") DESC LIMIT ");
+    } else {
+        builder.push(" ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE LIMIT ");
+    }
+
     builder.push_bind(limit);
     builder.push(" OFFSET ");
     builder.push_bind(offset);
@@ -1346,7 +1447,7 @@ async fn count(
                    LEFT JOIN albums al ON al.id = t.album_id
                   WHERE t.library_id IN (SELECT id FROM visible_libraries)"
             ));
-            narrow(&mut builder, filter);
+            narrow(&mut builder, who, filter);
         }
         Countable::Albums => {
             builder.push(concat!(
@@ -1354,7 +1455,7 @@ async fn count(
                 "SELECT count(*) FROM albums al WHERE ",
                 album_is_visible!("al.id")
             ));
-            narrow_albums(&mut builder, filter);
+            narrow_albums(&mut builder, who, filter);
         }
         Countable::Artists => {
             builder.push(concat!(
@@ -1369,6 +1470,12 @@ async fn count(
                 builder.push_bind(matching);
                 builder.push(")");
             }
+            only_starred(
+                &mut builder,
+                who,
+                filter,
+                is_starred!("user_artist_stats", "artist_id", "a.id"),
+            );
         }
         Countable::Genres => {
             builder.push(concat!(
@@ -1392,9 +1499,29 @@ async fn count(
         .map_err(|e| ApiError::internal(e, "counting a listing"))
 }
 
+/// The favourites condition, which is the one all three listings share.
+///
+/// The condition itself comes in as a literal from `is_starred!`, so the table and
+/// the column are written where the listing is rather than decided here — what is
+/// common is not the question but that it is asked at all, and that the account is
+/// bound onto the end of it.
+fn only_starred(
+    builder: &mut QueryBuilder<Sqlite>,
+    who: i64,
+    filter: &Filter,
+    condition: &'static str,
+) {
+    if filter.starred {
+        builder.push(" AND ");
+        builder.push(condition);
+        builder.push_bind(who);
+        builder.push(")");
+    }
+}
+
 /// The conditions a track listing takes on, appended to a statement that has
 /// already opened its `WHERE`.
-fn narrow(builder: &mut QueryBuilder<Sqlite>, filter: &Filter) {
+fn narrow(builder: &mut QueryBuilder<Sqlite>, who: i64, filter: &Filter) {
     if let Some(ids) = filter.named() {
         builder.push(" AND t.public_id IN (");
 
@@ -1442,11 +1569,18 @@ fn narrow(builder: &mut QueryBuilder<Sqlite>, filter: &Filter) {
         builder.push_bind(genre.clone());
         builder.push(")");
     }
+
+    only_starred(
+        builder,
+        who,
+        filter,
+        is_starred!("user_track_stats", "track_id", "t.id"),
+    );
 }
 
 /// The same, for a listing of albums. No album filter, since an album is not in
 /// an album.
-fn narrow_albums(builder: &mut QueryBuilder<Sqlite>, filter: &Filter) {
+fn narrow_albums(builder: &mut QueryBuilder<Sqlite>, who: i64, filter: &Filter) {
     if let Some(matching) = searching(filter) {
         builder.push(" AND al.id IN (SELECT f.rowid FROM albums_fts f WHERE albums_fts MATCH ");
         builder.push_bind(matching);
@@ -1472,6 +1606,13 @@ fn narrow_albums(builder: &mut QueryBuilder<Sqlite>, filter: &Filter) {
         builder.push_bind(genre.clone());
         builder.push(")");
     }
+
+    only_starred(
+        builder,
+        who,
+        filter,
+        is_starred!("user_album_stats", "album_id", "al.id"),
+    );
 }
 
 /// What was typed, as something FTS5 will take, or nothing when it amounts to no
@@ -1502,6 +1643,7 @@ struct TrackRow {
     suffix: String,
     bit_rate: Option<i64>,
     missing: bool,
+    starred_at: Option<String>,
 }
 
 impl From<TrackRow> for Track {
@@ -1520,6 +1662,7 @@ impl From<TrackRow> for Track {
             suffix: row.suffix,
             bit_rate: row.bit_rate,
             missing: row.missing,
+            starred_at: row.starred_at,
         }
     }
 }
@@ -3557,5 +3700,240 @@ mod tests {
                 .unwrap();
 
         assert!(counted.is_none());
+    }
+
+    /// Marks something as a favourite the way `/rest` does, at a stated moment.
+    ///
+    /// The statement is picked from three written out in full rather than assembled,
+    /// because sqlx will not take a query built at runtime — and rightly: a table name
+    /// pasted into SQL is the shape an injection takes.
+    async fn marked(pool: &SqlitePool, table: &str, who: i64, what: i64, at: &str) {
+        let statement = match table {
+            "user_track_stats" => {
+                "INSERT INTO user_track_stats (user_id, track_id, starred_at) VALUES (?, ?, ?)"
+            }
+            "user_album_stats" => {
+                "INSERT INTO user_album_stats (user_id, album_id, starred_at) VALUES (?, ?, ?)"
+            }
+            _ => "INSERT INTO user_artist_stats (user_id, artist_id, starred_at) VALUES (?, ?, ?)",
+        };
+
+        sqlx::query(statement)
+            .bind(who)
+            .bind(what)
+            .bind(at)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    fn only_mine() -> Query<Filter> {
+        Query(Filter {
+            starred: true,
+            ..Default::default()
+        })
+    }
+
+    /// A listing narrowed to what you have marked, newest first.
+    ///
+    /// Two things at once, and they belong together: the filter says which rows and it
+    /// is the one filter that also says their order. Everywhere else the order is the
+    /// music's own — by artist, then record — and here it is when you marked it, which
+    /// is the only fact on the screen that is new.
+    #[tokio::test]
+    async fn a_track_listing_can_be_narrowed_to_what_you_marked() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let who = ana.user.id;
+
+        // Two of the four marked, the second one first, so the order cannot be
+        // mistaken for the order they sit on their records.
+        marked(&pool, "user_track_stats", who, 11, "2026-08-01T00:00:00Z").await;
+        marked(&pool, "user_track_stats", who, 20, "2026-08-05T00:00:00Z").await;
+        // And one of somebody else's, on a track this account has not marked.
+        let bea = somebody_else(&pool).await.user.id;
+        marked(&pool, "user_track_stats", bea, 10, "2026-08-09T00:00:00Z").await;
+
+        let Json(mine) = tracks(ana, State(pool.clone()), only_mine(), all_of_it())
+            .await
+            .unwrap();
+
+        assert_eq!(mine.total, 2, "counted the same way as the rows are chosen");
+        assert_eq!(
+            mine.tracks
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["t20", "t11"],
+            "the most recently marked at the top"
+        );
+        assert!(
+            mine.tracks.iter().all(|t| t.starred_at.is_some()),
+            "and each one says when"
+        );
+    }
+
+    /// Whose favourites they are is the reader's, not the collection's.
+    #[tokio::test]
+    async fn nobody_sees_what_somebody_else_marked() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        marked(
+            &pool,
+            "user_track_stats",
+            ana.user.id,
+            11,
+            "2026-08-01T00:00:00Z",
+        )
+        .await;
+
+        let Json(theirs) = tracks(
+            somebody_else(&pool).await,
+            State(pool.clone()),
+            only_mine(),
+            all_of_it(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(theirs.total, 0);
+        assert!(theirs.tracks.is_empty());
+
+        // And an ordinary listing says nothing about anybody's marks either way.
+        let Json(all) = tracks(ana, State(pool), nothing(), all_of_it())
+            .await
+            .unwrap();
+        let ones = all
+            .tracks
+            .iter()
+            .filter(|track| track.starred_at.is_some())
+            .count();
+        assert_eq!(ones, 1, "hers, and only where she put it");
+    }
+
+    /// The favourites filter compounds with the others, which is the whole reason it is
+    /// a filter rather than a listing of its own: a search over your own favourites is
+    /// the search that already exists.
+    #[tokio::test]
+    async fn a_search_inside_your_favourites_narrows_both_ways() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let who = ana.user.id;
+
+        // Both records marked, and a search for one of them.
+        marked(&pool, "user_track_stats", who, 10, "2026-08-01T00:00:00Z").await;
+        marked(&pool, "user_track_stats", who, 20, "2026-08-02T00:00:00Z").await;
+
+        let asked = Query(Filter {
+            starred: true,
+            search: Some("Agobio".to_string()),
+            ..Default::default()
+        });
+
+        let Json(found) = tracks(ana, State(pool.clone()), asked, all_of_it())
+            .await
+            .unwrap();
+
+        assert_eq!(found.total, 1);
+        assert_eq!(found.tracks[0].id, "t20");
+    }
+
+    /// A favourite in a library the account may not reach is not one of its rows.
+    ///
+    /// The mark is the account's, so nothing about it lifts the wall around a library:
+    /// the two conditions are separate and both have to hold.
+    #[tokio::test]
+    async fn a_favourite_behind_the_wall_stays_behind_it() {
+        let pool = a_collection().await;
+        let walled = somebody(&pool, true).await;
+        let who = walled.user.id;
+
+        // t20 and album 2 are in the second library, which this account cannot see.
+        marked(&pool, "user_track_stats", who, 20, "2026-08-01T00:00:00Z").await;
+        marked(&pool, "user_album_stats", who, 2, "2026-08-01T00:00:00Z").await;
+
+        let Json(songs) = tracks(
+            walled.clone_for_test(),
+            State(pool.clone()),
+            only_mine(),
+            all_of_it(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(songs.total, 0, "hers, and out of reach");
+
+        let Json(records) = albums(walled, State(pool), only_mine(), all_of_it())
+            .await
+            .unwrap();
+        assert_eq!(records.total, 0);
+    }
+
+    /// The other two kinds narrow the same way, and are ordered the same way.
+    #[tokio::test]
+    async fn records_and_names_can_be_narrowed_to_what_you_marked() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let who = ana.user.id;
+
+        marked(&pool, "user_album_stats", who, 1, "2026-08-01T00:00:00Z").await;
+        marked(&pool, "user_album_stats", who, 2, "2026-08-05T00:00:00Z").await;
+        marked(&pool, "user_artist_stats", who, 1, "2026-08-01T00:00:00Z").await;
+
+        let Json(records) = albums(
+            ana.clone_for_test(),
+            State(pool.clone()),
+            only_mine(),
+            all_of_it(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(records.total, 2);
+        assert_eq!(
+            records
+                .albums
+                .iter()
+                .map(|al| al.id.as_str())
+                .collect::<Vec<_>>(),
+            ["al2", "al1"],
+            "the most recently marked at the top"
+        );
+
+        let Json(names) = artists(ana, State(pool), only_mine(), all_of_it())
+            .await
+            .unwrap();
+        assert_eq!(names.total, 1);
+        assert_eq!(names.artists[0].id, "ar1");
+    }
+
+    /// What plays when you press play on your favourites is your favourites.
+    ///
+    /// The queue reads the same filter as the listing, so this needs nothing of its
+    /// own — which is the point of the filter, and worth a test because a queue that
+    /// quietly ignored it would play the whole collection instead.
+    #[tokio::test]
+    async fn a_queue_can_be_drawn_from_what_you_marked() {
+        let pool = a_collection().await;
+        let ana = somebody(&pool, false).await;
+        let who = ana.user.id;
+
+        // Marked in the order that is not the order they sit on their records — t10 is
+        // on the earlier record, so a queue by artist and album would lead with it and
+        // a queue by when they were marked leads with t20. Which is the whole of what
+        // this asserts, and the pair the other way round could not tell them apart.
+        marked(&pool, "user_track_stats", who, 10, "2026-08-01T00:00:00Z").await;
+        marked(&pool, "user_track_stats", who, 20, "2026-08-02T00:00:00Z").await;
+        // A marked track whose file has gone, which a queue leaves out like any other:
+        // it stays in the listing to be looked at and there is nothing to play.
+        marked(&pool, "user_track_stats", who, 11, "2026-08-03T00:00:00Z").await;
+
+        let Json(queued) = queue(ana, State(pool), only_mine(), Query(Playing::default()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            queued.tracks,
+            ["t20", "t10"],
+            "the order the screen shows, so the row below is the song after"
+        );
     }
 }

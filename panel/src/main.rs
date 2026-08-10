@@ -209,6 +209,16 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                         view=move || view! { <pages::genres::Genres admin on_expired=forget /> }
                     />
 
+                    // What is the account's own. Not administration and not the
+                    // collection either — the same music, narrowed to what whoever is
+                    // asking has marked.
+                    <Route
+                        path=path!("/favourites")
+                        view=move || {
+                            view! { <pages::favourites::Favourites on_expired=forget /> }
+                        }
+                    />
+
                     // The administration sections. The menu does not offer these
                     // to anybody else and the server refuses them regardless, so
                     // what is left to handle here is a URL typed by hand — and what
@@ -290,7 +300,7 @@ mod tests {
     /// same reason the translations are read from the source.
     /// Named as well as read, so a test that finds one word on two screens can say
     /// which two.
-    const SOURCES: [(&str, &str); 23] = [
+    const SOURCES: [(&str, &str); 24] = [
         ("main.rs", include_str!("main.rs")),
         ("icon.rs", include_str!("icon.rs")),
         ("layout.rs", include_str!("layout.rs")),
@@ -311,6 +321,7 @@ mod tests {
         ("pages/albums.rs", include_str!("pages/albums.rs")),
         ("pages/artists.rs", include_str!("pages/artists.rs")),
         ("pages/genres.rs", include_str!("pages/genres.rs")),
+        ("pages/favourites.rs", include_str!("pages/favourites.rs")),
         ("pages/endless.rs", include_str!("pages/endless.rs")),
         ("player.rs", include_str!("player.rs")),
         ("queue.rs", include_str!("queue.rs")),

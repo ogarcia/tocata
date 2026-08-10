@@ -45,7 +45,16 @@ pub fn Artist(id: String) -> impl IntoView {
         let mine = id.get_value();
 
         spawn_local(async move {
-            if let Ok(queue) = api::queue("", None, Some(&mine), None, true, None).await {
+            if let Ok(queue) = api::queue(
+                api::Narrowing {
+                    artist: Some(mine),
+                    ..Default::default()
+                },
+                true,
+                None,
+            )
+            .await
+            {
                 player.play(queue, 0);
             }
         });

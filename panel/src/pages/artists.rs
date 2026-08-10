@@ -83,6 +83,26 @@ pub fn Artists(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             />
         </Show>
 
+        <Crowd reel />
+
+        <Foot
+            shown=reel.shown()
+            total=reel.total
+            fetching=reel.fetching
+            stumbled=Signal::derive(move || {
+                reel.failure.with(Option::is_some) && !reel.rows.with(Vec::is_empty)
+            })
+            on_reach=Callback::new(move |()| reel.more())
+            on_retry=Callback::new(move |()| reel.again())
+        />
+    }
+}
+
+/// The names as rows, wherever they are being listed: here and among your own
+/// favourites, which is this same list narrowed to what you have marked.
+#[component]
+pub(super) fn Crowd(reel: Reel<Artist>) -> impl IntoView {
+    view! {
         <ul class="crowd">
             <For each=move || reel.rows.get() key=|artist| artist.id.clone() let:artist>
                 <li on:click=move |_| {
@@ -97,17 +117,6 @@ pub fn Artists(admin: bool, on_expired: Callback<()>) -> impl IntoView {
                 </li>
             </For>
         </ul>
-
-        <Foot
-            shown=reel.shown()
-            total=reel.total
-            fetching=reel.fetching
-            stumbled=Signal::derive(move || {
-                reel.failure.with(Option::is_some) && !reel.rows.with(Vec::is_empty)
-            })
-            on_reach=Callback::new(move |()| reel.more())
-            on_retry=Callback::new(move |()| reel.again())
-        />
     }
 }
 

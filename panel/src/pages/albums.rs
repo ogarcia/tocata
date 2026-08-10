@@ -81,11 +81,7 @@ pub fn Albums(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             />
         </Show>
 
-        <div class="shelves">
-            <For each=move || reel.rows.get() key=|album| album.id.clone() let:album>
-                <Sleeve album />
-            </For>
-        </div>
+        <Shelf reel />
 
         <Foot
             shown=reel.shown()
@@ -97,6 +93,22 @@ pub fn Albums(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             on_reach=Callback::new(move |()| reel.more())
             on_retry=Callback::new(move |()| reel.again())
         />
+    }
+}
+
+/// The records as a shelf of covers, wherever they are being listed.
+///
+/// Here and among your own favourites, which is this same shelf over a listing
+/// narrowed to what you have marked. Nothing about a record changes on that screen —
+/// unlike a track row, which swaps a column — so it takes no argument.
+#[component]
+pub(super) fn Shelf(reel: Reel<Album>) -> impl IntoView {
+    view! {
+        <div class="shelves">
+            <For each=move || reel.rows.get() key=|album| album.id.clone() let:album>
+                <Sleeve album />
+            </For>
+        </div>
     }
 }
 
@@ -140,7 +152,16 @@ fn Sleeve(album: Album) -> impl IntoView {
         let mine = id.get_value();
 
         spawn_local(async move {
-            if let Ok(queue) = api::queue("", Some(&mine), None, None, false, None).await {
+            if let Ok(queue) = api::queue(
+                api::Narrowing {
+                    album: Some(mine),
+                    ..Default::default()
+                },
+                false,
+                None,
+            )
+            .await
+            {
                 player.play(queue, 0);
             }
         });

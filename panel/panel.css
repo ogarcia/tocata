@@ -2323,6 +2323,65 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
 
 .kinds .figure { color: var(--quiet); }
 
+/* --- what is yours -------------------------------------------------------- */
+
+/* The three kinds of thing you can have marked, over the listing of whichever is
+ * showing. Not the drawer's tab strip: that divides one thing into parts and sits
+ * inside a panel with its own padding, and these are three listings that happen to be
+ * about the same account.
+ *
+ * No rule across the bottom either, because the listing under it brings its own — a
+ * hairline here would sit a hand's width above another one. */
+.picking {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.375rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Text and not pills, like every other choice in this panel. The line under the
+ * chosen one is there at rest in transparent, so choosing another moves nothing. */
+.picking button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--control);
+  cursor: pointer;
+}
+
+.picking button:hover { color: var(--ink); }
+
+.picking .chosen {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Lifted into the accent rather than ringed, like every other borderless control
+ * here: a box appearing round a bare word reads as something that was not there a
+ * moment ago. */
+.picking button:focus-visible {
+  outline: none;
+  color: var(--accent);
+}
+
+/* How many of that kind there are, which stays quiet on the chosen one as well: it is
+ * a figure beside a word, not part of the word. */
+.picking .figure {
+  color: var(--quiet);
+  font-size: var(--aside);
+}
+
+/* Every one of these is a 44px target on a phone. */
+@media (max-width: 45rem) {
+  .picking button { padding: 0.75rem 0; }
+}
+
 /* What a search left, at the end of the field it was typed into. */
 .search .found {
   flex: 0 0 auto;

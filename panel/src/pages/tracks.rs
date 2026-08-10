@@ -90,6 +90,33 @@ pub fn Tracks(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             />
         </Show>
 
+        <Table reel starred=false />
+
+        <Foot
+            shown=reel.shown()
+            total=reel.total
+            fetching=reel.fetching
+            stumbled=Signal::derive(move || {
+                reel.failure.with(Option::is_some) && !reel.rows.with(Vec::is_empty)
+            })
+            on_reach=Callback::new(move |()| reel.more())
+            on_retry=Callback::new(move |()| reel.again())
+        />
+    }
+}
+
+/// The tracks as a table, wherever the tracks are being listed.
+///
+/// Here and on the screen about your own favourites, which is this same table over a
+/// listing narrowed to what you have marked — so it belongs to whoever owns the shape
+/// of a track row rather than being written out twice.
+///
+/// `starred` is what that screen is: it decides the fifth column, since when you
+/// marked something is the only new fact there and a genre is not what anybody came
+/// for, and it decides what pressing play queues up.
+#[component]
+pub(super) fn Table(reel: Reel<Track>, starred: bool) -> impl IntoView {
+    view! {
         <Show when=move || !reel.rows.with(Vec::is_empty)>
             // No box of its own scrolling sideways here, unlike the roster of
             // accounts: the heading has to stay put while the rows go past it, and
@@ -107,34 +134,29 @@ pub fn Tracks(admin: bool, on_expired: Callback<()>) -> impl IntoView {
                     <span>{t!("tracks.title")}</span>
                     <span>{t!("tracks.artist")}</span>
                     <span>{t!("tracks.album")}</span>
-                    <span>{t!("tracks.genre")}</span>
+                    <span>
+                        {if starred {
+                            t!("favourites.marked").to_string()
+                        } else {
+                            t!("tracks.genre").to_string()
+                        }}
+                    </span>
                     <span class="figure">{t!("tracks.length")}</span>
                 </div>
 
                 <ul class="listing">
                     <For each=move || reel.rows.get() key=|track| track.id.clone() let:track>
-                        <Row track reel />
+                        <Row track reel starred />
                     </For>
                 </ul>
             </div>
         </Show>
-
-        <Foot
-            shown=reel.shown()
-            total=reel.total
-            fetching=reel.fetching
-            stumbled=Signal::derive(move || {
-                reel.failure.with(Option::is_some) && !reel.rows.with(Vec::is_empty)
-            })
-            on_reach=Callback::new(move |()| reel.more())
-            on_retry=Callback::new(move |()| reel.again())
-        />
     }
 }
 
 /// One track, as a row.
 #[component]
-fn Row(track: Track, reel: Reel<Track>) -> impl IntoView {
+fn Row(track: Track, reel: Reel<Track>, starred: bool) -> impl IntoView {
     let player = crate::player::player();
 
     // A file that is not where it was. The row stays — a scan marks rather than
@@ -182,9 +204,17 @@ fn Row(track: Track, reel: Reel<Track>) -> impl IntoView {
         let mine = id.get_value();
 
         spawn_local(async move {
-            let cap = needle.is_empty().then_some(A_SITTING);
+            // Never a cap on what somebody marked: a hundred favourites are a
+            // hundred choices already made, where a hundred hours of unfiltered
+            // collection are nobody's choice at all.
+            let cap = (!starred && needle.is_empty()).then_some(A_SITTING);
+            let narrowing = api::Narrowing {
+                search: needle,
+                starred,
+                ..Default::default()
+            };
 
-            if let Ok(queue) = api::queue(&needle, None, None, None, false, cap).await {
+            if let Ok(queue) = api::queue(narrowing, false, cap).await {
                 // Where the row sits in that queue, which is not where it sits on
                 // screen: a missing track has no button but still holds a row, so the
                 // two can differ by the time you are far enough down.
@@ -251,7 +281,16 @@ fn Row(track: Track, reel: Reel<Track>) -> impl IntoView {
             <span class="what">{track.title}</span>
             <span class="by">{credited}</span>
             <span class="from">{track.album.unwrap_or_else(|| super::MISSING.to_string())}</span>
-            <span class="kind">{track.genre.unwrap_or_else(|| super::MISSING.to_string())}</span>
+            // The genre, or when you marked it on the screen that is about that. The
+            // same cell either way, so the table keeps its columns: a favourite is the
+            // collection filtered, not a wider thing to draw.
+            <span class="kind">
+                {match (starred, track.starred_at) {
+                    (true, Some(at)) => super::since(&at),
+                    (true, None) => super::MISSING.to_string(),
+                    (false, _) => track.genre.unwrap_or_else(|| super::MISSING.to_string()),
+                }}
+            </span>
             <span class="figure">
                 {track.duration.map(super::length).unwrap_or_else(|| super::MISSING.to_string())}
             </span>
