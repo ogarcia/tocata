@@ -5190,6 +5190,48 @@ select.narrow { width: 12.5rem; }
 
 .deeds .leading:hover { color: var(--accent); }
 
+/* The heart, and whatever joins it later: a glyph rather than a word, because the
+ * corner beside it belongs to the deed that is the point of the panel and two more
+ * words there would read as three things of equal rank.
+ *
+ * Square and 2.5rem, so the target is the button rather than the 1rem glyph inside
+ * it, and pulled out on the left by its own padding so the mark lines up with the
+ * text above rather than sitting a hand's width in from it. */
+.deeds .mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-left: -0.75rem;
+  margin-right: -0.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+}
+
+.deeds .mark .icon {
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+.deeds .mark:hover { color: var(--ink); }
+
+/* The one control at this foot that carries state, so the one that takes the accent.
+ * The glyph itself changes too — outlined to filled — because a colour on its own is
+ * an answer somebody may not be able to see. */
+.deeds .marked { color: var(--accent); }
+
+.deeds .marked:hover { color: var(--accent); }
+
+.deeds .mark:focus-visible {
+  outline: none;
+  color: var(--accent);
+}
+
 /* The word that stands where a button stood, for the two seconds after queueing a
  * track. It has to measure the same as the button it replaced — same size, same box —
  * or the foot of the panel changes height the moment somebody presses it and changes
@@ -5378,4 +5420,8 @@ select.narrow { width: 12.5rem; }
   .tabs button { padding: 0.9375rem 0; }
 
   .deeds button, .deeds .quiet { min-height: 2.75rem; }
+
+  /* Square at 44px, since this one is a target and not a word: the height comes from
+   * the rule above and only the width is left to say. */
+  .deeds .mark { width: 2.75rem; }
 }

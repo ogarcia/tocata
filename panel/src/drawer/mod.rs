@@ -27,8 +27,10 @@ pub mod artist;
 pub mod genre;
 pub mod track;
 
+use crate::api;
 use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use rust_i18n::t;
 use tocata::types::Credit;
 
@@ -48,6 +50,26 @@ pub enum Open {
 /// The one signal that says. Held above the router so it survives nothing and
 /// reaches everything.
 pub type Opened = RwSignal<Option<Open>>;
+
+/// How many times a favourite mark has been changed from a panel.
+///
+/// A counter and not a list of what changed, because the one screen that cares — the
+/// listing of what you have marked — has to read itself again either way: a row that
+/// stopped being a favourite while its own panel was open over it is a row that no
+/// longer belongs to that listing, and no amount of detail about which row saves the
+/// count in the tabs beside it.
+///
+/// Provided by the shell, like [`Opened`], so a panel can say it without knowing what
+/// is behind it.
+pub type Marks = RwSignal<u64>;
+
+/// Says a mark changed. Nothing happens where nobody is listening, which is every
+/// screen but one.
+fn marked_something() {
+    if let Some(marks) = use_context::<Marks>() {
+        marks.update(|many| *many += 1);
+    }
+}
 
 /// Reaches it. Provided by the shell, which is above every screen that opens one.
 pub fn opened() -> Opened {
@@ -252,6 +274,81 @@ fn Enlarged(
 /// has no arranger, and a row reading "Arranger —" is the panel inventing a question
 /// nobody asked and answering it with a dash. So what is on screen is what is known,
 /// and the length of the list is itself the answer to how much was tagged.
+/// The heart at the foot of a panel: whether this is one of yours.
+///
+/// In the footer beside the deed that is the point of the panel, never in the header:
+/// the only free corner up there is the one Close is in, and a heart within a thumb's
+/// slip of a close button is a mis-tap waiting to happen.
+///
+/// One component for a track, a record and a name, because marking is the same gesture
+/// whatever it is about — and deliberately not in a genre's panel, which has nothing to
+/// mark: a genre is whatever a tagger typed, with no row of its own to hang a mark on.
+///
+/// **The state is the glyph, not only the colour.** A filled heart in the accent and an
+/// outlined one in grey, so the answer survives a colour nobody can see — and the two
+/// share an outline exactly, so pressing it moves nothing.
+///
+/// **The mark goes up before the server answers.** It is the reader's own row and there
+/// is nothing to reconcile with anybody else; a heart that waited would feel broken on a
+/// slow connection. A refusal puts it back, which is the whole of the error handling
+/// this needs: what failed is visible, in the one place it was asked for.
+#[component]
+pub fn Heart(
+    what: api::Marking,
+    /// Which one, once the panel knows. Nothing while the answer is on its way, and
+    /// then there is nothing to press either.
+    id: Signal<Option<String>>,
+    /// When it was marked, as the panel was told. What it is *now* lives here after the
+    /// first press.
+    marked: Signal<Option<String>>,
+) -> impl IntoView {
+    // What the panel was told, until this button says otherwise. `None` means "as the
+    // server left it", which is what keeps a panel reopened on the same thing from
+    // showing the answer from before it was pressed.
+    let pressed = RwSignal::new(None::<bool>);
+    let is_marked = move || pressed.get().unwrap_or_else(|| marked.get().is_some());
+
+    let press = move |_| {
+        let Some(id) = id.get_untracked() else { return };
+        let wanted = !is_marked();
+
+        pressed.set(Some(wanted));
+
+        spawn_local(async move {
+            if api::marking(what, &id, wanted).await.is_err() {
+                // Back where it was. Nothing is said in words: what was asked for is
+                // one press in one place, and its undoing is the answer.
+                pressed.set(Some(!wanted));
+                return;
+            }
+
+            marked_something();
+        });
+    };
+
+    view! {
+        <Show when=move || id.get().is_some()>
+            <button
+                class="mark"
+                class:marked=is_marked
+                aria-pressed=move || is_marked().to_string()
+                title=move || {
+                    if is_marked() {
+                        t!("favourites.unmark").to_string()
+                    } else {
+                        t!("favourites.mark").to_string()
+                    }
+                }
+                on:click=press
+            >
+                <Show when=is_marked fallback=|| view! { <Glyph icon=Icon::Favourites /> }>
+                    <Glyph icon=Icon::Marked />
+                </Show>
+            </button>
+        </Show>
+    }
+}
+
 #[component]
 pub fn Fact(
     name: String,

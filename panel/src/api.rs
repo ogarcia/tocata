@@ -70,6 +70,12 @@ fn put<T: Serialize>(path: &str, body: &T) -> Result<Request, Failure> {
     with_body(Request::put(&url(path)), body)
 }
 
+/// A PUT with nothing in it, for the one call whose whole content is its address:
+/// marking something as a favourite says everything in the path it is sent to.
+fn marks(path: &str) -> Result<Request, Failure> {
+    build(Request::put(&url(path)))
+}
+
 fn with_body<T: Serialize>(request: RequestBuilder, body: &T) -> Result<Request, Failure> {
     request
         .credentials(RequestCredentials::SameOrigin)
@@ -424,6 +430,38 @@ pub async fn starred_artists(search: &str, offset: usize, limit: i64) -> Result<
 /// How much of the collection this account has marked, for the tabs that count it.
 pub async fn favourites() -> Result<tocata::types::Favourites, Failure> {
     read(get("/favourites")?).await
+}
+
+/// Which of the three kinds of thing a mark is about.
+///
+/// The path segment the server reads, spelt here so a caller cannot mistype it.
+#[derive(Clone, Copy)]
+pub enum Marking {
+    Track,
+    Album,
+    Artist,
+}
+
+impl Marking {
+    fn kind(self) -> &'static str {
+        match self {
+            Self::Track => "tracks",
+            Self::Album => "albums",
+            Self::Artist => "artists",
+        }
+    }
+}
+
+/// Marks something as a favourite, or takes the mark off.
+///
+/// One call for both because they are one gesture: the heart is pressed and what it
+/// means depends only on whether it was already marked. Both are idempotent on the
+/// server, so a double press cannot leave two marks or two halves of one.
+pub async fn marking(what: Marking, id: &str, wanted: bool) -> Result<(), Failure> {
+    let at = format!("/favourites/{}/{id}", what.kind());
+    let asked = if wanted { marks(&at)? } else { delete(&at)? };
+
+    plain(asked).await
 }
 
 /// One track, by identifier.

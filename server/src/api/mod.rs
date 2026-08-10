@@ -166,6 +166,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(purge::preview))
         .routes(routes!(attention::needing_attention))
         .routes(routes!(favourites::counts))
+        .routes(routes!(favourites::mark, favourites::unmark))
         .routes(routes!(collection::tracks))
         .routes(routes!(collection::track))
         .routes(routes!(collection::detail))

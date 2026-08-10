@@ -1,0 +1,6 @@
+<!-- Tabler's heart, filled: the same path as heart.svg with the stroke kept and
+     the inside painted. Not Tabler's own heart-filled, which is a different and
+     slightly larger outline — with this one the filled and the outlined heart have
+     exactly the same edge, so pressing the button changes a colour and nothing
+     moves. Same arrangement as play-solid.svg beside play.svg. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M19.5 12.572l-7.5 7.428l-7.5 -7.428a5 5 0 1 1 7.5 -6.566a5 5 0 1 1 7.5 6.572"/></svg>

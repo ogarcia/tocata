@@ -55,6 +55,11 @@ pub enum Icon {
     Shuffle,
     Plays,
     Favourites,
+    /// The same heart with its inside painted: what something marked wears. Two marks
+    /// for one idea on purpose, the way play has an outline and a filled triangle —
+    /// the state is the whole of what the button says, and a colour alone is not
+    /// enough to carry it.
+    Marked,
     Ratings,
     Playlists,
     Menu,
@@ -95,6 +100,7 @@ impl Icon {
             Self::Shuffle => include_str!("../icons/shuffle.svg"),
             Self::Plays => include_str!("../icons/play.svg"),
             Self::Favourites => include_str!("../icons/heart.svg"),
+            Self::Marked => include_str!("../icons/heart-solid.svg"),
             Self::Ratings => include_str!("../icons/star.svg"),
             Self::Playlists => include_str!("../icons/playlist.svg"),
             Self::Menu => include_str!("../icons/menu.svg"),

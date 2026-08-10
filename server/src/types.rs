@@ -1076,6 +1076,9 @@ pub struct TrackDetail {
     /// Its file is not where it was, so nothing can be read out of it and nothing
     /// can be played.
     pub missing: bool,
+    /// When whoever is asking marked it as a favourite, and nothing at all where they
+    /// have not. What the heart at the foot of its panel is drawn from.
+    pub starred_at: Option<String>,
 }
 
 /// What a file says about itself, read from the file and not from the database.
@@ -1236,6 +1239,9 @@ pub struct AlbumDetail {
     /// With their identifiers, because a guest is exactly the name somebody wants to
     /// follow: it is how they find out what else of that person is here.
     pub players: Vec<Credit>,
+    /// When whoever is asking marked it as a favourite, and nothing at all where they
+    /// have not. What the heart at the foot of its panel is drawn from.
+    pub starred_at: Option<String>,
 }
 
 /// One track as a record's panel lists it: enough to read down the running order and
@@ -1303,6 +1309,9 @@ pub struct ArtistDetail {
     pub records: Vec<ArtistAlbum>,
     /// Their most played songs, across everybody who listens here.
     pub played_most: Vec<PlayedTrack>,
+    /// When whoever is asking marked it as a favourite, and nothing at all where they
+    /// have not. What the heart at the foot of its panel is drawn from.
+    pub starred_at: Option<String>,
 }
 
 /// What a fetched picture asks of whoever shows it.

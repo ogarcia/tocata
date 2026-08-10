@@ -17,7 +17,7 @@
 //! length of what is on screen is itself the answer to how well tagged a song is, and
 //! there is no wall of dashes to read past to find the two things that are there.
 
-use super::{Fact, Failed, Figure, Frame, Head, Onward, Open, Piece, credited};
+use super::{Fact, Failed, Figure, Frame, Head, Heart, Onward, Open, Piece, credited};
 use crate::api;
 use crate::icon::Icon;
 use crate::pages;
@@ -203,6 +203,19 @@ pub fn Track(id: String) -> impl IntoView {
                 // button: the path is on screen, and selecting text is something every
                 // browser already does better than a button that says it will.
                 <span class="deeds">
+                    // The heart stands whatever became of the file — a favourite you
+                    // cannot play is exactly the thing worth keeping a note of — and it
+                    // comes first, so the deed people press by habit keeps its corner.
+                    <Heart
+                        what=api::Marking::Track
+                        id=Signal::derive(move || {
+                            detail.with(|read| read.as_ref().map(|read| read.id.clone()))
+                        })
+                        marked=Signal::derive(move || {
+                            detail.with(|read| read.as_ref().and_then(|read| read.starred_at.clone()))
+                        })
+                    />
+
                     <Show when=move || {
                         detail.with(|read| read.as_ref().is_some_and(|read| !read.missing))
                     }>
@@ -675,6 +688,7 @@ mod tests {
             mbid_recording: None,
             comment: None,
             missing: false,
+            starred_at: None,
         }
     }
 

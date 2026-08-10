@@ -244,6 +244,16 @@ impl<T: Send + Sync + 'static> Reel<T> {
         self.fetch(self.rows.with_untracked(Vec::is_empty));
     }
 
+    /// Reads the listing again from the top, keeping what is in the search field.
+    ///
+    /// For a screen whose rows can stop being its rows while it is on screen: taking a
+    /// favourite mark off in a drawer opened from a listing of favourites leaves a row
+    /// there that no longer belongs to it. A scan does this to every listing on its own
+    /// — see [`Reel::about`] — and this is the same thing asked for by hand.
+    pub fn afresh(&self) {
+        self.fetch(true);
+    }
+
     /// Clears the search and asks for everything again.
     pub fn clear(&self) {
         let reel = *self;

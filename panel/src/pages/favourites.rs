@@ -44,17 +44,28 @@ pub fn Favourites(on_expired: Callback<()>) -> impl IntoView {
     // mounted while it is showing and gone the moment it is not.
     let needle = RwSignal::new(String::new());
 
-    // The three counts, which the tabs carry before any of them is opened. Asked for
-    // once: nothing on this screen changes them, since nothing here marks anything.
-    spawn_local(async move {
-        match api::favourites().await {
-            Ok(counts) => held.set(Some(counts)),
-            Err(api::Failure::Unauthenticated) => on_expired.run(()),
-            // A count that did not arrive leaves the tabs bare and the listings alone.
-            // Every one of them says how much it holds in its own foot, so the screen
-            // is still readable without this.
-            Err(_) => {}
+    // The three counts, which the tabs carry before any of them is opened — and again
+    // every time a heart is pressed in a panel opened from here, because a mark taken
+    // off is a tab that now counts one fewer. Compared rather than merely read, so the
+    // first run is the one fetch that draws the screen.
+    let marks = use_context::<crate::drawer::Marks>();
+    Effect::new(move |before: Option<u64>| {
+        let now = marks.map(|marks| marks.get()).unwrap_or_default();
+
+        if before != Some(now) {
+            spawn_local(async move {
+                match api::favourites().await {
+                    Ok(counts) => held.set(Some(counts)),
+                    Err(api::Failure::Unauthenticated) => on_expired.run(()),
+                    // A count that did not arrive leaves the tabs bare and the listings
+                    // alone. Every one of them says how much it holds in its own foot,
+                    // so the screen is still readable without this.
+                    Err(_) => {}
+                }
+            });
         }
+
+        now
     });
 
     let counted = move |what: Kind| {
@@ -276,6 +287,22 @@ fn following<T: Send + Sync + 'static>(
             reel.typed(now);
         }
     });
+
+    // And again whenever a mark changes anywhere, which on this screen means a row that
+    // has stopped being one of its rows: a heart pressed in a panel opened from this
+    // very listing. The count of changes is compared rather than merely read, so the
+    // first run — which is the listing arriving — does not fetch it twice.
+    if let Some(marks) = use_context::<crate::drawer::Marks>() {
+        Effect::new(move |before: Option<u64>| {
+            let now = marks.get();
+
+            if before.is_some_and(|was| was != now) {
+                reel.afresh();
+            }
+
+            now
+        });
+    }
 
     reel
 }

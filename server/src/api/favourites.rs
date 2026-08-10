@@ -8,17 +8,41 @@
 //! and `/artists` answer for them with `starred=true` — which is also what makes
 //! searching your own favourites, and playing them, the endpoints that already exist.
 //!
-//! What is here is the one question those listings cannot answer between them: how
-//! many there are of each. A screen with three tabs draws all three counts before any
-//! of them is opened, and three listings asked for one row each would be three
-//! requests to learn what one statement knows.
+//! What is here is the one question those listings cannot answer between them — how
+//! many there are of each — and the marking itself. A screen with three tabs draws all
+//! three counts before any of them is opened, and three listings asked for one row each
+//! would be three requests to learn what one statement knows.
+//!
+//! **Marking is `PUT` and unmarking is `DELETE`, on the same address.** Both are
+//! idempotent, which is what a heart wants: pressing it twice from two devices leaves
+//! it marked once, and a request that was already true is not an error.
+//!
+//! **What OpenSubsonic writes and what this writes are the same rows.** `star` and
+//! `unstar` have worked since that side was written; this is the panel's door to the
+//! same three tables, and neither can see anything the other cannot.
 
 use super::error::ApiError;
 use super::session::Panel;
+use crate::db::{self, InTurn};
 use crate::types::{ErrorBody, Favourites};
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path as UrlPath, State};
+use axum::http::StatusCode;
+use serde::Deserialize;
 use sqlx::SqlitePool;
+
+/// Which of the three kinds of thing is being marked.
+///
+/// A path segment rather than three pairs of handlers, because what differs between
+/// them is one table and one column and everything else — who is asking, whether they
+/// may see it, what marking means — is the same question three times.
+#[derive(Debug, Clone, Copy, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Tracks,
+    Albums,
+    Artists,
+}
 
 /// What you have marked
 ///
@@ -89,6 +113,153 @@ pub async fn counts(
         artists: row.2,
         duration: row.3,
     }))
+}
+
+/// Mark something as a favourite
+///
+/// Idempotent: marking what is already marked leaves the mark where it was rather than
+/// moving it, so pressing the heart from two devices does not reorder anything.
+///
+/// A track, record or name this account may not see answers the same 404 as one that is
+/// not there. Nothing about a mark being the account's own lifts the wall round a
+/// library.
+#[utoipa::path(
+    put,
+    path = "/favourites/{kind}/{id}",
+    tag = "collection",
+    params(
+        ("kind" = Kind, Path, description = "tracks, albums or artists"),
+        ("id" = String, Path, description = "Which one"),
+    ),
+    responses(
+        (status = 204, description = "Marked"),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such thing, or not one you may see", body = ErrorBody),
+    )
+)]
+pub async fn mark(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath((kind, id)): UrlPath<(Kind, String)>,
+) -> Result<StatusCode, ApiError> {
+    let who = panel.user.id;
+    let which = reachable(&pool, who, kind, &id).await?;
+
+    // A row may already be there carrying a rating or a play count, so the mark is
+    // written onto it rather than instead of it — and left alone if it is already
+    // marked, which is what keeps a second press from moving something up the listing.
+    let statement = match kind {
+        Kind::Tracks => {
+            "INSERT INTO user_track_stats (user_id, track_id, starred_at) VALUES (?, ?, ?)
+             ON CONFLICT (user_id, track_id)
+             DO UPDATE SET starred_at = coalesce(starred_at, excluded.starred_at)"
+        }
+        Kind::Albums => {
+            "INSERT INTO user_album_stats (user_id, album_id, starred_at) VALUES (?, ?, ?)
+             ON CONFLICT (user_id, album_id)
+             DO UPDATE SET starred_at = coalesce(starred_at, excluded.starred_at)"
+        }
+        Kind::Artists => {
+            "INSERT INTO user_artist_stats (user_id, artist_id, starred_at) VALUES (?, ?, ?)
+             ON CONFLICT (user_id, artist_id)
+             DO UPDATE SET starred_at = coalesce(starred_at, excluded.starred_at)"
+        }
+    };
+
+    sqlx::query(statement)
+        .bind(who)
+        .bind(which)
+        .bind(db::now())
+        .in_turn(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "marking something as a favourite"))?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Take a favourite mark off
+///
+/// The mark goes and the row stays: it carries the play count and the rating too, and
+/// unmarking a song is not forgetting that it was played.
+///
+/// Idempotent as well, and for the same reason the marking is. Unmarking what was never
+/// marked is not a mistake worth an error.
+#[utoipa::path(
+    delete,
+    path = "/favourites/{kind}/{id}",
+    tag = "collection",
+    params(
+        ("kind" = Kind, Path, description = "tracks, albums or artists"),
+        ("id" = String, Path, description = "Which one"),
+    ),
+    responses(
+        (status = 204, description = "Not marked any more"),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "No such thing, or not one you may see", body = ErrorBody),
+    )
+)]
+pub async fn unmark(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath((kind, id)): UrlPath<(Kind, String)>,
+) -> Result<StatusCode, ApiError> {
+    let who = panel.user.id;
+    let which = reachable(&pool, who, kind, &id).await?;
+
+    let statement = match kind {
+        Kind::Tracks => {
+            "UPDATE user_track_stats SET starred_at = NULL WHERE user_id = ? AND track_id = ?"
+        }
+        Kind::Albums => {
+            "UPDATE user_album_stats SET starred_at = NULL WHERE user_id = ? AND album_id = ?"
+        }
+        Kind::Artists => {
+            "UPDATE user_artist_stats SET starred_at = NULL WHERE user_id = ? AND artist_id = ?"
+        }
+    };
+
+    sqlx::query(statement)
+        .bind(who)
+        .bind(which)
+        .in_turn(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "taking a favourite mark off"))?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The row this account may mark, by its public identifier, or a 404.
+///
+/// Two things at once, and they belong together: what the tables key on is the internal
+/// id, and whether somebody may write a mark about something is whether they may see it
+/// at all. Answering the first without asking the second would let an account file away
+/// a record it cannot be told exists.
+async fn reachable(pool: &SqlitePool, who: i64, kind: Kind, id: &str) -> Result<i64, ApiError> {
+    let statement = match kind {
+        Kind::Tracks => concat!(
+            visible_libraries!(),
+            "SELECT t.id FROM tracks t
+              WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
+        ),
+        Kind::Albums => concat!(
+            visible_libraries!(),
+            "SELECT al.id FROM albums al WHERE al.public_id = ? AND ",
+            album_is_visible!("al.id")
+        ),
+        Kind::Artists => concat!(
+            visible_libraries!(),
+            "SELECT a.id FROM artists a WHERE a.public_id = ? AND ",
+            artist_is_visible!("a.id")
+        ),
+    };
+
+    sqlx::query_scalar(statement)
+        .bind(who)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "finding what is being marked"))?
+        .ok_or(ApiError::NotFound)
 }
 
 #[cfg(test)]
@@ -229,6 +400,194 @@ mod tests {
         let Json(after) = counts(asking(1), State(pool)).await.unwrap();
         assert_eq!((after.tracks, after.albums, after.artists), (0, 0, 0));
         assert_eq!(after.duration, None);
+    }
+
+    /// What the marks table holds for one account, so a test can say what a press left
+    /// behind rather than what an answer said about it.
+    async fn starred(pool: &SqlitePool, who: i64) -> Vec<(i64, Option<String>)> {
+        sqlx::query_as(
+            "SELECT track_id, starred_at FROM user_track_stats
+              WHERE user_id = ? ORDER BY track_id",
+        )
+        .bind(who)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    /// The heart, both ways, on all three kinds.
+    #[tokio::test]
+    async fn marking_and_unmarking_are_the_same_address_either_way() {
+        let pool = a_collection().await;
+
+        for (kind, id) in [
+            (Kind::Tracks, "t1"),
+            (Kind::Albums, "al1"),
+            (Kind::Artists, "ar1"),
+        ] {
+            let marked = mark(
+                asking(1),
+                State(pool.clone()),
+                UrlPath((kind, id.to_string())),
+            )
+            .await
+            .unwrap();
+            assert_eq!(marked, StatusCode::NO_CONTENT);
+        }
+
+        let Json(held) = counts(asking(1), State(pool.clone())).await.unwrap();
+        assert_eq!((held.tracks, held.albums, held.artists), (1, 1, 1));
+
+        for (kind, id) in [
+            (Kind::Tracks, "t1"),
+            (Kind::Albums, "al1"),
+            (Kind::Artists, "ar1"),
+        ] {
+            unmark(
+                asking(1),
+                State(pool.clone()),
+                UrlPath((kind, id.to_string())),
+            )
+            .await
+            .unwrap();
+        }
+
+        let Json(after) = counts(asking(1), State(pool.clone())).await.unwrap();
+        assert_eq!((after.tracks, after.albums, after.artists), (0, 0, 0));
+    }
+
+    /// Pressing the heart twice leaves it marked once, and marked when it first was.
+    ///
+    /// Which is what `coalesce` in that upsert is for: two devices doing the same thing
+    /// must not move a row up a listing ordered by when it was marked.
+    #[tokio::test]
+    async fn marking_what_is_already_marked_does_not_move_it() {
+        let pool = a_collection().await;
+
+        star(
+            &pool,
+            "INSERT INTO user_track_stats (user_id, track_id, starred_at)
+             VALUES (1, 1, '2026-01-05T00:00:00Z')",
+        )
+        .await;
+
+        mark(
+            asking(1),
+            State(pool.clone()),
+            UrlPath((Kind::Tracks, "t1".to_string())),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            starred(&pool, 1).await,
+            [(1, Some("2026-01-05T00:00:00Z".to_string()))],
+            "still the moment it was first marked"
+        );
+    }
+
+    /// Unmarking keeps the row, because the row is not only the mark.
+    ///
+    /// Deleting it would throw away a play count and a rating, and unmarking a song is
+    /// not forgetting that it was ever played.
+    #[tokio::test]
+    async fn taking_a_mark_off_keeps_what_else_the_row_holds() {
+        let pool = a_collection().await;
+
+        star(
+            &pool,
+            "INSERT INTO user_track_stats (user_id, track_id, starred_at, rating, play_count)
+             VALUES (1, 1, '2026-01-05T00:00:00Z', 5, 12)",
+        )
+        .await;
+
+        unmark(
+            asking(1),
+            State(pool.clone()),
+            UrlPath((Kind::Tracks, "t1".to_string())),
+        )
+        .await
+        .unwrap();
+
+        let kept: (Option<i64>, i64, Option<String>) = sqlx::query_as(
+            "SELECT rating, play_count, starred_at FROM user_track_stats
+              WHERE user_id = 1 AND track_id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(kept, (Some(5), 12, None));
+    }
+
+    /// Unmarking something never marked is not a mistake.
+    #[tokio::test]
+    async fn taking_off_a_mark_that_was_never_there_is_no_error() {
+        let pool = a_collection().await;
+
+        let answered = unmark(
+            asking(1),
+            State(pool.clone()),
+            UrlPath((Kind::Tracks, "t1".to_string())),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(answered, StatusCode::NO_CONTENT);
+        assert!(starred(&pool, 1).await.is_empty(), "and wrote nothing");
+    }
+
+    /// Nothing can be marked that could not be seen.
+    ///
+    /// A mark is the account's own, which is exactly the argument that would let one be
+    /// written about a record in a library it was walled off from — and a 404 that
+    /// turned into a 204 would be the panel confirming the thing exists.
+    #[tokio::test]
+    async fn nothing_out_of_reach_can_be_marked() {
+        let pool = a_collection().await;
+        sqlx::query("UPDATE libraries SET enabled = 0")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for (kind, id) in [
+            (Kind::Tracks, "t1"),
+            (Kind::Albums, "al1"),
+            (Kind::Artists, "ar1"),
+        ] {
+            let refused = mark(
+                asking(1),
+                State(pool.clone()),
+                UrlPath((kind, id.to_string())),
+            )
+            .await;
+            assert!(matches!(refused, Err(ApiError::NotFound)), "{id}");
+
+            let refused = unmark(
+                asking(1),
+                State(pool.clone()),
+                UrlPath((kind, id.to_string())),
+            )
+            .await;
+            assert!(matches!(refused, Err(ApiError::NotFound)), "{id}");
+        }
+
+        assert!(starred(&pool, 1).await.is_empty());
+    }
+
+    /// And nothing that is not there at all.
+    #[tokio::test]
+    async fn a_name_nothing_answers_to_is_a_miss() {
+        let pool = a_collection().await;
+
+        let refused = mark(
+            asking(1),
+            State(pool),
+            UrlPath((Kind::Tracks, "nothing".to_string())),
+        )
+        .await;
+
+        assert!(matches!(refused, Err(ApiError::NotFound)));
     }
 
     /// A favourite whose file has gone is still a favourite.

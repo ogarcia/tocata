@@ -257,6 +257,10 @@ genre:
 favourites:
   search: Search what is yours
   marked: Marked
+  # The heart at the foot of a drawer. The same button serves a track, a record and a
+  # name, so it says neither which nor what it is called.
+  mark: Add to favourites
+  unmark: Take out of favourites
   # With nothing marked at all, on the line under the title.
   none_at_all: You have not marked anything yet.
   no_tracks: You have not marked a track.

@@ -255,6 +255,10 @@ genre:
 favourites:
   search: Buscar en lo tuyo
   marked: Marcada
+  # El corazón al pie de un cajón. Sin género gramatical a propósito: el mismo botón
+  # sirve para una pista, un disco y un artista.
+  mark: Añadir a favoritos
+  unmark: Quitar de favoritos
   # Cuando no has marcado nada de nada, en la línea bajo el título.
   none_at_all: Aún no has marcado nada.
   no_tracks: No has marcado ninguna pista.

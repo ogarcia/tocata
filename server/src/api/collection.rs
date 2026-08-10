@@ -443,12 +443,19 @@ pub async fn detail(
                 t.duration_ms, t.suffix, t.bit_rate, t.sampling_rate, t.bit_depth,
                 t.path, l.name AS library, t.file_size, t.updated_at,
                 t.isrc, t.mbid_recording, t.comment,
-                t.missing_since IS NOT NULL AS missing
+                t.missing_since IS NOT NULL AS missing,
+                -- Last, and the only column here that is about the reader rather than
+                -- the song: whether they have marked it, which is what the heart at
+                -- the foot of this panel is drawn from.
+                ",
+        starred_when!("user_track_stats", "track_id", "t.id"),
+        "?) AS starred_at
            FROM tracks t
            JOIN libraries l ON l.id = t.library_id
            LEFT JOIN albums al ON al.id = t.album_id
           WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
     ))
+    .bind(panel.user.id)
     .bind(panel.user.id)
     .bind(&id)
     .fetch_optional(&pool)
@@ -852,11 +859,15 @@ pub async fn album(
                 (SELECT l.name FROM tracks t JOIN libraries l ON l.id = t.library_id
                   WHERE t.album_id = al.id LIMIT 1) AS library,
                 (SELECT max(t.updated_at) FROM tracks t
-                  WHERE t.album_id = al.id) AS read_at
+                  WHERE t.album_id = al.id) AS read_at,
+                ",
+        starred_when!("user_album_stats", "album_id", "al.id"),
+        "?) AS starred_at
            FROM albums al
           WHERE al.public_id = ? AND ",
         album_is_visible!("al.id")
     ))
+    .bind(who)
     .bind(who)
     .bind(&id)
     .fetch_optional(&pool)
@@ -937,6 +948,7 @@ pub async fn album(
         discs: row.discs.filter(|discs| *discs > 0),
         listing: listing.into_iter().map(AlbumTrack::from).collect(),
         players: players.into_iter().map(Credit::from).collect(),
+        starred_at: row.starred_at,
     }))
 }
 
@@ -1076,11 +1088,15 @@ pub async fn artist(
                    JOIN tracks t ON t.id = s.track_id
                   WHERE ",
         track_is_theirs!("t", "a.id"),
-        "    AND t.library_id IN (SELECT id FROM visible_libraries)) AS plays
+        "    AND t.library_id IN (SELECT id FROM visible_libraries)) AS plays,
+                ",
+        starred_when!("user_artist_stats", "artist_id", "a.id"),
+        "?) AS starred_at
            FROM artists a
           WHERE a.public_id = ? AND ",
         artist_is_visible!("a.id")
     ))
+    .bind(who)
     .bind(who)
     .bind(&id)
     .fetch_optional(&pool)
@@ -1170,6 +1186,7 @@ pub async fn artist(
         credit: credit.map(Attribution::from),
         records: records.into_iter().map(ArtistAlbum::from).collect(),
         played_most: played_most.into_iter().map(PlayedTrack::from).collect(),
+        starred_at: row.starred_at,
     }))
 }
 
@@ -1694,6 +1711,7 @@ struct DetailRow {
     mbid_recording: Option<String>,
     comment: Option<String>,
     missing: bool,
+    starred_at: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1767,6 +1785,7 @@ impl DetailRow {
             mbid_recording: self.mbid_recording,
             comment: self.comment,
             missing: self.missing,
+            starred_at: self.starred_at,
         }
     }
 }
@@ -1790,6 +1809,7 @@ struct AlbumRow2 {
     path: Option<String>,
     library: Option<String>,
     read_at: Option<String>,
+    starred_at: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1856,6 +1876,7 @@ struct ArtistRow2 {
     duration: Option<i64>,
     plays: i64,
     image: bool,
+    starred_at: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]

@@ -172,6 +172,12 @@ pub fn Shell(
     let opened: crate::drawer::Opened = RwSignal::new(None);
     provide_context(opened);
 
+    // And how often a panel has changed a favourite mark, for the one screen that is
+    // about those marks: it has to read itself again when one goes, or it keeps a row
+    // that has stopped belonging to it.
+    let marks: crate::drawer::Marks = RwSignal::new(0);
+    provide_context(marks);
+
     // One thing over the screen at a time. Both of these are drawers on the same edge,
     // and two of them stacked is a thing to unstack rather than to read — so whichever
     // was asked for last is the one that is there.
