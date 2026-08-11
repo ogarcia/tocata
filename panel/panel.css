@@ -963,11 +963,26 @@ h1 {
   text-wrap: pretty;
 }
 
-.sheet form, .sheet-content {
+/* What is being filled in or chosen: a column, its rows a fixed distance apart, and
+ * air over the first of them so it stands off the line that says what this is for. */
+.sheet-content {
   display: flex;
   flex-direction: column;
   gap: 1.375rem;
   margin-top: 1.5rem;
+}
+
+/* The form, which in every sheet that has one is wrapped around the whole dialogue —
+ * body, foot and the failure under it — so that Enter does what the button does. The
+ * same column with the same distance between those blocks, and no margin: it shared
+ * one with the stack of fields above, and a margin on a child of the dialogue itself
+ * has nowhere to go. The border around a `dialog` stops it collapsing out, so it
+ * became a strip of nothing over the heading of every sheet with a field in it — seen
+ * only once a sheet turned up without a form and sat a whole 1.5rem higher. */
+.sheet form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.375rem;
 }
 
 /* Stacked one under another and separated by nothing but air. A field is a label, a
