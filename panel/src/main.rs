@@ -213,6 +213,12 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                     // collection either — the same music, narrowed to what whoever is
                     // asking has marked.
                     <Route
+                        path=path!("/playlists")
+                        view=move || {
+                            view! { <pages::playlists::Playlists on_expired=forget /> }
+                        }
+                    />
+                    <Route
                         path=path!("/favourites")
                         view=move || {
                             view! { <pages::favourites::Favourites on_expired=forget /> }
@@ -300,7 +306,7 @@ mod tests {
     /// same reason the translations are read from the source.
     /// Named as well as read, so a test that finds one word on two screens can say
     /// which two.
-    const SOURCES: [(&str, &str); 24] = [
+    const SOURCES: [(&str, &str); 26] = [
         ("main.rs", include_str!("main.rs")),
         ("icon.rs", include_str!("icon.rs")),
         ("layout.rs", include_str!("layout.rs")),
@@ -322,6 +328,8 @@ mod tests {
         ("pages/artists.rs", include_str!("pages/artists.rs")),
         ("pages/genres.rs", include_str!("pages/genres.rs")),
         ("pages/favourites.rs", include_str!("pages/favourites.rs")),
+        ("pages/playlists.rs", include_str!("pages/playlists.rs")),
+        ("drawer/playlist.rs", include_str!("drawer/playlist.rs")),
         ("pages/endless.rs", include_str!("pages/endless.rs")),
         ("player.rs", include_str!("player.rs")),
         ("queue.rs", include_str!("queue.rs")),
@@ -343,7 +351,7 @@ mod tests {
     /// library and the play glyph over a track number, `named` was a link in the roster
     /// and the title block of the opened player. The way out of those is a different
     /// word, never a line here.
-    const SHARED: [&str; 75] = [
+    const SHARED: [&str; 82] = [
         // How something reads, wherever it is.
         "quiet",
         "lead",
@@ -411,6 +419,23 @@ mod tests {
         // A row whose file has gone: quiet rather than removed, in a listing and in a
         // running order alike.
         "gone",
+        // One track as a row, wherever it is drawn: the column that plays it, with its
+        // number at rest and the play glyph over the top under the pointer. The table of
+        // tracks and the running order of a playlist wear the same three words because
+        // it is the same row with a handle added.
+        "starter",
+        "resting",
+        "acting",
+        // Reordering something by holding it, and taking a row out of it. The queue and
+        // a playlist share the gesture on purpose — they are the same act, and a
+        // listener should not have to learn it twice — so they share the words and the
+        // declarations behind them.
+        "handle",
+        "lifted",
+        "drop",
+        // A playlist everybody on this server can see, said on its row and on its own
+        // screen.
+        "shared",
         // One thing wherever it appears.
         "pill",
         "solid",

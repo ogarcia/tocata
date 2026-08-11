@@ -27,6 +27,7 @@ mod jobs;
 mod keys;
 mod libraries;
 mod media;
+mod playlists;
 mod portraits;
 mod preferences;
 mod purge;
@@ -100,6 +101,7 @@ const SCALAR_HTML: &str = r#"<!doctype html>
         (name = "jobs", description = "The maintenance jobs, and running one"),
         (name = "maintenance", description = "The files a scan could not account for"),
         (name = "collection", description = "Browsing what has been scanned"),
+        (name = "playlists", description = "Lists an account made, and who else may see them"),
     )
 )]
 struct Reference;
@@ -165,6 +167,18 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(resources::read))
         .routes(routes!(purge::preview))
         .routes(routes!(attention::needing_attention))
+        .routes(routes!(playlists::list, playlists::create))
+        .routes(routes!(
+            playlists::one,
+            playlists::change,
+            playlists::remove
+        ))
+        .routes(routes!(
+            playlists::tracks,
+            playlists::add,
+            playlists::reorder
+        ))
+        .routes(routes!(playlists::drop_one))
         .routes(routes!(favourites::counts))
         .routes(routes!(favourites::mark, favourites::unmark))
         .routes(routes!(collection::tracks))

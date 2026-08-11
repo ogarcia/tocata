@@ -3731,7 +3731,7 @@ select.narrow { width: 12.5rem; }
 
 .astray .what { display: grid; }
 
-.astray .titling { font-weight: 500; }
+.astray .calling { font-weight: 500; }
 
 .astray .by,
 .astray .path {
@@ -5424,4 +5424,344 @@ select.narrow { width: 12.5rem; }
   /* Square at 44px, since this one is a target and not a word: the height comes from
    * the rule above and only the width is left to say. */
   .deeds .mark { width: 2.75rem; }
+}
+
+/* --- the playlists -------------------------------------------------------- */
+
+/* Written as one block on purpose, and touching nothing else in this sheet. An earlier
+ * attempt reached into the queue's rules and added `.order` to a dozen of its selectors,
+ * on the grounds that the two are almost the same row. They are — and sharing them that
+ * way made both impossible to read and neither safe to change. What repeats here is
+ * about thirty declarations; what it buys is that everything these two screens do is in
+ * one place, and that the queue is exactly as it was. */
+
+/* One row per list: what it is, how much of it there is, when it changed, whose it is,
+ * and what may be done to it. Rows and not cards, because a list has no artwork to put
+ * under and its length is what it is judged by, which reads in a line. */
+.made {
+  margin: 0 0 2.5rem;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+/* The columns are the frame's own — 120, 110, 130 and 88 pixels for the four figures,
+ * 24 for the dots, 20 of gap and 14/12 of padding — with one change: the frame gives the
+ * name a floor of 200px, and here it has none. With the floor the row cannot be narrower
+ * than 772px, which is more than the content column has to give between about 1120 and
+ * 1150 pixels of window, and a row wider than what holds it is the thing that broke this
+ * screen. Without it the name gives way instead, and below 55rem the row stops being a
+ * row at all. */
+.made > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.5rem 6.875rem 8.125rem 5.5rem 1.5rem;
+  align-items: baseline;
+  gap: 1.25rem;
+  margin: 0 -0.75rem;
+  padding: 0.875rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.made > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+/* The name over what it says about itself: the same two-line shape a track row uses for
+ * a title over its artist. */
+.made .what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.125rem;
+}
+
+/* The name, which is the first of the two lines in that cell. No class of its own:
+ * `named` and `naming` are both taken in this sheet and both mean something else, and a
+ * third word for "the name" would be one more thing to look up. Ink at rest and the
+ * accent under the pointer — the row is not a link, it is a row that opens something. */
+.made .what > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.made > li:hover .what > span:first-child { color: var(--accent); }
+
+.made .what .quiet {
+  font-size: var(--aside);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Four cells of the grid, wrapped only so they can become one line together when the
+ * columns go. On a wide screen the wrapper is not there as far as layout is concerned. */
+.made .sums { display: contents; }
+
+.made .figure {
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+.made .owning {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Public, in the accent: the one thing about a list that other people can notice, so
+ * the one thing on the row drawn in a colour. */
+.shared {
+  color: var(--accent);
+  font-size: var(--aside);
+}
+
+/* At the end of the row whether or not there is a menu in it, so the rows either side of
+ * a list that is not yours do not step sideways. */
+.made .doing {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Where six columns stop fitting: the five beside the name take 400 pixels with their
+ * gaps, the column of sections 240 of whatever there is, and the page's own padding
+ * another 112 — so below this the name is down to a word and a half. The row becomes two
+ * lines instead, which is what the roster of accounts does at its own width. */
+@media (max-width: 55rem) {
+  .made > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.375rem 0.875rem;
+  }
+
+  .made .what { grid-area: 1 / 1; }
+
+  /* Down the right of both lines and centred between them, rather than pinned to the
+   * line the name is on. What it opens is about the whole row, and the roster of
+   * accounts anchors its own to the first line only because a row there begins with a
+   * 30px avatar that gives that line a height of its own. */
+  .made .doing {
+    grid-area: 1 / 2 / 3 / 3;
+    align-self: center;
+  }
+
+  /* What were four columns become one line of prose under the name, at the size every
+   * second line in this panel is set at. */
+  .made .sums {
+    grid-area: 2 / 1 / 3 / 3;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.125rem 0.75rem;
+    font-size: var(--aside);
+  }
+}
+
+/* A heading that is also a field, which is the panel about a playlist of your own: the
+ * name is one of the two things a list is, and it is edited where it is read. Everything
+ * about it says heading — the size and weight come from `.drawer h2`, which it sits
+ * beside — and what says field is the line that appears under it when the pointer is on
+ * it or the cursor is in it. */
+.calling {
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.calling:hover { border-bottom-color: var(--line); }
+
+.calling:focus {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+
+/* Who may see it: the word it is now, and under it what that means. */
+.privacy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 0 1.625rem;
+}
+
+/* A switch that stands alone, so it says which way it is with its colour and nothing
+ * else — the shape Shuffle has at the foot of the queue. The line under a word is for
+ * choosing one of several, where the ones not chosen have to look like they are still
+ * there to choose; there is nothing beside this to choose instead. */
+.privacy button {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  font: inherit;
+  font-size: var(--control);
+  cursor: pointer;
+}
+
+.privacy button:hover { color: var(--ink); }
+
+/* After the hover on purpose: the two weigh the same, so the later one wins and a
+ * pointer resting on it does not make a public list look private for a moment. */
+.privacy button.shared { color: var(--accent); }
+
+.privacy .quiet { font-size: var(--aside); }
+
+/* The running order, in the panel about one list. The queue's row, near enough — a
+ * handle, what it is, how long it runs, a way out — with its own numbering in place of
+ * the queue's empty first cell.
+ *
+ * The air is the queue's too: twelve pixels either side of two lines at 1.3, which is
+ * the shape every row in this panel has. No height is set — what a row measures is what
+ * that comes to, 61px, and the same number is written as `ROW` in
+ * `drawer/playlist.rs`, which is what turns a drag's distance into a number of rows. */
+.order {
+  margin: 0 -0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.order > li {
+  display: grid;
+  grid-template-columns: 1.125rem 1.75rem minmax(0, 1fr) auto 1.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+/* A list you are only reading has no handle and no cross, and no columns standing empty
+ * where they would have been. */
+.order > li.borrowed { grid-template-columns: 1.75rem minmax(0, 1fr) auto; }
+
+.order > li:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+
+/* While a row is being dragged nothing lights up under the pointer: what is under it is
+ * a gap travelling, and a row tinting as it passes reads as a row answering something it
+ * is not part of. */
+.order.reordering > li:hover { background: none; }
+
+/* While the gesture runs the row follows the finger, so no transition; when it ends the
+ * offset goes back to nought and this is what makes it spring rather than jump. */
+.order > li:not(.lifted) { transition: transform 160ms ease-out; }
+
+/* Lifted off the list while it is moved, so it is plainly the thing travelling and not
+ * the list scrolling under it. */
+.order > li.lifted {
+  position: relative;
+  z-index: 1;
+  background: var(--paper);
+  box-shadow: 0 6px 20px light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 45%));
+}
+
+/* What the row is dragged by, and the only part of it that takes a vertical gesture:
+ * `none` keeps both axes here, where everywhere else the vertical one is the panel being
+ * scrolled. `--quiet` and never `--line`, which is the hairline token and disappears
+ * against the paper. */
+.order .handle {
+  display: grid;
+  place-content: center;
+  place-items: center;
+  gap: 0;
+  width: 1.125rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  touch-action: none;
+  cursor: grab;
+}
+
+.order .handle:active { cursor: grabbing; }
+
+.order .handle .icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* Its place in the list, and the way to play from there. The button itself is styled
+ * with every other one of these in the sheet; what is left is when the glyph over the
+ * number shows. */
+.order > li:hover .starter .acting, .order > li.sounding .starter .acting { opacity: 1; }
+
+.order .what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.order .what > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order .by, .order .figure {
+  color: var(--quiet);
+  font-size: var(--aside);
+}
+
+.order .figure { font-variant-numeric: tabular-nums; }
+
+/* Sounding, and gone: the two words every listing in this panel uses, said the same
+ * way. */
+.order > li.sounding { color: var(--accent); }
+
+.order > li.sounding .by, .order > li.sounding .figure { color: inherit; }
+
+.order > li.gone { opacity: 0.55; }
+
+/* Takes a track out of the list. Quiet until the row is under the pointer, because a
+ * column of crosses down a list reads as a list of things to undo. */
+.order .drop {
+  display: grid;
+  place-content: center;
+  place-items: center;
+  gap: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--quiet);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.order > li:hover .drop, .order .drop:focus-visible { opacity: 1; }
+
+.order .drop:hover { color: var(--alarm); }
+
+.order .drop .icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* Every target on a phone is 44px, and the row grows to hold them. */
+@media (max-width: 45rem) {
+  .order > li {
+    grid-template-columns: 1.75rem 2.75rem minmax(0, 1fr) auto 2.75rem;
+  }
+
+  .order > li.borrowed { grid-template-columns: 2.75rem minmax(0, 1fr) auto; }
+
+  .order .handle {
+    width: 1.75rem;
+    height: 2.75rem;
+  }
+
+  .order .drop {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
 }

@@ -24,6 +24,7 @@ pub mod genres;
 pub mod home;
 pub mod libraries;
 pub mod maintenance;
+pub mod playlists;
 pub mod settings;
 pub mod tracks;
 

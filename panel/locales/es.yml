@@ -15,6 +15,7 @@ nav:
   artists: Artistas
   genres: Géneros
   yours: Lo tuyo
+  playlists: Listas
   favourites: Favoritos
   server: El servidor
   libraries: Bibliotecas
@@ -248,6 +249,48 @@ genre:
   # De dónde sale un género, que no es una decisión de este servidor.
   from_the_tags: Tal y como lo escriben las etiquetas de los ficheros.
   play_everything: Reproducir todo
+
+# Las listas que alguien ha hecho. Una lista es privada o pública para todo el
+# servidor, y nada intermedio: lo que no es tuyo se puede leer y reproducir, y nada más.
+playlists:
+  new: Nueva lista
+  new_lead: Se crea vacía. Podrás añadirle pistas desde la colección o guardando la cola.
+  name: Nombre
+  make: Crearla
+  one: Una lista
+  many: "%{count} listas"
+  # Los dos encabezados. El primero solo aparece cuando hay un segundo grupo del que
+  # distinguirlo.
+  mine: Lo tuyo
+  public: Público en este servidor
+  # La columna de visibilidad, que solo se dibuja cuando lo es: privada es lo que una
+  # lista es mientras nadie diga lo contrario.
+  is_public: Pública
+  is_private: Privada
+  public_note: Cualquier cuenta de este servidor puede verla.
+  private_note: Solo la ves tú.
+  doings: Qué hacer con esta lista
+  make_public: Hacerla pública
+  make_private: Hacerla privada
+  delete: Eliminar la lista
+  # En la pantalla de una lista.
+  play: Reproducir
+  # Al pie del cajón: de quién es esta lista, que es lo único que no está en sus filas.
+  yours: Una lista tuya
+  made_by: "Una lista de %{who}"
+  reorder: Mantén pulsado para moverla
+  take_out: Sacarla de la lista
+  changed: "cambiada %{when}"
+  saved_as_you_go: Los cambios se guardan solos.
+  will_be_skipped: falta el fichero, se saltará
+  one_missing: A una de sus pistas le falta el fichero
+  many_missing: "A %{count} de sus pistas les falta el fichero"
+  # Los vacíos: sin ninguna lista, y una lista sin nada dentro.
+  none_yet: Aún no has hecho ninguna lista.
+  none: No has hecho ninguna lista todavía.
+  whence: Crea una vacía y añádele cosas desde la colección, o reproduce algo que te guste y guarda la cola.
+  empty: Esta lista está vacía.
+  fill_it: Añádele pistas desde la colección, o reproduce algo y guarda la cola.
 
 # Lo que has marcado, en tres listas que son la colección estrechada a lo tuyo. La
 # columna «Marcada» ocupa el sitio del género: cuándo lo marcaste es lo único que esta

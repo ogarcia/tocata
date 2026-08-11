@@ -927,6 +927,98 @@ pub struct Tracks {
     pub tracks: Vec<Track>,
 }
 
+/// The lists this account may see: its own, and the public ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Playlists {
+    pub playlists: Vec<Playlist>,
+}
+
+/// One list, with what a row about it says.
+///
+/// Every figure counts only what whoever asked can reach, so a public list holding
+/// tracks from a library they are walled off from is shorter for them than for its
+/// owner. The alternative is a row promising music that will not play.
+///
+/// `Hash` so the whole of it can be a key: the panel's list of lists keys its rows on
+/// everything they show, since a row is left alone while its key is the same and
+/// publishing a list changes no identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Playlist {
+    pub id: String,
+    pub name: String,
+    /// What it says about itself, where its owner said anything.
+    pub comment: Option<String>,
+    /// Which account made it.
+    pub owner: String,
+    /// Whether that account is the one asking, which is the whole of what may be done
+    /// to it: a list of somebody else's can be read and played and nothing more.
+    pub mine: bool,
+    /// Whether every account on this server can see it. There is no middle: a list is
+    /// private or it is public here.
+    pub public: bool,
+    /// How many playable tracks it holds, and how long they run in seconds.
+    pub tracks: i64,
+    pub duration: Option<i64>,
+    /// How many of its tracks have lost their files. Said on the row rather than
+    /// hidden: a list that says three are missing is one somebody can go and settle.
+    pub missing: i64,
+    /// When it last changed, which is what a list is judged by once it exists.
+    pub changed: String,
+}
+
+/// What making a list asks for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NewPlaylist {
+    pub name: String,
+    pub comment: Option<String>,
+    /// What it holds from the start, in this order. What saving a queue sends, and what
+    /// "new list holding this track" sends.
+    pub tracks: Option<Vec<String>>,
+}
+
+/// What may be changed about one. Anything left out is left alone.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistChanges {
+    pub name: Option<String>,
+    /// An empty one clears it, which is how a description is taken back.
+    pub comment: Option<String>,
+    pub public: Option<bool>,
+}
+
+/// A page of what is in a list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PlaylistTracks {
+    pub total: i64,
+    pub tracks: Vec<PlaylistEntry>,
+}
+
+/// One entry: where it sits in the list, and the track itself.
+///
+/// The position is the list's own numbering and not the track number on its record,
+/// and it is what an entry is taken out or moved by — so the same song appearing twice
+/// can be told apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PlaylistEntry {
+    pub at: i64,
+    pub track: Track,
+}
+
+/// What adding to a list asks for: tracks, in the order they are to land.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Adding {
+    pub tracks: Vec<String>,
+}
+
+/// A drag inside a list, by the positions the list itself reports.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Moving {
+    pub from: i64,
+    pub to: i64,
+}
+
 /// How much of the collection somebody has marked as theirs.
 ///
 /// One answer for the three kinds, because the screen about them draws three tabs and

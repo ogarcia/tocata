@@ -427,6 +427,70 @@ pub async fn starred_artists(search: &str, offset: usize, limit: i64) -> Result<
     .await
 }
 
+/// The lists this account may see: its own, and the public ones.
+pub async fn playlists() -> Result<tocata::types::Playlists, Failure> {
+    read(get("/playlists")?).await
+}
+
+/// One list, without what is in it: that comes a window at a time.
+pub async fn playlist(id: &str) -> Result<tocata::types::Playlist, Failure> {
+    read(get(&format!("/playlists/{id}"))?).await
+}
+
+/// A window of what is in one, with the position each entry sits at.
+pub async fn playlist_tracks(
+    id: &str,
+    offset: usize,
+    limit: i64,
+) -> Result<tocata::types::PlaylistTracks, Failure> {
+    read(get(&format!(
+        "/playlists/{id}/tracks?offset={offset}&limit={limit}"
+    ))?)
+    .await
+}
+
+/// Makes one, empty or holding what it is given.
+pub async fn make_playlist(
+    name: String,
+    tracks: Option<Vec<String>>,
+) -> Result<tocata::types::Playlist, Failure> {
+    read(post(
+        "/playlists",
+        &tocata::types::NewPlaylist {
+            name,
+            comment: None,
+            tracks,
+        },
+    )?)
+    .await
+}
+
+/// Changes what a list is called, says about itself, or who may see it.
+pub async fn change_playlist(
+    id: &str,
+    changes: &tocata::types::PlaylistChanges,
+) -> Result<tocata::types::Playlist, Failure> {
+    read(patch(&format!("/playlists/{id}"), changes)?).await
+}
+
+pub async fn remove_playlist(id: &str) -> Result<(), Failure> {
+    plain(delete(&format!("/playlists/{id}"))?).await
+}
+
+/// Moves one entry, by the positions the list itself reported.
+pub async fn move_in_playlist(id: &str, from: i64, to: i64) -> Result<(), Failure> {
+    plain(patch(
+        &format!("/playlists/{id}/tracks"),
+        &tocata::types::Moving { from, to },
+    )?)
+    .await
+}
+
+/// Takes one entry out, by position.
+pub async fn drop_from_playlist(id: &str, at: i64) -> Result<(), Failure> {
+    plain(delete(&format!("/playlists/{id}/tracks/{at}"))?).await
+}
+
 /// How much of the collection this account has marked, for the tabs that count it.
 pub async fn favourites() -> Result<tocata::types::Favourites, Failure> {
     read(get("/favourites")?).await

@@ -19,6 +19,7 @@ nav:
   artists: Artists
   genres: Genres
   yours: Yours
+  playlists: Playlists
   favourites: Favourites
   server: The server
   libraries: Libraries
@@ -250,6 +251,48 @@ genre:
   # Where a genre comes from, which is not a decision this server made.
   from_the_tags: Spelt the way the files' own tags spell it.
   play_everything: Play all of it
+
+# The lists somebody made. A list is private or public to everybody on the server and
+# nothing in between: what is not yours can be read and played, and nothing else.
+playlists:
+  new: New playlist
+  new_lead: It starts empty. Add to it from the collection, or by saving the queue.
+  name: Name
+  make: Make it
+  one: One playlist
+  many: "%{count} playlists"
+  # The two headings. The first only appears when there is a second group to tell it
+  # from.
+  mine: Yours
+  public: Public on this server
+  # The visibility column, drawn only when it is public: private is what a list is
+  # until somebody says otherwise.
+  is_public: Public
+  is_private: Private
+  public_note: Every account on this server can see it.
+  private_note: Only you can see it.
+  doings: What to do with this list
+  make_public: Make it public
+  make_private: Make it private
+  delete: Delete the list
+  # On the screen of one list.
+  play: Play
+  # At the foot of the panel: whose list this is, the one fact about it not on a row.
+  yours: A list of yours
+  made_by: "A list of %{who}'s"
+  reorder: Hold to move it
+  take_out: Take it out of the list
+  changed: "changed %{when}"
+  saved_as_you_go: Changes save as you make them.
+  will_be_skipped: the file is gone, it will be skipped
+  one_missing: One of its tracks has lost its file
+  many_missing: "%{count} of its tracks have lost their files"
+  # The empty states: no lists at all, and a list with nothing in it.
+  none_yet: You have not made a playlist yet.
+  none: You have not made a playlist yet.
+  whence: Make an empty one and add to it from the collection, or play something you like and save the queue.
+  empty: There is nothing in this list.
+  fill_it: Add tracks from the collection, or play something and save the queue.
 
 # What you have marked, as three listings that are the collection narrowed to yours.
 # The "Marked" column stands where the genre does: when you marked something is the one

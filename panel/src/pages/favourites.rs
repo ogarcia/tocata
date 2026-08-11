@@ -50,7 +50,7 @@ pub fn Favourites(on_expired: Callback<()>) -> impl IntoView {
     // first run is the one fetch that draws the screen.
     let marks = use_context::<crate::drawer::Marks>();
     Effect::new(move |before: Option<u64>| {
-        let now = marks.map(|marks| marks.get()).unwrap_or_default();
+        let now = marks.map(|marks| marks.0.get()).unwrap_or_default();
 
         if before != Some(now) {
             spawn_local(async move {
@@ -294,7 +294,7 @@ fn following<T: Send + Sync + 'static>(
     // first run — which is the listing arriving — does not fetch it twice.
     if let Some(marks) = use_context::<crate::drawer::Marks>() {
         Effect::new(move |before: Option<u64>| {
-            let now = marks.get();
+            let now = marks.0.get();
 
             if before.is_some_and(|was| was != now) {
                 reel.afresh();

@@ -119,6 +119,18 @@ impl Player {
         self.step_to(from);
     }
 
+    /// Takes a queue, mixes the whole of it, and starts at the top.
+    ///
+    /// Not `play` followed by `toggle_shuffle`: that one mixes what is *coming*, so the
+    /// track it starts on stays where it is — and it lights the button, which promises to
+    /// give back an order this never had. What comes out of here is an ordinary queue
+    /// that happens to be in an order nobody chose, which is what "shuffle" means when it
+    /// is pressed on a thing rather than on the queue.
+    pub fn play_mixed(&self, mut queue: Vec<String>) {
+        mix(&mut queue, 0, roll);
+        self.play(queue, 0);
+    }
+
     /// Puts a track at the end of what is coming.
     ///
     /// Nothing else moves: not `at`, not what is sounding, not a track already
@@ -515,6 +527,22 @@ mod tests {
         assert_eq!(settled(0, 0, 0, 0), None);
         // And an index past the end of it, which is what a stale row would ask for.
         assert_eq!(settled(7, 1, 0, 3), None);
+    }
+
+    /// Mixing a whole queue moves what was first, which is the difference between
+    /// shuffling a thing and shuffling what is coming.
+    ///
+    /// Pressing shuffle on a playlist has to draw the order before anything sounds. Doing
+    /// it the other way — put the list on, then press the queue's own shuffle — leaves the
+    /// first track first, because that button only ever touches what comes after the one
+    /// already sounding.
+    #[test]
+    fn mixing_from_the_top_moves_the_first_track_too() {
+        let mut queued = queue("ABCDE");
+        mix(&mut queued, 0, first);
+
+        assert_ne!(spelt(&queued).chars().next(), Some('A'));
+        assert_eq!(spelt(&queued).len(), 5, "and nothing is lost on the way");
     }
 
     /// A mix touches what is coming and nothing else.

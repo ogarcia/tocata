@@ -88,14 +88,19 @@ const COLLECTION: [Section; 4] = [
 /// What is the account's own rather than the server's.
 ///
 /// A heading of its own because the sections are grouped by whose the contents are:
-/// the collection is the server's, and this is yours. One entry for now — the
-/// playlists belong here too, and the heading is what will say they are the same kind
-/// of thing when they arrive.
-const YOURS: [Section; 1] = [Section {
-    path: "/favourites",
-    label: || t!("nav.favourites").to_string(),
-    exact: false,
-}];
+/// the collection is the server's, and this is yours.
+const YOURS: [Section; 2] = [
+    Section {
+        path: "/favourites",
+        label: || t!("nav.favourites").to_string(),
+        exact: false,
+    },
+    Section {
+        path: "/playlists",
+        label: || t!("nav.playlists").to_string(),
+        exact: false,
+    },
+];
 
 /// What only an administrator can reach.
 ///
@@ -175,8 +180,12 @@ pub fn Shell(
     // And how often a panel has changed a favourite mark, for the one screen that is
     // about those marks: it has to read itself again when one goes, or it keeps a row
     // that has stopped belonging to it.
-    let marks: crate::drawer::Marks = RwSignal::new(0);
-    provide_context(marks);
+    provide_context(crate::drawer::Marks(RwSignal::new(0)));
+
+    // And the same for a playlist changed in its own panel, which the screen of lists
+    // behind it has to hear about: its rows carry four figures and a date the server
+    // works out.
+    provide_context(crate::drawer::Lists(RwSignal::new(0)));
 
     // One thing over the screen at a time. Both of these are drawers on the same edge,
     // and two of them stacked is a thing to unstack rather than to read — so whichever

@@ -243,7 +243,7 @@ impl Paging {
     /// The window, with an unreasonable one brought back to something reasonable
     /// rather than refused: a listing is a thing to read, and there is no answer
     /// worth failing over here.
-    fn window(&self) -> (i64, i64) {
+    pub(super) fn window(&self) -> (i64, i64) {
         (
             self.limit.unwrap_or(PAGE).clamp(1, MOST),
             self.offset.max(0),

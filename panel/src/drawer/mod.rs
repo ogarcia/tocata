@@ -25,6 +25,7 @@
 pub mod album;
 pub mod artist;
 pub mod genre;
+pub mod playlist;
 pub mod track;
 
 use crate::api;
@@ -45,6 +46,8 @@ pub enum Open {
     Artist(String),
     /// One genre, by the only thing it has: its name.
     Genre(String),
+    /// One playlist. Yours to reorder, or somebody else's to read.
+    Playlist(String),
 }
 
 /// The one signal that says. Held above the router so it survives nothing and
@@ -61,15 +64,42 @@ pub type Opened = RwSignal<Option<Open>>;
 ///
 /// Provided by the shell, like [`Opened`], so a panel can say it without knowing what
 /// is behind it.
-pub type Marks = RwSignal<u64>;
+///
+/// A type of its own around the counter rather than an alias for it. Context is looked up
+/// by type, and an alias is not a type: with `Marks` and `Lists` both spelling
+/// `RwSignal<u64>`, the shell providing one of them replaced the other and a heart
+/// pressed on a track bumped the counter the screen of lists was watching.
+#[derive(Clone, Copy)]
+pub struct Marks(pub RwSignal<u64>);
 
-/// Says a mark changed. Nothing happens where nobody is listening, which is every
-/// screen but one.
-fn marked_something() {
-    if let Some(marks) = use_context::<Marks>() {
-        marks.update(|many| *many += 1);
+/// Picks the counter up, to be bumped once a request has come back.
+///
+/// Read where a component is built rather than inside the request itself. `use_context`
+/// asks whoever owns the reactive scope, and a future resumed after an `await` is not
+/// owned by the component that spawned it — so asking in there finds nothing, and the
+/// news that something changed is dropped without a word. Which is exactly what happened
+/// to the screen of lists: it was told nothing and went on showing what it had.
+pub fn watching<T: Send + Sync + Clone + 'static>() -> Option<T> {
+    use_context::<T>()
+}
+
+/// Says one of them changed. Nothing happens where nobody is listening, which is every
+/// screen but the one this is about.
+fn tell(counter: Option<RwSignal<u64>>) {
+    if let Some(counter) = counter {
+        counter.update(|many| *many += 1);
     }
 }
+
+/// How many times a playlist has been changed from a panel, for the same reason and in
+/// the same shape as [`Marks`]: the screen of lists is behind that panel, and a row of
+/// it goes stale the moment the panel renames a list, publishes it, or adds to it.
+///
+/// A second counter and not the same one, so a heart pressed on a track does not send the
+/// list of lists back to the server for something that cannot have changed it — which
+/// needs two types and not two names for one, see [`Marks`].
+#[derive(Clone, Copy)]
+pub struct Lists(pub RwSignal<u64>);
 
 /// Reaches it. Provided by the shell, which is above every screen that opens one.
 pub fn opened() -> Opened {
@@ -112,6 +142,7 @@ pub fn Drawers() -> impl IntoView {
                     Open::Album(id) => view! { <album::Album id /> }.into_any(),
                     Open::Artist(id) => view! { <artist::Artist id /> }.into_any(),
                     Open::Genre(name) => view! { <genre::Genre name /> }.into_any(),
+                    Open::Playlist(id) => view! { <playlist::OnePlaylist id /> }.into_any(),
                 })
         }}
     }
@@ -151,6 +182,17 @@ pub fn Head(
     #[prop(optional, into)]
     picture: Signal<Option<String>>,
     heading: Signal<String>,
+    /// Whether the heading is the reader's to change, which is true of exactly one kind
+    /// of thing this panel opens: a playlist of their own. A name is one of the two
+    /// things a list is — the other is its order, changed on the rows below — so it is
+    /// edited where it is read rather than in a field further down that would say it
+    /// twice and cost a hand of the height the tracks want.
+    #[prop(optional, into)]
+    renaming: Signal<bool>,
+    /// What to do with a new name, once the field is left. Nothing at all where a
+    /// heading is only a heading.
+    #[prop(optional)]
+    on_renamed: Option<Callback<String>>,
     /// The line under it, which every one of these has and none of them needs: it is
     /// empty until what was asked for arrives.
     ///
@@ -206,7 +248,25 @@ pub fn Head(
             </span>
 
             <div>
-                <h2>{heading}</h2>
+                // The same words either way, and at the same size: a field that arrives
+                // looking like a field would be a heading that turned into a form.
+                <Show
+                    when=move || renaming.get() && on_renamed.is_some()
+                    fallback=move || view! { <h2>{heading}</h2> }
+                >
+                    <input
+                        class="calling"
+                        autocomplete="off"
+                        aria-label=move || heading.get()
+                        prop:value=heading
+                        on:change:target=move |e| {
+                            if let Some(renamed) = on_renamed {
+                                renamed.run(e.target().value());
+                            }
+                        }
+                    />
+                </Show>
+
                 <p class="quiet">{move || lead.run()}</p>
             </div>
 
@@ -307,6 +367,7 @@ pub fn Heart(
     // showing the answer from before it was pressed.
     let pressed = RwSignal::new(None::<bool>);
     let is_marked = move || pressed.get().unwrap_or_else(|| marked.get().is_some());
+    let marks = watching::<Marks>().map(|marks| marks.0);
 
     let press = move |_| {
         let Some(id) = id.get_untracked() else { return };
@@ -322,7 +383,7 @@ pub fn Heart(
                 return;
             }
 
-            marked_something();
+            tell(marks);
         });
     };
 
