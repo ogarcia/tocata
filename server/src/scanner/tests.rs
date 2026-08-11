@@ -406,19 +406,32 @@ async fn a_release_id_and_a_compilation_survive_a_second_scan_too() {
     // spent a while not taking the first one: a release id that never reached the
     // file left OK Computer filed under its artist and its title like any other
     // record, and everything below still passed.
-    let filed: Vec<String> = sqlx::query_scalar("SELECT grouping_key FROM albums ORDER BY id")
-        .fetch_all(&pool)
+    //
+    // Each record asked for by name. It was `ORDER BY id` and took the first row for
+    // the release and the second for the compilation, which is the order the two
+    // folders were walked in — and that is whatever order the filesystem hands back
+    // two directories sitting side by side. Nothing promises it, and the CI came back
+    // with "the release id names the record: compilationhits 96" — the separator is in
+    // there, it just does not print — to say so. Writing Hits before Release above
+    // reproduces that here, word for word, every time.
+    let released: String = sqlx::query_scalar("SELECT grouping_key FROM albums WHERE name = ?")
+        .bind("OK Computer")
+        .fetch_one(&pool)
         .await
         .unwrap();
     assert!(
-        filed[0].starts_with("release\u{1f}"),
-        "the release id names the record: {}",
-        filed[0]
+        released.starts_with("release\u{1f}"),
+        "the release id names the record: {released}"
     );
+
+    let collected: String = sqlx::query_scalar("SELECT grouping_key FROM albums WHERE name = ?")
+        .bind("Hits 96")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(
-        filed[1].starts_with("compilation\u{1f}"),
-        "and the flag files it without regard to who is on it: {}",
-        filed[1]
+        collected.starts_with("compilation\u{1f}"),
+        "and the flag files it without regard to who is on it: {collected}"
     );
 
     scan(&pool, id, &root, Mode::Full).await.unwrap();
