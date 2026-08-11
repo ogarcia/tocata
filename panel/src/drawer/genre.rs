@@ -155,7 +155,9 @@ fn Said(read: GenreDetail) -> impl IntoView {
     let gone = read.missing;
 
     view! {
-        <div class="figures">
+        // Ruled underneath, which no other drawer's figures are: with no facts to
+        // spell out under them, nothing here brings the line that closes the block.
+        <div class="figures ruled">
             <Figure
                 value=Some(pages::thousands(read.albums))
                 name=t!("genre.albums").to_string()

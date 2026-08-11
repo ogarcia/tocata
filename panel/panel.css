@@ -5151,17 +5151,27 @@ select.narrow { width: 12.5rem; }
  *
  * `auto-fit` rather than the fixed four: how many figures there are here depends on
  * what the file said about itself, and a file that reports no bitrate should leave
- * three across the panel rather than a gap where the fourth was. And a hairline
- * underneath, because unlike the scan's these have rows following them. */
+ * three across the panel rather than a gap where the fourth was.
+ *
+ * No margin over the rule: what is above is either the label that names the block —
+ * which leaves the same hairline's worth of room a label leaves over `.spelt`, so
+ * these now begin where every other run of rows in a drawer begins — or the top of
+ * the scrolling body, which has the padding for it. The air the figures need is
+ * inside them, on each cell, and not above the line. */
 .leafing .figures {
   grid-template-columns: repeat(auto-fit, minmax(min(6.5rem, 100%), 1fr));
   gap: 0 0.875rem;
-  margin-top: 0.75rem;
   padding-top: 0;
-  border-bottom: 1px solid var(--line);
 }
 
 .leafing .figures > div { padding: 0.8125rem 0; }
+
+/* And a rule under them, for the one drawer where nothing under them draws its own:
+ * a genre has no facts to spell out, so what follows the figures is a label over a
+ * listing rather than a run of rows that closes itself. Everywhere else the first row
+ * of `.spelt` brings the line, and a block that closed itself as well put two
+ * hairlines a pixel apart. */
+.leafing .figures.ruled { border-bottom: 1px solid var(--line); }
 
 /* One sentence on the left saying where what you are reading came from, and what can
  * be done with it on the right. */
