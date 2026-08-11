@@ -355,6 +355,12 @@ async fn unfound(pool: &SqlitePool) -> Result<i64> {
 
 /// Reads the database through. Counted in problems, and the problems themselves
 /// come back as the note, since this is the one job whose answer is prose.
+///
+/// It is also the one job that makes SQLite re-enter itself: walking an FTS5 index
+/// runs a statement of its own, from inside the statement that asked. On a database
+/// opened with a *shared cache* that deadlocks outright, which is why the tests below
+/// give this job a file rather than a database held in memory. Nothing the server
+/// opens has a shared cache — see `empty` in the tests for the whole account.
 async fn check(pool: &SqlitePool) -> Result<Outcome> {
     let mut problems = Vec::new();
 
@@ -481,10 +487,38 @@ mod tests {
     use super::*;
     use crate::db;
 
+    /// A database of its own per test, on disk, opened exactly as the server opens
+    /// the real one.
+    ///
+    /// **Not one held in memory, and this is what the CI hangs were.**
+    /// `sqlite::memory:` is a *shared cache* database in sqlx — it has to be, or the
+    /// ten connections of a pool would each see a different empty database — and a
+    /// shared cache is one set of b-trees, one schema and one mutex that is not
+    /// recursive for every connection onto it. [`check`] walks the FTS5 indexes, and
+    /// walking one runs a statement of its own from inside the statement that asked;
+    /// stepping it asks the shared cache for a lock the caller is still holding, and
+    /// the thread stops there for good. No error, no timeout, nothing in the log.
+    ///
+    /// That is what "has been running for over 60 seconds" on
+    /// [`the_last_run_of_a_job_is_the_last_one`] was, every time it happened: two runs
+    /// of the check job in one test is two integrity checks, and it needs a second
+    /// connection and an unlucky moment. Taken from a stopped process, ten threads sat
+    /// in `sqlite3Fts5StorageIntegrity` inside `sqlite3_step` inside another
+    /// `sqlite3_step`, each waiting on a mutex of its own database — and no other
+    /// thread was anywhere in SQLite for those databases, so what each waits for is
+    /// what it already holds.
+    ///
+    /// Measured on one machine, two cores, twenty-four of these at once: in memory,
+    /// six hundred rounds wedged within three seconds, two batches in three; on disk,
+    /// three thousand six hundred rounds without one, at 4.4 seconds a batch against
+    /// the 3.0 memory takes when it does finish. Worth every millisecond.
+    ///
+    /// The server never met this and cannot. A file is opened with a private cache, so
+    /// every connection has b-trees and a schema of its own and there is no such lock
+    /// to take twice — which is why the fix belongs here and not in anything the
+    /// server does.
     async fn empty() -> SqlitePool {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!().run(&pool).await.unwrap();
-        pool
+        db::connect(&tempdir().join("tocata.db")).await.unwrap()
     }
 
     /// A cover row and its cached file, plus a file nothing names.
@@ -816,58 +850,27 @@ mod tests {
     /// Two runs of the same job leave two rows, and the newer one is what a
     /// screen asking "when did this last run" gets.
     ///
-    /// **This is the one that hangs the CI**, every time it has happened: "has been
-    /// running for over 60 seconds" on a test that takes 0.15 seconds here, including
-    /// starting cargo. It has not been reproduced — eleven runs of the module, three of
-    /// the whole binary at two threads — so what is written here is what was found and
-    /// what was done about it, for whoever meets it next.
-    ///
-    /// Two things about it were wrong on their own terms and are fixed. It wrote to the
-    /// pool rather than in its turn, which is the one thing this program does not do
-    /// anywhere else — the queue in `db` exists precisely so that two ways into one
-    /// database do not race for the lock — and it went unseen because the test that
-    /// guards against that deliberately exempts test code. And it never closed the pool,
-    /// so the runtime was left to shut down over connections still being handed back;
-    /// SQLite statements run on blocking threads, and a `Runtime` drop waits for those.
-    ///
-    /// The steps are timed out so that if it happens again the CI says which one it hung
-    /// on instead of dying quietly at sixty seconds. Fifteen seconds is far longer than
-    /// any step here needs and shorter than the aggregate wait that produced the message.
+    /// **This is the one that hung the CI**, and two runs of the check job in one test
+    /// is why it was this one rather than another. What the hang was, and what took it
+    /// away, is on [`empty`] — nothing written here brought it on.
     #[tokio::test]
     async fn the_last_run_of_a_job_is_the_last_one() {
-        use std::time::Duration;
-        use tokio::time::timeout;
-
-        /// Long enough that a slow machine is not a failure, short enough to fail before
-        /// the runner gives up on the whole binary.
-        const PATIENCE: Duration = Duration::from_secs(15);
-
         let pool = empty().await;
         let data_dir = tempdir();
 
-        timeout(PATIENCE, run(&pool, &data_dir, Job::Check))
-            .await
-            .expect("the first run hung")
-            .unwrap();
+        run(&pool, &data_dir, Job::Check).await.unwrap();
 
         // Timestamps are to the second, so two rows written in the same second
         // would be indistinguishable. Aged by hand, which is also the case worth
         // testing: a run from years ago and one from now.
         let long_ago = "2020-01-01T00:00:00Z";
-        timeout(
-            PATIENCE,
-            sqlx::query("UPDATE job_runs SET started_at = ?")
-                .bind(long_ago)
-                .in_turn(&pool),
-        )
-        .await
-        .expect("ageing the first run hung")
-        .unwrap();
-
-        let second = timeout(PATIENCE, run(&pool, &data_dir, Job::Check))
+        sqlx::query("UPDATE job_runs SET started_at = ?")
+            .bind(long_ago)
+            .in_turn(&pool)
             .await
-            .expect("the second run hung")
             .unwrap();
+
+        let second = run(&pool, &data_dir, Job::Check).await.unwrap();
 
         let latest = latest(&pool).await.unwrap();
         assert_eq!(latest.len(), 1, "one row per job");

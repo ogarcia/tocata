@@ -127,16 +127,23 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use crate::user::User;
-    use crate::{attempts, net, resources, scanner, settings};
+    use crate::{attempts, db, net, resources, scanner, settings};
     use tokio::sync::watch;
 
+    /// A server with a database of its own, on disk and in its own directory, the way
+    /// the real one has.
+    ///
+    /// Not one held in memory: these tests run the check job, and that job cannot be
+    /// run against a shared-cache database — which is the only kind sqlx makes in
+    /// memory — without the chance of stopping the whole test binary. What that is and
+    /// how it was found is written down on `jobs::tests::empty`.
     async fn a_server() -> AppState {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!().run(&pool).await.unwrap();
-        settings::seed(&pool, &[]).await.unwrap();
-
-        let data_dir = std::env::temp_dir().join("tocata-jobs-api");
+        let data_dir =
+            std::env::temp_dir().join(format!("tocata-jobs-api-{}", db::public_id().unwrap()));
         std::fs::create_dir_all(&data_dir).unwrap();
+
+        let pool = db::connect(&data_dir.join("tocata.db")).await.unwrap();
+        settings::seed(&pool, &[]).await.unwrap();
 
         AppState {
             pool,
