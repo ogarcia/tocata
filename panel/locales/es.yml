@@ -272,6 +272,12 @@ playlists:
   # El selector, que se abre desde el pie de un cajón.
   add_to: Añadir a una lista
   add_lead: Se añade al final de la que elijas.
+  # El acuse: nombra la lista, que es lo único que acabas de elegir y lo único en lo que
+  # puedes equivocarte. Cerrar la hoja no dice nada de eso.
+  added_to: "Añadida a %{name}"
+  saved_as: "Guardada como %{name}"
+  in_one: Está en una de tus listas
+  in_many: "Está en %{count} de tus listas"
   already_in: ya está en ella
   new_holding: Se creará con lo que estás añadiendo.
   none_to_add_to: Todavía no has hecho ninguna lista. Crea una con esto dentro.

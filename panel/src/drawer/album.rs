@@ -29,6 +29,8 @@ pub fn Album(id: String) -> impl IntoView {
 
     let detail = RwSignal::new(None::<AlbumDetail>);
     let failure = RwSignal::new(None::<api::Failure>);
+    // What a list took it, said where this panel says where what is on screen came from.
+    let into = RwSignal::new(None::<String>);
 
     spawn_local(async move {
         match api::album(&id.get_value()).await {
@@ -96,7 +98,12 @@ pub fn Album(id: String) -> impl IntoView {
             </div>
 
             <footer>
-                <span class="quiet">{move || detail.with(where_they_are)}</span>
+                <span class="quiet">
+                    {move || match into.get() {
+                        Some(list) => t!("playlists.added_to", name = list).to_string(),
+                        None => detail.with(where_they_are),
+                    }}
+                </span>
 
                 <span class="deeds">
                     <Heart
@@ -110,6 +117,7 @@ pub fn Album(id: String) -> impl IntoView {
                     />
 
                     <Adding
+                        on_added=Callback::new(move |name| super::briefly(into, name))
                         what=api::Marking::Album
                         id=Signal::derive(move || {
                             detail.with(|read| read.as_ref().map(|read| read.id.clone()))

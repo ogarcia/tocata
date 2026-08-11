@@ -5821,3 +5821,16 @@ select.narrow { width: 12.5rem; }
   flex: none;
   font-size: var(--aside);
 }
+
+/* The receipt in the foot of the queue, which has no provenance line of its own to
+ * borrow: it sits in the space between the two buttons, the same distance from both, and
+ * says nothing at all the rest of the time. */
+.queue > footer .receipt {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--aside);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}

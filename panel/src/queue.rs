@@ -58,8 +58,11 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
     // here rather than in the row because it is the rows that are *not* being dragged
     // that need it: they are the ones that move over to leave the gap.
     let moving = RwSignal::new(None::<(usize, usize)>);
-    // Whether the sheet asking for a name is open.
+    // Whether the sheet asking for a name is open, and what to say once it has made
+    // something: this footer has no provenance line to borrow, so the receipt sits in the
+    // space between its two buttons — the same distance from both.
     let saving = RwSignal::new(false);
+    let told = RwSignal::new(None::<String>);
 
     // Fetched when the drawer opens and again whenever the queue changes under it,
     // which is what fills the gap left by a track taken out.
@@ -256,6 +259,12 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                         <Glyph icon=Icon::Remove />
                     </button>
 
+                    <span class="quiet receipt">
+                        {move || {
+                            told.get().map(|made| t!("playlists.saved_as", name = made).to_string())
+                        }}
+                    </span>
+
                     <span class="deeds">
                         <button class="leading" on:click=move |_| saving.set(true)>
                             {t!("playlists.save_queue")}
@@ -268,7 +277,7 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                 making=saving
                 tracks=Signal::derive(move || player.queue.get())
                 lead=Signal::derive(|| t!("playlists.save_queue_lead").to_string())
-                on_made=Callback::new(|()| ())
+                on_made=Callback::new(move |made: String| crate::drawer::briefly(told, made))
                 on_expired=Callback::new(|()| ())
             />
         </Show>

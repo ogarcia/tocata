@@ -72,6 +72,25 @@ pub type Opened = RwSignal<Option<Open>>;
 #[derive(Clone, Copy)]
 pub struct Marks(pub RwSignal<u64>);
 
+/// How long a receipt stands before what was there comes back.
+///
+/// Five seconds, where the two-second acknowledgement on the play button is a word
+/// changing under the finger that pressed it. This one names something — which list a
+/// track went into — and a name has to be read, sometimes twice.
+pub const RECEIPT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Says something happened, in the place a panel keeps for saying where what is on screen
+/// came from, and puts that back afterwards.
+///
+/// The provenance line is the free slot in a footer: it is the least urgent thing there
+/// and it is on the opposite side from the finger that just pressed. Nothing moves,
+/// nothing is covered, and no third layer opens over a drawer that already had a sheet on
+/// it.
+pub fn briefly(told: RwSignal<Option<String>>, said: String) {
+    told.set(Some(said));
+    set_timeout(move || told.set(None), RECEIPT);
+}
+
 /// Picks the counter up, to be bumped once a request has come back.
 ///
 /// Read where a component is built rather than inside the request itself. `use_context`
@@ -431,6 +450,17 @@ pub fn Adding(
     what: api::Marking,
     /// Which one, once the panel knows.
     id: Signal<Option<String>>,
+    /// How many of the reader's own lists it is in already, where that is a question worth
+    /// asking — a track. Lights the glyph, which unlike the receipt below is not a message
+    /// but a state: it is still true the next time the panel is opened.
+    #[prop(optional, into)]
+    held: Signal<i64>,
+    /// What to say once something has been added, and where a panel says it: the name of
+    /// the list it went into. The foot of the drawer prints it in place of where what is on
+    /// screen came from, which is the least urgent thing there and the furthest from the
+    /// finger that just pressed.
+    #[prop(optional)]
+    on_added: Option<Callback<String>>,
 ) -> impl IntoView {
     let dialog: NodeRef<leptos::html::Dialog> = NodeRef::new();
     let open = RwSignal::new(false);
@@ -505,6 +535,10 @@ pub fn Adding(
     // asks is the one from the screen of lists, and it takes what it is given.
     let gathered = RwSignal::new(Vec::<String>::new());
     let naming = RwSignal::new(false);
+    // What has been added from this panel since it opened, so the glyph lights the moment
+    // it happens rather than on the next visit.
+    let added = RwSignal::new(0);
+    let lit = move || held.get() + added.get() > 0;
 
     let anew = move |_| {
         saving.set(true);
@@ -523,8 +557,18 @@ pub fn Adding(
         spawn_local(async move {
             let tracks = gather().await;
 
-            if !tracks.is_empty() && api::add_to_playlist(&playlist, tracks).await.is_ok() {
+            if !tracks.is_empty()
+                && let Ok(into) = api::add_to_playlist(&playlist, tracks).await
+            {
                 tell(lists);
+                added.update(|many| *many += 1);
+
+                // The receipt names the list, which is the one thing somebody just chose
+                // and the one thing they can get wrong. Closing the sheet says the sheet
+                // is gone and nothing else.
+                if let Some(say) = on_added {
+                    say.run(into.name);
+                }
             }
 
             saving.set(false);
@@ -536,7 +580,18 @@ pub fn Adding(
         <Show when=move || id.get().is_some()>
             <button
                 class="mark"
-                title=t!("playlists.add_to")
+                class:marked=lit
+                title=move || {
+                    let count = held.get() + added.get();
+
+                    if count == 1 {
+                        t!("playlists.in_one").to_string()
+                    } else if count > 1 {
+                        t!("playlists.in_many", count = count).to_string()
+                    } else {
+                        t!("playlists.add_to").to_string()
+                    }
+                }
                 on:click=move |_| open.set(true)
             >
                 <Glyph icon=Icon::Playlists />
@@ -640,7 +695,14 @@ pub fn Adding(
             making=naming
             tracks=gathered
             lead=Signal::derive(|| t!("playlists.new_holding").to_string())
-            on_made=Callback::new(move |()| tell(lists))
+            on_made=Callback::new(move |made: String| {
+                tell(lists);
+                added.update(|many| *many += 1);
+
+                if let Some(say) = on_added {
+                    say.run(made);
+                }
+            })
             on_expired=Callback::new(|()| ())
         />
     }

@@ -120,7 +120,7 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
             </div>
         </Show>
 
-        <Making making on_made=Callback::new(move |()| afresh()) on_expired />
+        <Making making on_made=Callback::new(move |_: String| afresh()) on_expired />
     }
 }
 
@@ -297,7 +297,8 @@ pub fn Making(
     /// The line under the title, for the one caller whose list will not be empty.
     #[prop(optional, into)]
     lead: Option<Signal<String>>,
-    on_made: Callback<()>,
+    /// The name of the list that was made, for whoever wants to say so.
+    on_made: Callback<String>,
     on_expired: Callback<()>,
 ) -> impl IntoView {
     let dialog: NodeRef<leptos::html::Dialog> = NodeRef::new();
@@ -331,8 +332,8 @@ pub fn Making(
             };
 
             match api::make_playlist(asked).await {
-                Ok(_) => {
-                    on_made.run(());
+                Ok(made) => {
+                    on_made.run(made.name);
                     making.set(false);
                 }
                 Err(api::Failure::Unauthenticated) => on_expired.run(()),

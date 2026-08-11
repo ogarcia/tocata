@@ -274,6 +274,12 @@ playlists:
   # The picker, opened from the foot of a drawer.
   add_to: Add to a playlist
   add_lead: It goes at the end of whichever you choose.
+  # The receipt: it names the list, which is the one thing somebody just chose and the one
+  # thing they can get wrong. Closing the sheet says none of that.
+  added_to: "Added to %{name}"
+  saved_as: "Saved as %{name}"
+  in_one: In one of your lists
+  in_many: "In %{count} of your lists"
   already_in: already in it
   new_holding: It will hold what you are adding.
   none_to_add_to: You have not made a list yet. Make one holding this.

@@ -1187,6 +1187,15 @@ pub struct TrackDetail {
     /// When whoever is asking marked it as a favourite, and nothing at all where they
     /// have not. What the heart at the foot of its panel is drawn from.
     pub starred_at: Option<String>,
+    /// How many of their own lists it is in.
+    ///
+    /// The other half of what the foot of its panel says about the reader rather than the
+    /// song, and the reason it is a count and not a yes: the glyph is lit either way, and
+    /// what it can say when pointed at is how many.
+    ///
+    /// A column here rather than a call of its own, because it is read exactly when the
+    /// panel is drawn and by nobody else.
+    pub in_playlists: i64,
 }
 
 /// What a file says about itself, read from the file and not from the database.

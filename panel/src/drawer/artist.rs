@@ -30,6 +30,8 @@ pub fn Artist(id: String) -> impl IntoView {
 
     let detail = RwSignal::new(None::<ArtistDetail>);
     let failure = RwSignal::new(None::<api::Failure>);
+    // What a list took it, said where this panel says where what is on screen came from.
+    let into = RwSignal::new(None::<String>);
 
     spawn_local(async move {
         match api::artist(&id.get_value()).await {
@@ -96,12 +98,17 @@ pub fn Artist(id: String) -> impl IntoView {
                 // came from, and for a fetched photograph that is a name and a
                 // licence rather than a sentence about tags.
                 <span class="quiet">
-                    {move || {
-                        detail
-                            .get()
-                            .and_then(|read| read.credit)
-                            .map(|credit| view! { <Credit credit /> }.into_any())
-                            .unwrap_or_else(|| t!("artist.credited_on").into_any())
+                    {move || match into.get() {
+                        Some(list) => {
+                            t!("playlists.added_to", name = list).to_string().into_any()
+                        }
+                        None => {
+                            detail
+                                .get()
+                                .and_then(|read| read.credit)
+                                .map(|credit| view! { <Credit credit /> }.into_any())
+                                .unwrap_or_else(|| t!("artist.credited_on").into_any())
+                        }
                     }}
                 </span>
 
@@ -117,6 +124,7 @@ pub fn Artist(id: String) -> impl IntoView {
                     />
 
                     <Adding
+                        on_added=Callback::new(move |name| super::briefly(into, name))
                         what=api::Marking::Artist
                         id=Signal::derive(move || {
                             detail.with(|read| read.as_ref().map(|read| read.id.clone()))

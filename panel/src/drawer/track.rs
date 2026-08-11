@@ -96,6 +96,10 @@ pub fn Track(id: String) -> impl IntoView {
     // double-clicked, and waiting two seconds to queue the same song twice is the
     // lesser of those two.
     let told = RwSignal::new(false);
+    // And what a list took it, said where the tab's provenance is said. Two receipts in
+    // one footer and neither in the other's way: one replaces the button on the right, this
+    // one the line on the left.
+    let into = RwSignal::new(None::<String>);
 
     let deed = move |_| {
         if player.loaded() {
@@ -187,10 +191,11 @@ pub fn Track(id: String) -> impl IntoView {
                 // tab because the answer does: one of these is the database and two
                 // of them are the file.
                 <span class="quiet">
-                    {move || match tab.get() {
-                        Tab::Said => t!("track.from_the_scan").to_string(),
-                        Tab::Words => whence(&words.get()),
-                        Tab::Every => t!("track.from_the_file").to_string(),
+                    {move || match (into.get(), tab.get()) {
+                        (Some(list), _) => t!("playlists.added_to", name = list).to_string(),
+                        (None, Tab::Said) => t!("track.from_the_scan").to_string(),
+                        (None, Tab::Words) => whence(&words.get()),
+                        (None, Tab::Every) => t!("track.from_the_file").to_string(),
                     }}
                 </span>
 
@@ -221,6 +226,11 @@ pub fn Track(id: String) -> impl IntoView {
                         id=Signal::derive(move || {
                             detail.with(|read| read.as_ref().map(|read| read.id.clone()))
                         })
+                        held=Signal::derive(move || {
+                            detail.with(|read| read.as_ref().map(|read| read.in_playlists))
+                                .unwrap_or_default()
+                        })
+                        on_added=Callback::new(move |name| super::briefly(into, name))
                     />
 
                     <Show when=move || {
@@ -696,6 +706,7 @@ mod tests {
             comment: None,
             missing: false,
             starred_at: None,
+            in_playlists: 0,
         }
     }
 

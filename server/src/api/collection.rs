@@ -444,17 +444,22 @@ pub async fn detail(
                 t.path, l.name AS library, t.file_size, t.updated_at,
                 t.isrc, t.mbid_recording, t.comment,
                 t.missing_since IS NOT NULL AS missing,
-                -- Last, and the only column here that is about the reader rather than
-                -- the song: whether they have marked it, which is what the heart at
-                -- the foot of this panel is drawn from.
+                -- The two columns here that are about the reader rather than the song,
+                -- which is what the two glyphs at the foot of this panel are drawn from:
+                -- whether they have marked it, and how many of their own lists it is in.
                 ",
         starred_when!("user_track_stats", "track_id", "t.id"),
-        "?) AS starred_at
+        "?) AS starred_at,
+                (SELECT count(DISTINCT p.id)
+                   FROM playlists p
+                   JOIN playlist_tracks pt ON pt.playlist_id = p.id
+                  WHERE p.owner_id = ? AND pt.track_id = t.id) AS in_playlists
            FROM tracks t
            JOIN libraries l ON l.id = t.library_id
            LEFT JOIN albums al ON al.id = t.album_id
           WHERE t.public_id = ? AND t.library_id IN (SELECT id FROM visible_libraries)"
     ))
+    .bind(panel.user.id)
     .bind(panel.user.id)
     .bind(panel.user.id)
     .bind(&id)
@@ -1712,6 +1717,7 @@ struct DetailRow {
     comment: Option<String>,
     missing: bool,
     starred_at: Option<String>,
+    in_playlists: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1786,6 +1792,7 @@ impl DetailRow {
             comment: self.comment,
             missing: self.missing,
             starred_at: self.starred_at,
+            in_playlists: self.in_playlists,
         }
     }
 }
