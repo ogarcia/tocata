@@ -815,23 +815,59 @@ mod tests {
 
     /// Two runs of the same job leave two rows, and the newer one is what a
     /// screen asking "when did this last run" gets.
+    ///
+    /// **This is the one that hangs the CI**, every time it has happened: "has been
+    /// running for over 60 seconds" on a test that takes 0.15 seconds here, including
+    /// starting cargo. It has not been reproduced — eleven runs of the module, three of
+    /// the whole binary at two threads — so what is written here is what was found and
+    /// what was done about it, for whoever meets it next.
+    ///
+    /// Two things about it were wrong on their own terms and are fixed. It wrote to the
+    /// pool rather than in its turn, which is the one thing this program does not do
+    /// anywhere else — the queue in `db` exists precisely so that two ways into one
+    /// database do not race for the lock — and it went unseen because the test that
+    /// guards against that deliberately exempts test code. And it never closed the pool,
+    /// so the runtime was left to shut down over connections still being handed back;
+    /// SQLite statements run on blocking threads, and a `Runtime` drop waits for those.
+    ///
+    /// The steps are timed out so that if it happens again the CI says which one it hung
+    /// on instead of dying quietly at sixty seconds. Fifteen seconds is far longer than
+    /// any step here needs and shorter than the aggregate wait that produced the message.
     #[tokio::test]
     async fn the_last_run_of_a_job_is_the_last_one() {
+        use std::time::Duration;
+        use tokio::time::timeout;
+
+        /// Long enough that a slow machine is not a failure, short enough to fail before
+        /// the runner gives up on the whole binary.
+        const PATIENCE: Duration = Duration::from_secs(15);
+
         let pool = empty().await;
         let data_dir = tempdir();
 
-        run(&pool, &data_dir, Job::Check).await.unwrap();
+        timeout(PATIENCE, run(&pool, &data_dir, Job::Check))
+            .await
+            .expect("the first run hung")
+            .unwrap();
+
         // Timestamps are to the second, so two rows written in the same second
         // would be indistinguishable. Aged by hand, which is also the case worth
         // testing: a run from years ago and one from now.
         let long_ago = "2020-01-01T00:00:00Z";
-        sqlx::query("UPDATE job_runs SET started_at = ?")
-            .bind(long_ago)
-            .execute(&pool)
-            .await
-            .unwrap();
+        timeout(
+            PATIENCE,
+            sqlx::query("UPDATE job_runs SET started_at = ?")
+                .bind(long_ago)
+                .in_turn(&pool),
+        )
+        .await
+        .expect("ageing the first run hung")
+        .unwrap();
 
-        let second = run(&pool, &data_dir, Job::Check).await.unwrap();
+        let second = timeout(PATIENCE, run(&pool, &data_dir, Job::Check))
+            .await
+            .expect("the second run hung")
+            .unwrap();
 
         let latest = latest(&pool).await.unwrap();
         assert_eq!(latest.len(), 1, "one row per job");
@@ -840,6 +876,9 @@ mod tests {
         let all = history(&pool, 10).await.unwrap();
         assert_eq!(all.len(), 2, "both are kept");
         assert_eq!(all[1].at, long_ago, "oldest last");
+
+        // Handed back rather than left to the runtime's own shutdown.
+        pool.close().await;
     }
 
     /// A directory of its own per test, since these ones write files.
