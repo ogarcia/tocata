@@ -300,14 +300,26 @@ enum Refused {
     NotYours,
 }
 
-/// A public playlist is readable by anybody; only its owner, or an
-/// administrator, can change it.
+/// A public playlist is readable by anybody; only its owner can change it.
+///
+/// **An administrator has no say here, and used to.** Both of these carried
+/// `|| auth.user.is_admin`, which made this side of the server disagree with
+/// itself: `getPlaylists` has always listed only what somebody owns plus what
+/// is public, so an administrator could open and rewrite a private list they
+/// were never shown — findable only by guessing an identifier, and then
+/// theirs to empty.
+///
+/// It also disagreed with what administration is here. An administrator looks
+/// after accounts and libraries; what somebody put in a list of their own is
+/// not one of those, any more than their favourites or where their listens are
+/// sent. `/api` was written this way from the start, so the two sides now say
+/// the same thing.
 fn can_read(auth: &Authenticated, row: &PlaylistRow) -> bool {
-    row.is_public || row.owner == auth.user.username || auth.user.is_admin
+    row.is_public || row.owner == auth.user.username
 }
 
 fn can_write(auth: &Authenticated, row: &PlaylistRow) -> bool {
-    row.owner == auth.user.username || auth.user.is_admin
+    row.owner == auth.user.username
 }
 
 async fn load_playlist(
@@ -575,7 +587,74 @@ async fn touch(tx: &mut Transaction<'_, Sqlite>, playlist_id: i64) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    use super::{PlaylistRow, can_read, can_write};
+    use crate::subsonic::auth::Authenticated;
+    use crate::subsonic::response::Format;
+    use crate::user::User;
     use std::collections::HashSet;
+
+    /// A list belonging to `owner`, public or not, with nothing else filled in that
+    /// either of the two questions below looks at.
+    fn playlist(owner: &str, is_public: bool) -> PlaylistRow {
+        PlaylistRow {
+            id: 1,
+            public_id: "p1".to_string(),
+            name: "Theirs".to_string(),
+            comment: None,
+            is_public,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            owner: owner.to_string(),
+            song_count: 0,
+            duration_ms: None,
+        }
+    }
+
+    fn asking(username: &str, is_admin: bool) -> Authenticated {
+        Authenticated {
+            user: User {
+                id: 1,
+                username: username.to_string(),
+                is_admin,
+            },
+            format: Format::Json,
+            client: "test".to_string(),
+        }
+    }
+
+    /// An administrator has no say over somebody else's list.
+    ///
+    /// Both of these used to end in `|| is_admin`, which made this side of the server
+    /// disagree with itself: the listing has always shown an account its own lists plus
+    /// the public ones, so a private list of somebody else's was never offered — and was
+    /// theirs to open and rewrite anyway if they guessed the identifier.
+    #[test]
+    fn a_private_list_is_nobodys_business_but_its_owners() {
+        let hers = playlist("bea", false);
+
+        assert!(!can_read(&asking("ana", false), &hers));
+        assert!(!can_write(&asking("ana", false), &hers));
+        assert!(
+            !can_read(&asking("ana", true), &hers),
+            "an administrator looks after accounts and libraries, not lists"
+        );
+        assert!(!can_write(&asking("ana", true), &hers));
+
+        // And its owner, administrator or not, may do both.
+        assert!(can_read(&asking("bea", false), &hers));
+        assert!(can_write(&asking("bea", false), &hers));
+    }
+
+    /// A public one is readable by anybody and writable by nobody but its owner.
+    #[test]
+    fn a_public_list_is_read_by_anybody_and_changed_by_its_owner() {
+        let shared = playlist("bea", true);
+
+        assert!(can_read(&asking("ana", false), &shared));
+        assert!(!can_write(&asking("ana", false), &shared));
+        assert!(!can_write(&asking("ana", true), &shared), "not even so");
+        assert!(can_write(&asking("bea", false), &shared));
+    }
 
     /// The removal rule, on its own: indexes point at the list the client is
     /// looking at, and all of them are applied at once.
