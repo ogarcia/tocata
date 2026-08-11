@@ -13,7 +13,7 @@
 //! find out what is missing. The figures above it count only what can be played, and
 //! say how many cannot on a line of their own.
 
-use super::{Fact, Failed, Figure, Frame, Head, Heart, Onward, Open, Piece, credited};
+use super::{Adding, Fact, Failed, Figure, Frame, Head, Heart, Onward, Open, Piece, credited};
 use crate::api;
 use crate::icon::Icon;
 use crate::pages;
@@ -106,6 +106,13 @@ pub fn Album(id: String) -> impl IntoView {
                         })
                         marked=Signal::derive(move || {
                             detail.with(|read| read.as_ref().and_then(|read| read.starred_at.clone()))
+                        })
+                    />
+
+                    <Adding
+                        what=api::Marking::Album
+                        id=Signal::derive(move || {
+                            detail.with(|read| read.as_ref().map(|read| read.id.clone()))
                         })
                     />
 

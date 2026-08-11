@@ -477,6 +477,26 @@ pub async fn remove_playlist(id: &str) -> Result<(), Failure> {
     plain(delete(&format!("/playlists/{id}"))?).await
 }
 
+/// Adds to the end of one, in the order given.
+pub async fn add_to_playlist(
+    id: &str,
+    tracks: Vec<String>,
+) -> Result<tocata::types::Playlist, Failure> {
+    read(post(
+        &format!("/playlists/{id}/tracks"),
+        &tocata::types::Adding { tracks },
+    )?)
+    .await
+}
+
+/// Which of your own lists already hold a track, so a picker can say so rather than let
+/// a second copy in by a second press.
+pub async fn playlists_holding(track: &str) -> Result<Vec<String>, Failure> {
+    read::<tocata::types::Holding>(get(&format!("/tracks/{track}/playlists"))?)
+        .await
+        .map(|holding| holding.playlists)
+}
+
 /// Moves one entry, by the positions the list itself reported.
 pub async fn move_in_playlist(id: &str, from: i64, to: i64) -> Result<(), Failure> {
     plain(patch(

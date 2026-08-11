@@ -1006,6 +1006,12 @@ pub struct PlaylistEntry {
     pub track: Track,
 }
 
+/// Which of somebody's own lists already hold a given track.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Holding {
+    pub playlists: Vec<String>,
+}
+
 /// What adding to a list asks for: tracks, in the order they are to land.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Adding {

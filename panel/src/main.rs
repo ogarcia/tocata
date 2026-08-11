@@ -351,7 +351,7 @@ mod tests {
     /// library and the play glyph over a track number, `named` was a link in the roster
     /// and the title block of the opened player. The way out of those is a different
     /// word, never a line here.
-    const SHARED: [&str; 82] = [
+    const SHARED: [&str; 83] = [
         // How something reads, wherever it is.
         "quiet",
         "lead",
@@ -380,6 +380,9 @@ mod tests {
         "instead",
         // Furniture every screen has.
         "titled",
+        // A heading with its one action on the same line, which is the shape wherever
+        // something is both a heading and a place to add from.
+        "parted",
         "nothing",
         "finding",
         "search",

@@ -5172,8 +5172,13 @@ select.narrow { width: 12.5rem; }
 
 /* Text and not pills. There are two of these at most and one of them is always the
  * point of the panel; a pair of filled buttons at the foot of a reading panel reads
- * as a form waiting to be submitted. */
-.deeds button {
+ * as a form waiting to be submitted.
+ *
+ * Its own children and not every button under it. One of these opens a sheet, and a
+ * sheet is a child of the button that opened it however far above the page it floats —
+ * so without the `>` this reached inside and took the padding off a pill in there,
+ * leaving the accent drawn tight around its word. */
+.deeds > button {
   padding: 0;
   border: none;
   background: transparent;
@@ -5183,7 +5188,7 @@ select.narrow { width: 12.5rem; }
   cursor: pointer;
 }
 
-.deeds button:hover { color: var(--ink); }
+.deeds > button:hover { color: var(--ink); }
 
 /* The one that is the point of it. */
 .deeds .leading { color: var(--accent); }
@@ -5237,7 +5242,7 @@ select.narrow { width: 12.5rem; }
  * or the foot of the panel changes height the moment somebody presses it and changes
  * back afterwards. Worst on a phone, where the button is a 44px target and a line of
  * text is half that. */
-.deeds .quiet {
+.deeds > .quiet {
   display: inline-flex;
   align-items: center;
   font-size: var(--control);
@@ -5419,7 +5424,7 @@ select.narrow { width: 12.5rem; }
   /* Every one of these is a 44px target on a phone. */
   .tabs button { padding: 0.9375rem 0; }
 
-  .deeds button, .deeds .quiet { min-height: 2.75rem; }
+  .deeds > button, .deeds > .quiet { min-height: 2.75rem; }
 
   /* Square at 44px, since this one is a target and not a word: the height comes from
    * the rule above and only the width is left to say. */
@@ -5764,4 +5769,55 @@ select.narrow { width: 12.5rem; }
     width: 2.75rem;
     height: 2.75rem;
   }
+}
+
+/* The foot of the queue: keep it, or be rid of it. The two are at opposite ends of the
+ * line on purpose — one makes a playlist and the other throws the music away — and the
+ * glyph is the destructive one, which is the way round that keeps a mis-tap from being
+ * the expensive way round. */
+.queue > footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.875rem 1.625rem;
+  border-top: 1px solid var(--line);
+}
+
+.queue > footer .tap:hover { color: var(--alarm); }
+
+/* The lists to add something to, in the sheet a drawer's foot opens. One row each, at a
+ * height a thumb can hit, and the ones it is already in are said and not offered. */
+.choosing {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choosing > li + li { border-top: 1px solid var(--line); }
+
+.choosing button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choosing button:hover:not(:disabled) { color: var(--accent); }
+
+.choosing button:disabled { cursor: default; }
+
+.choosing .quiet {
+  flex: none;
+  font-size: var(--aside);
 }

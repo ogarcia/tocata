@@ -179,6 +179,7 @@ fn v1() -> OpenApiRouter<AppState> {
             playlists::reorder
         ))
         .routes(routes!(playlists::drop_one))
+        .routes(routes!(playlists::holding))
         .routes(routes!(favourites::counts))
         .routes(routes!(favourites::mark, favourites::unmark))
         .routes(routes!(collection::tracks))

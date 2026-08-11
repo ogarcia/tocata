@@ -14,7 +14,7 @@
 //! only guest on, and that is the honest reading of what somebody means by opening a
 //! name.
 
-use super::{Fact, Failed, Figure, Frame, Head, Heart};
+use super::{Adding, Fact, Failed, Figure, Frame, Head, Heart};
 use crate::api;
 use crate::icon::{Glyph, Icon};
 use crate::pages;
@@ -113,6 +113,13 @@ pub fn Artist(id: String) -> impl IntoView {
                         })
                         marked=Signal::derive(move || {
                             detail.with(|read| read.as_ref().and_then(|read| read.starred_at.clone()))
+                        })
+                    />
+
+                    <Adding
+                        what=api::Marking::Artist
+                        id=Signal::derive(move || {
+                            detail.with(|read| read.as_ref().map(|read| read.id.clone()))
                         })
                     />
 

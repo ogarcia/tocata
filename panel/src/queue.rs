@@ -58,6 +58,8 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
     // here rather than in the row because it is the rows that are *not* being dragged
     // that need it: they are the ones that move over to leave the gap.
     let moving = RwSignal::new(None::<(usize, usize)>);
+    // Whether the sheet asking for a name is open.
+    let saving = RwSignal::new(false);
 
     // Fetched when the drawer opens and again whenever the queue changes under it,
     // which is what fills the gap left by a track taken out.
@@ -234,7 +236,41 @@ pub fn Queue(open: RwSignal<bool>) -> impl IntoView {
                         <p class="nothing">{t!("queue.nothing_ahead")}</p>
                     </Show>
                 </div>
+
+                // The two things you can do to a queue as a whole: keep it, or be rid of
+                // it. The one that keeps it is the one with words — making a list is the
+                // deed somebody came here for — and emptying is a glyph at the other end
+                // of the line, as far from it as the foot is wide, because it is the only
+                // thing in this panel that throws music away.
+                <footer>
+                    <button
+                        class="tap"
+                        title=t!("playlists.clear_queue")
+                        on:click=move |_| {
+                            player.clear();
+                            // Nothing left to look at, and a drawer holding nothing is a
+                            // drawer to close.
+                            open.set(false);
+                        }
+                    >
+                        <Glyph icon=Icon::Remove />
+                    </button>
+
+                    <span class="deeds">
+                        <button class="leading" on:click=move |_| saving.set(true)>
+                            {t!("playlists.save_queue")}
+                        </button>
+                    </span>
+                </footer>
             </div>
+
+            <crate::pages::playlists::Making
+                making=saving
+                tracks=Signal::derive(move || player.queue.get())
+                lead=Signal::derive(|| t!("playlists.save_queue_lead").to_string())
+                on_made=Callback::new(|()| ())
+                on_expired=Callback::new(|()| ())
+            />
         </Show>
     }
 }

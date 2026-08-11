@@ -151,6 +151,23 @@ impl Player {
         self.queue.update(|queue| queue.push(id));
     }
 
+    /// Stops and forgets everything.
+    ///
+    /// The one thing here that throws music away, so it is the one thing that has to be
+    /// asked for in as many words. Everything else in this machine keeps what was queued:
+    /// the end of a queue leaves the last track loaded and paused, because somebody who
+    /// has just heard a record often wants it again. This is for when they do not.
+    pub fn clear(&self) {
+        self.playing.set(false);
+        self.queue.set(Vec::new());
+        self.at.set(0);
+        self.now.set(None);
+        self.elapsed.set(0.0);
+        self.duration.set(0.0);
+        self.counted.set(false);
+        self.ordered.set(None);
+    }
+
     /// Pauses if it is sounding and starts it again if it is not. Does nothing at
     /// all with an empty queue, which is what the sidebar not being there means.
     pub fn toggle(&self) {

@@ -271,6 +271,16 @@ playlists:
   is_private: Private
   public_note: Every account on this server can see it.
   private_note: Only you can see it.
+  # The picker, opened from the foot of a drawer.
+  add_to: Add to a playlist
+  add_lead: It goes at the end of whichever you choose.
+  already_in: already in it
+  new_holding: It will hold what you are adding.
+  none_to_add_to: You have not made a list yet. Make one holding this.
+  # At the foot of the queue.
+  save_queue: Save as a playlist
+  save_queue_lead: It will hold what is in the queue, in this order.
+  clear_queue: Empty the queue
   doings: What to do with this list
   make_public: Make it public
   make_private: Make it private

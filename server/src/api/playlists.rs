@@ -31,7 +31,7 @@ use super::error::ApiError;
 use super::session::Panel;
 use crate::db::{self, InTurn};
 use crate::types::{
-    Adding, ErrorBody, Moving, NewPlaylist, Playlist, PlaylistChanges, PlaylistEntry,
+    Adding, ErrorBody, Holding, Moving, NewPlaylist, Playlist, PlaylistChanges, PlaylistEntry,
     PlaylistTracks, Playlists, Track,
 };
 use axum::Json;
@@ -291,6 +291,48 @@ impl From<EntryRow> for PlaylistEntry {
             },
         }
     }
+}
+
+/// Which of your lists a track is already in
+///
+/// What the picker in a track's panel is drawn from: a list it is already in is named as
+/// such and cannot be pressed, so pressing twice cannot quietly add a second copy.
+///
+/// Only your own, because those are the only ones anything can be added to. A track in a
+/// library this account cannot reach answers an empty list rather than a 404: what is
+/// being asked is what may be added to, and the answer is nothing.
+#[utoipa::path(
+    get,
+    path = "/tracks/{id}/playlists",
+    tag = "playlists",
+    params(("id" = String, Path, description = "Which track")),
+    responses(
+        (status = 200, description = "The lists of yours holding it", body = Holding),
+        (status = 401, description = "No valid session", body = ErrorBody),
+    )
+)]
+pub async fn holding(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<Holding>, ApiError> {
+    let playlists: Vec<String> = sqlx::query_scalar(concat!(
+        visible_libraries!(),
+        "SELECT DISTINCT p.public_id
+           FROM playlists p
+           JOIN playlist_tracks pt ON pt.playlist_id = p.id
+           JOIN tracks t ON t.id = pt.track_id
+          WHERE p.owner_id = ? AND t.public_id = ?
+            AND t.library_id IN (SELECT id FROM visible_libraries)"
+    ))
+    .bind(panel.user.id)
+    .bind(panel.user.id)
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| ApiError::internal(e, "finding which lists hold a track"))?;
+
+    Ok(Json(Holding { playlists }))
 }
 
 /// Make a list
@@ -904,8 +946,8 @@ mod tests {
     }
 
     /// What a list holds, as titles in order, so a test can say the whole answer in one
-    /// line.
-    async fn holding(pool: &SqlitePool, who: Panel, id: &str) -> Vec<String> {
+    /// line. Not `holding`, which is the handler that answers which lists hold a track.
+    async fn titles(pool: &SqlitePool, who: Panel, id: &str) -> Vec<String> {
         let Json(page) = tracks(
             who,
             State(pool.clone()),
@@ -987,7 +1029,7 @@ mod tests {
         let _ = one(bea(), State(pool.clone()), UrlPath(mine.id.clone()))
             .await
             .unwrap();
-        assert_eq!(holding(&pool, bea(), &mine.id).await, ["One"]);
+        assert_eq!(titles(&pool, bea(), &mine.id).await, ["One"]);
 
         // And nothing else.
         let renamed = change(
@@ -1029,7 +1071,7 @@ mod tests {
         assert!(matches!(deleted, Err(ApiError::NotAuthorized)));
 
         // None of which left a mark.
-        assert_eq!(holding(&pool, ana(), &mine.id).await, ["One"]);
+        assert_eq!(titles(&pool, ana(), &mine.id).await, ["One"]);
     }
 
     /// A list called nothing cannot be told from another one on any screen.
@@ -1091,7 +1133,7 @@ mod tests {
             after.tracks, 3,
             "and the answer says how many there are now"
         );
-        assert_eq!(holding(&pool, ana(), &mine.id).await, ["One", "Two", "One"]);
+        assert_eq!(titles(&pool, ana(), &mine.id).await, ["One", "Two", "One"]);
     }
 
     /// Taking one out closes the gap, so the positions stay a run of numbers.
@@ -1141,7 +1183,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(seen.tracks, 1, "the one she can reach");
-        assert_eq!(holding(&pool, ana(), &mine.id).await, ["One"]);
+        assert_eq!(titles(&pool, ana(), &mine.id).await, ["One"]);
 
         // And a track from behind the wall is dropped rather than refused: what she
         // asked for was "add these", and that one is not one of hers.
@@ -1157,7 +1199,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(after.tracks, 2);
-        assert_eq!(holding(&pool, ana(), &mine.id).await, ["One", "Two"]);
+        assert_eq!(titles(&pool, ana(), &mine.id).await, ["One", "Two"]);
 
         // Asked of the table and not of the listing, which is the only way to tell this
         // from a track that went in and is merely invisible: every figure she is shown
@@ -1185,7 +1227,7 @@ mod tests {
 
         // On screen she has One at 0 and Two at 2 — the hidden one keeps its place in
         // between, which is why she is asked to move by position and not by row.
-        assert_eq!(holding(&pool, ana(), &mine.id).await, ["One", "Two"]);
+        assert_eq!(titles(&pool, ana(), &mine.id).await, ["One", "Two"]);
 
         reorder(
             ana(),
@@ -1196,7 +1238,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(holding(&pool, ana(), &mine.id).await, ["Two", "One"]);
+        assert_eq!(titles(&pool, ana(), &mine.id).await, ["Two", "One"]);
 
         // And the one she cannot see is still in there, between them.
         let kept: Vec<i64> = sqlx::query_scalar(
@@ -1232,6 +1274,60 @@ mod tests {
 
         let gone = one(ana(), State(pool), UrlPath(mine.id)).await;
         assert!(matches!(gone, Err(ApiError::NotFound)));
+    }
+
+    /// Which lists hold a track: yours, and only yours.
+    ///
+    /// What the picker in a track's panel greys out. A public list of somebody else's
+    /// holding it is not an answer to that question — there is nothing to add to there —
+    /// and offering it would be offering something the next call refuses.
+    #[tokio::test]
+    async fn only_your_own_lists_answer_for_holding_a_track() {
+        let pool = a_collection().await;
+        let mine = made(&pool, ana(), "Mine", &["t1", "t2"]).await;
+        made(&pool, ana(), "Empty", &[]).await;
+        let hers = made(&pool, bea(), "Hers", &["t1"]).await;
+
+        let _ = change(
+            bea(),
+            State(pool.clone()),
+            UrlPath(hers.id.clone()),
+            Json(PlaylistChanges {
+                public: Some(true),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(held) = holding(ana(), State(pool.clone()), UrlPath("t1".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(held.playlists, std::slice::from_ref(&mine.id));
+
+        // A track in none of them is an empty answer and not a miss.
+        let Json(none) = holding(ana(), State(pool.clone()), UrlPath("t3".to_string()))
+            .await
+            .unwrap();
+        assert!(none.playlists.is_empty());
+
+        // And the same track twice in one list names it once: the picker draws a row per
+        // list, not a row per entry.
+        let _ = add(
+            ana(),
+            State(pool.clone()),
+            UrlPath(mine.id.clone()),
+            Json(Adding {
+                tracks: vec!["t1".to_string()],
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(again) = holding(ana(), State(pool), UrlPath("t1".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(again.playlists, [mine.id]);
     }
 
     /// A description can be taken back, which is not the same as never having had one.

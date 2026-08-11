@@ -257,8 +257,16 @@ fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl In
 /// at once to make an empty list would be asking two of them of somebody who has not
 /// seen it yet.
 #[component]
-fn Making(
+pub fn Making(
     making: RwSignal<bool>,
+    /// What it holds from the start. Empty from the button on this screen, and the whole
+    /// queue from the foot of the queue — read when the form is sent rather than when the
+    /// sheet opened, because the music carries on while somebody types a name.
+    #[prop(optional, into)]
+    tracks: Signal<Vec<String>>,
+    /// The line under the title, for the one caller whose list will not be empty.
+    #[prop(optional, into)]
+    lead: Option<Signal<String>>,
     on_made: Callback<()>,
     on_expired: Callback<()>,
 ) -> impl IntoView {
@@ -285,7 +293,10 @@ fn Making(
         failure.set(None);
 
         spawn_local(async move {
-            match api::make_playlist(name.get_untracked(), None).await {
+            let held = tracks.get_untracked();
+            let held = (!held.is_empty()).then_some(held);
+
+            match api::make_playlist(name.get_untracked(), held).await {
                 Ok(_) => {
                     on_made.run(());
                     making.set(false);
@@ -302,7 +313,12 @@ fn Making(
             <form on:submit=submit>
                 <div class="sheet-body">
                     <h2>{t!("playlists.new")}</h2>
-                    <p class="sheet-lead">{t!("playlists.new_lead")}</p>
+                    <p class="sheet-lead">
+                        {move || match lead {
+                            Some(lead) => lead.get(),
+                            None => t!("playlists.new_lead").to_string(),
+                        }}
+                    </p>
 
                     <div class="sheet-content">
                         <label>

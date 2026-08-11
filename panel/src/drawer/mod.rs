@@ -410,6 +410,242 @@ pub fn Heart(
     }
 }
 
+/// Adding what a panel is about to one of your lists.
+///
+/// A glyph beside the heart, and a sheet over the panel rather than a third layer of
+/// drawer: what it asks is one short question, and the panel behind it is the answer to
+/// where the question came from.
+///
+/// **A list the track is already in says so, and can still be pressed.** The schema keys
+/// entries by position precisely so the same song can be in a list as many times as
+/// somebody wants — a running order that plays a favourite three times is a running order
+/// — so this is a note and not a refusal. Only a track gets it: adding a record or a name
+/// is adding all of their tracks, and "already in it" has no answer for a set that is
+/// half there.
+///
+/// What goes in is worked out when the sheet opens, not when the panel did: for a record
+/// or an artist it is everything of theirs, in the order the collection lists it, which is
+/// the same order pressing play would use.
+#[component]
+pub fn Adding(
+    what: api::Marking,
+    /// Which one, once the panel knows.
+    id: Signal<Option<String>>,
+) -> impl IntoView {
+    let dialog: NodeRef<leptos::html::Dialog> = NodeRef::new();
+    let open = RwSignal::new(false);
+    let mine = RwSignal::new(Vec::<tocata::types::Playlist>::new());
+    let already = RwSignal::new(Vec::<String>::new());
+    let saving = RwSignal::new(false);
+    // Picked up here rather than inside the requests below, which is where it would find
+    // nothing: see `watching`.
+    let lists = watching::<Lists>().map(|lists| lists.0);
+
+    // Asked every time it opens. A list made a minute ago in another tab is a list this
+    // has to offer, and the answer is a handful of rows.
+    Effect::new(move |_| {
+        let Some(element) = dialog.get() else { return };
+
+        if !open.get() {
+            element.close();
+            return;
+        }
+
+        let which = id.get_untracked();
+        already.set(Vec::new());
+        let _ = element.show_modal();
+
+        spawn_local(async move {
+            if let Ok(read) = api::playlists().await {
+                mine.set(read.playlists.into_iter().filter(|one| one.mine).collect());
+            }
+
+            // Only a track can be in one already, and only its own panel knows which.
+            if let (api::Marking::Track, Some(which)) = (what, which)
+                && let Ok(read) = api::playlists_holding(&which).await
+            {
+                already.set(read);
+            }
+        });
+    });
+
+    // Everything this panel is about, as identifiers: one track, or all of a record's or
+    // a name's.
+    let gather = move || async move {
+        let Some(which) = id.get_untracked() else {
+            return Vec::new();
+        };
+
+        match what {
+            api::Marking::Track => vec![which],
+            api::Marking::Album => api::queue(
+                api::Narrowing {
+                    album: Some(which),
+                    ..Default::default()
+                },
+                false,
+                None,
+            )
+            .await
+            .unwrap_or_default(),
+            api::Marking::Artist => api::queue(
+                api::Narrowing {
+                    artist: Some(which),
+                    ..Default::default()
+                },
+                false,
+                None,
+            )
+            .await
+            .unwrap_or_default(),
+        }
+    };
+
+    // What a new list will hold, worked out before its name is asked for: the sheet that
+    // asks is the one from the screen of lists, and it takes what it is given.
+    let gathered = RwSignal::new(Vec::<String>::new());
+    let naming = RwSignal::new(false);
+
+    let anew = move |_| {
+        saving.set(true);
+
+        spawn_local(async move {
+            gathered.set(gather().await);
+            saving.set(false);
+            open.set(false);
+            naming.set(true);
+        });
+    };
+
+    let into = move |playlist: String| {
+        saving.set(true);
+
+        spawn_local(async move {
+            let tracks = gather().await;
+
+            if !tracks.is_empty() && api::add_to_playlist(&playlist, tracks).await.is_ok() {
+                tell(lists);
+            }
+
+            saving.set(false);
+            open.set(false);
+        });
+    };
+
+    view! {
+        <Show when=move || id.get().is_some()>
+            <button
+                class="mark"
+                title=t!("playlists.add_to")
+                on:click=move |_| open.set(true)
+            >
+                <Glyph icon=Icon::Playlists />
+            </button>
+        </Show>
+
+        <dialog node_ref=dialog class="sheet" on:close=move |_| open.set(false)>
+            <div class="sheet-body">
+                // The heading and its action on one line, and the action a pill on the
+                // right: the same shape and the same words as the screen of lists, which
+                // is the other place a list gets made. Two ways in that look like two
+                // different deeds would be two deeds to learn.
+                <div class="parted">
+                    <h2>{t!("playlists.add_to")}</h2>
+                    <button
+                        class="pill solid"
+                        disabled=move || saving.get()
+                        on:click=anew
+                    >
+                        {t!("playlists.new")}
+                    </button>
+                </div>
+                // With no lists yet, the line that says what to press instead of one that
+                // explains a choice there is nothing to choose from.
+                <p class="sheet-lead">
+                    {move || {
+                        if mine.with(Vec::is_empty) {
+                            t!("playlists.none_to_add_to").to_string()
+                        } else {
+                            t!("playlists.add_lead").to_string()
+                        }
+                    }}
+                </p>
+
+                <div class="sheet-content">
+                    <ul class="choosing">
+                        // Keyed on the whole row: what a row shows is a count the server
+                        // works out, and keying on the identifier left it saying seven
+                        // after an eighth track went in.
+                        <For each=move || mine.get() key=|one| one.clone() let:one>
+                            {
+                                let held = already.get().contains(&one.id);
+                                let which = one.id.clone();
+
+                                view! {
+                                    <li>
+                                        <button
+                                            disabled=move || saving.get()
+                                            on:click=move |_| into(which.clone())
+                                        >
+                                            <span>{one.name}</span>
+                                            // How much it holds, always — that figure is
+                                            // how somebody sees their track went in — and
+                                            // beside it, where it applies, that it is in
+                                            // there already.
+                                            <span class="quiet">
+                                                {
+                                                    let counted = if one.tracks == 1 {
+                                                        t!("collection.one_track").to_string()
+                                                    } else {
+                                                        t!(
+                                                            "collection.many_tracks",
+                                                            count = one.tracks,
+                                                        )
+                                                            .to_string()
+                                                    };
+
+                                                    if held {
+                                                        format!(
+                                                            "{counted} · {}",
+                                                            t!("playlists.already_in"),
+                                                        )
+                                                    } else {
+                                                        counted
+                                                    }
+                                                }
+                                            </span>
+                                        </button>
+                                    </li>
+                                }
+                            }
+                        </For>
+                    </ul>
+
+                </div>
+            </div>
+
+            <div class="sheet-foot">
+                <button
+                    type="button"
+                    class="away"
+                    disabled=move || saving.get()
+                    on:click=move |_| open.set(false)
+                >
+                    {t!("common.cancel")}
+                </button>
+            </div>
+        </dialog>
+
+        <crate::pages::playlists::Making
+            making=naming
+            tracks=gathered
+            lead=Signal::derive(|| t!("playlists.new_holding").to_string())
+            on_made=Callback::new(move |()| tell(lists))
+            on_expired=Callback::new(|()| ())
+        />
+    }
+}
+
 #[component]
 pub fn Fact(
     name: String,

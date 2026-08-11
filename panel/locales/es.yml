@@ -269,6 +269,16 @@ playlists:
   is_private: Privada
   public_note: Cualquier cuenta de este servidor puede verla.
   private_note: Solo la ves tú.
+  # El selector, que se abre desde el pie de un cajón.
+  add_to: Añadir a una lista
+  add_lead: Se añade al final de la que elijas.
+  already_in: ya está en ella
+  new_holding: Se creará con lo que estás añadiendo.
+  none_to_add_to: Todavía no has hecho ninguna lista. Crea una con esto dentro.
+  # Al pie de la cola.
+  save_queue: Guardar como lista
+  save_queue_lead: Se creará con lo que hay en la cola, en este mismo orden.
+  clear_queue: Vaciar la cola
   doings: Qué hacer con esta lista
   make_public: Hacerla pública
   make_private: Hacerla privada

@@ -17,7 +17,7 @@
 //! length of what is on screen is itself the answer to how well tagged a song is, and
 //! there is no wall of dashes to read past to find the two things that are there.
 
-use super::{Fact, Failed, Figure, Frame, Head, Heart, Onward, Open, Piece, credited};
+use super::{Adding, Fact, Failed, Figure, Frame, Head, Heart, Onward, Open, Piece, credited};
 use crate::api;
 use crate::icon::Icon;
 use crate::pages;
@@ -213,6 +213,13 @@ pub fn Track(id: String) -> impl IntoView {
                         })
                         marked=Signal::derive(move || {
                             detail.with(|read| read.as_ref().and_then(|read| read.starred_at.clone()))
+                        })
+                    />
+
+                    <Adding
+                        what=api::Marking::Track
+                        id=Signal::derive(move || {
+                            detail.with(|read| read.as_ref().map(|read| read.id.clone()))
                         })
                     />
 
