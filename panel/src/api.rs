@@ -449,20 +449,14 @@ pub async fn playlist_tracks(
     .await
 }
 
-/// Makes one, empty or holding what it is given.
+/// Makes one: empty, holding what it is given, or a copy of another.
+///
+/// The whole request rather than an argument each, because two of the three are optional
+/// and a call reading `(name, None, None)` says nothing about which of them it meant.
 pub async fn make_playlist(
-    name: String,
-    tracks: Option<Vec<String>>,
+    asked: tocata::types::NewPlaylist,
 ) -> Result<tocata::types::Playlist, Failure> {
-    read(post(
-        "/playlists",
-        &tocata::types::NewPlaylist {
-            name,
-            comment: None,
-            tracks,
-        },
-    )?)
-    .await
+    read(post("/playlists", &asked)?).await
 }
 
 /// Changes what a list is called, says about itself, or who may see it.

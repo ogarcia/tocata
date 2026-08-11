@@ -282,6 +282,9 @@ playlists:
   doings: Qué hacer con esta lista
   make_public: Hacerla pública
   make_private: Hacerla privada
+  duplicate: Duplicarla
+  # El nombre de la copia. Se pone aquí y no en el servidor, que no habla ningún idioma.
+  copy_of: "%{name} (copia)"
   delete: Eliminar la lista
   # En la pantalla de una lista.
   play: Reproducir

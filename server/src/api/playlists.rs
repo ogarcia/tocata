@@ -337,9 +337,9 @@ pub async fn holding(
 
 /// Make a list
 ///
-/// Empty, or holding what it is given. Both ways in from the panel come through here:
-/// the button on the screen of lists makes an empty one, and saving what is playing
-/// makes one holding the queue.
+/// Empty, holding what it is given, or a copy of another one. Every way in from the panel
+/// comes through here: the button on the screen of lists makes an empty one, saving what
+/// is playing makes one holding the queue, and duplicating names a list to copy.
 #[utoipa::path(
     post,
     path = "/playlists",
@@ -349,6 +349,7 @@ pub async fn holding(
         (status = 201, description = "The list as it now stands", body = Playlist),
         (status = 400, description = "A list with no name", body = ErrorBody),
         (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 404, description = "Asked to copy a list it may not read", body = ErrorBody),
     )
 )]
 pub async fn create(
@@ -358,6 +359,13 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<Playlist>), ApiError> {
     let name = named(&asked.name)?;
     let who = panel.user.id;
+
+    // Read before anything is written, so asking to copy a list this account may not see
+    // makes nothing at all rather than an empty list with a name.
+    let copying = match &asked.from {
+        Some(from) => Some(readable(&pool, &panel, from).await?.id),
+        None => None,
+    };
 
     let public_id = db::public_id().map_err(|e| {
         error!("minting a playlist id: {e:#}");
@@ -389,8 +397,33 @@ pub async fn create(
     .await
     .map_err(|e| ApiError::internal(e, "making a playlist"))?;
 
+    let mut held = Vec::new();
+
+    // What the copied list holds, in its own order and only as far as this account can
+    // reach it. Read inside the transaction, so a list changing under it cannot be copied
+    // half one way and half the other.
+    if let Some(from) = copying {
+        held = sqlx::query_scalar(concat!(
+            visible_libraries!(),
+            "SELECT pt.track_id
+               FROM playlist_tracks pt
+               JOIN tracks t ON t.id = pt.track_id
+              WHERE pt.playlist_id = ?
+                AND t.library_id IN (SELECT id FROM visible_libraries)
+              ORDER BY pt.position"
+        ))
+        .bind(who)
+        .bind(from)
+        .fetch_all(&mut **writing)
+        .await
+        .map_err(|e| ApiError::internal(e, "reading the playlist being copied"))?;
+    }
+
     if let Some(wanted) = &asked.tracks {
-        let held = reachable(&mut writing, who, wanted).await?;
+        held.extend(reachable(&mut writing, who, wanted).await?);
+    }
+
+    if !held.is_empty() {
         write_entries(&mut writing, id, &held).await?;
     }
 
@@ -935,8 +968,8 @@ mod tests {
             State(pool.clone()),
             Json(NewPlaylist {
                 name: name.to_string(),
-                comment: None,
                 tracks: Some(tracks.iter().map(|id| id.to_string()).collect()),
+                ..Default::default()
             }),
         )
         .await
@@ -1274,6 +1307,97 @@ mod tests {
 
         let gone = one(ana(), State(pool), UrlPath(mine.id)).await;
         assert!(matches!(gone, Err(ApiError::NotFound)));
+    }
+
+    /// Copying one takes its order, and only as far as the reader can reach.
+    ///
+    /// The whole reason this is a field on the request rather than something the panel
+    /// does with what it can see: a list holding tracks from a library somebody was
+    /// walled off from would be copied without them anyway, so it may as well be copied
+    /// in one statement — and a copy that carried them would promise music it cannot play.
+    #[tokio::test]
+    async fn copying_a_list_takes_its_order_and_what_can_be_reached() {
+        let pool = a_collection().await;
+        let hers = made(&pool, bea(), "Hers", &["t3", "t1", "t2"]).await;
+
+        let _ = change(
+            bea(),
+            State(pool.clone()),
+            UrlPath(hers.id.clone()),
+            Json(PlaylistChanges {
+                public: Some(true),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+
+        // Ana can see everything, so she gets the lot in the order it was in.
+        let (_, Json(whole)) = create(
+            ana(),
+            State(pool.clone()),
+            Json(NewPlaylist {
+                name: "Hers (copy)".to_string(),
+                from: Some(hers.id.clone()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(whole.tracks, 3);
+        assert!(whole.mine, "a copy belongs to whoever made it");
+        assert_eq!(
+            titles(&pool, ana(), &whole.id).await,
+            ["Three", "One", "Two"]
+        );
+
+        // Walled off from the second library, the same copy holds what is left of it.
+        walled(&pool, 1).await;
+
+        let (_, Json(part)) = create(
+            ana(),
+            State(pool.clone()),
+            Json(NewPlaylist {
+                name: "Hers again".to_string(),
+                from: Some(hers.id),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(part.tracks, 2);
+        assert_eq!(titles(&pool, ana(), &part.id).await, ["One", "Two"]);
+    }
+
+    /// A list this account may not read is not one it may copy.
+    ///
+    /// Refused before anything is written, so what a refusal leaves behind is nothing —
+    /// and not an empty list with a name on it.
+    #[tokio::test]
+    async fn a_list_out_of_sight_cannot_be_copied() {
+        let pool = a_collection().await;
+        let hers = made(&pool, bea(), "Hers", &["t1"]).await;
+
+        let refused = create(
+            ana(),
+            State(pool.clone()),
+            Json(NewPlaylist {
+                name: "Not mine".to_string(),
+                from: Some(hers.id),
+                ..Default::default()
+            }),
+        )
+        .await;
+
+        assert!(matches!(refused, Err(ApiError::NotFound)));
+
+        let Json(seen) = list(ana(), State(pool)).await.unwrap();
+        assert!(
+            seen.playlists.iter().all(|one| !one.mine),
+            "nothing of hers was made"
+        );
     }
 
     /// Which lists hold a track: yours, and only yours.

@@ -284,6 +284,9 @@ playlists:
   doings: What to do with this list
   make_public: Make it public
   make_private: Make it private
+  duplicate: Duplicate it
+  # What a copy is called. Named here and not on the server, which speaks no language.
+  copy_of: "%{name} (copy)"
   delete: Delete the list
   # On the screen of one list.
   play: Play

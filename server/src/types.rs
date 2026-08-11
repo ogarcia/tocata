@@ -976,6 +976,16 @@ pub struct NewPlaylist {
     /// What it holds from the start, in this order. What saving a queue sends, and what
     /// "new list holding this track" sends.
     pub tracks: Option<Vec<String>>,
+    /// Another list to copy, by identifier: what duplicating one sends.
+    ///
+    /// Copied here rather than read out and sent back, which is what the panel would
+    /// otherwise have to do a page at a time — and what it cannot do at all for the half
+    /// of a list it may not see. Only a list it may read, and only the part of that list
+    /// it may reach: a copy holding tracks somebody cannot play would be a list that lies
+    /// about its own length for ever.
+    ///
+    /// Applied before `tracks`, so a list can be a copy of another with something added.
+    pub from: Option<String>,
 }
 
 /// What may be changed about one. Anything left out is left alone.

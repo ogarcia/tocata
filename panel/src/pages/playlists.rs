@@ -128,6 +128,7 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
 #[component]
 fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl IntoView {
     let id = StoredValue::new(one.id.clone());
+    let called = StoredValue::new(one.name.clone());
     let mine = one.mine;
     let public = RwSignal::new(one.public);
 
@@ -157,6 +158,26 @@ fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl In
                 // Back where it was, and nothing said: what failed is a word on a row,
                 // and the word going back is the answer.
                 Err(_) => public.set(!wanted),
+            }
+        });
+    };
+
+    // A copy of it, made by the server: naming a list to copy is one field on the request
+    // that makes one, so nothing here has to read a list out a page at a time — and a
+    // public list of somebody else's can be taken this way, which is the whole of what
+    // sharing one is for.
+    let duplicate = move |_| {
+        let asked = tocata::types::NewPlaylist {
+            name: t!("playlists.copy_of", name = called.get_value()).to_string(),
+            from: Some(id.get_value()),
+            ..Default::default()
+        };
+
+        spawn_local(async move {
+            match api::make_playlist(asked).await {
+                Ok(_) => afresh.run(()),
+                Err(api::Failure::Unauthenticated) => on_expired.run(()),
+                Err(_) => {}
             }
         });
     };
@@ -222,9 +243,12 @@ fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl In
             // clips this row rather than inside it.
             // Keeps its presses to itself: the row opens the list, and reaching for the
             // menu must not also open it.
+            // A menu on every row, because there is one thing worth offering about a
+            // list that is not yours: taking a copy of it. The rest — who may see it,
+            // and being rid of it — is the owner's.
             <span class="doing" on:click=move |e: web_sys::MouseEvent| e.stop_propagation()>
-                <Show when=move || mine>
-                    <super::Dots title=t!("playlists.doings").to_string()>
+                <super::Dots title=t!("playlists.doings").to_string()>
+                    <Show when=move || mine>
                         <button
                             class="menu-item"
                             on:click=move |_| switch(!public.get_untracked())
@@ -237,14 +261,20 @@ fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl In
                                 }
                             }}
                         </button>
+                    </Show>
 
+                    <button class="menu-item" on:click=duplicate>
+                        {t!("playlists.duplicate")}
+                    </button>
+
+                    <Show when=move || mine>
                         <hr />
 
                         <button class="menu-item risky" on:click=delete>
                             {t!("playlists.delete")}
                         </button>
-                    </super::Dots>
-                </Show>
+                    </Show>
+                </super::Dots>
             </span>
         </li>
     }
@@ -294,9 +324,13 @@ pub fn Making(
 
         spawn_local(async move {
             let held = tracks.get_untracked();
-            let held = (!held.is_empty()).then_some(held);
+            let asked = tocata::types::NewPlaylist {
+                name: name.get_untracked(),
+                tracks: (!held.is_empty()).then_some(held),
+                ..Default::default()
+            };
 
-            match api::make_playlist(name.get_untracked(), held).await {
+            match api::make_playlist(asked).await {
                 Ok(_) => {
                     on_made.run(());
                     making.set(false);
