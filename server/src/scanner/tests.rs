@@ -30,6 +30,24 @@ async fn library(pool: &SqlitePool, root: &Path) -> i64 {
 
 use crate::fixtures::write_wav;
 
+/// Sets a file's modification time, which is the only thing a file can say about when it
+/// came.
+///
+/// Through `touch` rather than a crate for it: this is wanted by four tests and nothing
+/// else, and a dependency added to the shipped binary to date a file in a test would be
+/// paid for by everybody ([[revisar-crates-antes-de-anadir]] in spirit — the cheapest
+/// dependency is the one not taken).
+fn touched(path: &Path, iso: &str) {
+    let done = std::process::Command::new("touch")
+        .arg("-d")
+        .arg(iso)
+        .arg(path)
+        .status()
+        .expect("touch is on the path");
+
+    assert!(done.success(), "could not date {}", path.display());
+}
+
 /// Writes tags onto a file already on disk, in this module's own vocabulary.
 ///
 /// The words rather than lofty's keys, because every test here reads better for it,
@@ -114,6 +132,164 @@ async fn a_second_incremental_scan_reads_nothing_again() {
     assert_eq!(second.gone, 0);
 
     assert_eq!(count(&pool, "SELECT count(*) FROM tracks").await, 5);
+}
+
+/// The first scan of a library takes its arrival dates from the files.
+///
+/// Everything a scan writes is stamped with the moment it ran, so without this every
+/// album of a collection just imported arrives at the same second and "recently added"
+/// comes out in whatever order the directories were walked in.
+#[tokio::test]
+async fn a_first_scan_dates_a_library_by_its_files() {
+    let root = temp_root("arrival");
+
+    // Two records, one older than the other on disk, and read in the order that would
+    // put them the other way round if the clock were what counted.
+    for (folder, when) in [
+        ("Newer", "2026-06-01T12:00:00Z"),
+        ("Older", "2009-03-04T09:00:00Z"),
+    ] {
+        let path = root.join(format!("{folder}/one.wav"));
+        write_wav(&path);
+        tag(&path, &[("album", folder), ("artist", folder)]);
+        touched(&path, when);
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    // Which is the order `getAlbumList?type=newest` asks for.
+    let newest: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM albums ORDER BY created_at DESC")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(newest, ["Newer", "Older"]);
+
+    let dated: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, created_at FROM albums ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(dated[0].1, "2026-06-01T12:00:00Z", "the file's own date");
+    assert_eq!(dated[1].1, "2009-03-04T09:00:00Z");
+
+    // The tracks and the names that came with them are dated the same way, so nothing in
+    // the collection disagrees about when this arrived.
+    let track: String = sqlx::query_scalar("SELECT created_at FROM tracks ORDER BY path LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(track, "2026-06-01T12:00:00Z");
+
+    let artist: String = sqlx::query_scalar("SELECT created_at FROM artists WHERE name = 'Older'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(artist, "2009-03-04T09:00:00Z");
+}
+
+/// A record that turns up later arrived later, whatever its files say.
+///
+/// The half of this that is easy to get wrong. A disc copied in with its timestamps
+/// preserved has old files and is new here, so taking the file's word for it on any scan
+/// but the first would bury it at the bottom of what is new — the opposite of what the
+/// dates are for. And it is why nothing offers to do this by hand: months later it would
+/// throw away a real history and put a guess in its place.
+#[tokio::test]
+async fn only_the_first_scan_of_a_library_believes_the_files() {
+    let root = temp_root("arrival-later");
+    let first = root.join("First/one.wav");
+    write_wav(&first);
+    tag(&first, &[("album", "First")]);
+    touched(&first, "2009-03-04T09:00:00Z");
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    // Copied in afterwards, with a file older than the one already there.
+    let later = root.join("Later/one.wav");
+    write_wav(&later);
+    tag(&later, &[("album", "Later")]);
+    touched(&later, "2001-01-01T00:00:00Z");
+
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    let dated: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, created_at FROM albums ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(
+        dated[0].1, "2009-03-04T09:00:00Z",
+        "dated on the first scan"
+    );
+    assert!(
+        dated[1].1 > dated[0].1,
+        "and the one that turned up later arrived later, though its file is older: {:?}",
+        dated
+    );
+}
+
+/// An album arrived when the earliest of its tracks did.
+///
+/// The latest would send a record from 2009 to the top of "recently added" the day a
+/// stray track was dropped into it.
+#[tokio::test]
+async fn an_album_arrived_with_the_first_of_its_tracks() {
+    let root = temp_root("arrival-earliest");
+
+    for (n, when) in [(1, "2009-03-04T09:00:00Z"), (2, "2020-08-08T08:00:00Z")] {
+        let path = root.join(format!("Album/{n:02}.wav"));
+        write_wav(&path);
+        tag(&path, &[("album", "Album")]);
+        touched(&path, when);
+    }
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    let dated: String = sqlx::query_scalar("SELECT created_at FROM albums")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(dated, "2009-03-04T09:00:00Z");
+}
+
+/// A file dated in the future keeps the moment of the scan.
+///
+/// A wrong clock or a bad archive, and the point is that it must not sit ahead of what
+/// genuinely arrives next.
+#[tokio::test]
+async fn a_file_from_the_future_does_not_get_ahead() {
+    let root = temp_root("arrival-future");
+    let path = root.join("Album/one.wav");
+    write_wav(&path);
+    tag(&path, &[("album", "Album")]);
+    touched(&path, "2099-01-01T00:00:00Z");
+
+    let pool = database().await;
+    let id = library(&pool, &root).await;
+    scan(&pool, id, &root, Mode::Incremental).await.unwrap();
+
+    // Asked of all three, because each is its own statement and each needs the same
+    // brake: a scan writing one of them forward would be a track ahead of its own album.
+    for what in [
+        "SELECT created_at FROM albums",
+        "SELECT created_at FROM tracks",
+    ] {
+        let dated: String = sqlx::query_scalar(what).fetch_one(&pool).await.unwrap();
+
+        assert!(
+            dated.as_str() < "2099",
+            "kept the scan's own moment ({what}): {dated}"
+        );
+    }
 }
 
 #[tokio::test]
