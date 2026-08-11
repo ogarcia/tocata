@@ -103,22 +103,28 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
         }}
 
         // The heading over your own only appears when there is a second group to tell
-        // it from. On a server where nobody shared anything, a heading saying "yours"
-        // over the only list there is says nothing.
-        <Show when=move || !theirs().is_empty()>
+        // it from, and when there is something under it. On a server where nobody shared
+        // anything, a heading saying "yours" over the only list there is says nothing.
+        <Show when=move || !theirs().is_empty() && !mine().is_empty()>
             <p class="part">{t!("playlists.mine")}</p>
         </Show>
 
-        <ul class="made">
-            // Keyed on the whole row and not on its identifier. A keyed `For` leaves a
-            // row alone while its key is the same, and `Row` is handed a value rather
-            // than a signal — so publishing a list, renaming it or adding to it changed
-            // nothing on screen until something made its id disappear. Everything about
-            // it is the key, so a list that reads differently is a row drawn again.
-            <For each=mine key=|one| one.clone() let:one>
-                <Row one asking afresh=Callback::new(move |()| afresh()) on_expired />
-            </For>
-        </ul>
+        // Drawn only when there is a row to put in it. The list carries a rule along its
+        // top and 2.5rem under it, so an empty one is a stray hairline with a gap beneath
+        // — which is what stood over "you have not made any lists yet" on a new account.
+        <Show when=move || !mine().is_empty()>
+            <ul class="made">
+                // Keyed on the whole row and not on its identifier. A keyed `For` leaves
+                // a row alone while its key is the same, and `Row` is handed a value
+                // rather than a signal — so publishing a list, renaming it or adding to
+                // it changed nothing on screen until something made its id disappear.
+                // Everything about it is the key, so a list that reads differently is a
+                // row drawn again.
+                <For each=mine key=|one| one.clone() let:one>
+                    <Row one asking afresh=Callback::new(move |()| afresh()) on_expired />
+                </For>
+            </ul>
+        </Show>
 
         <Show when=move || !theirs().is_empty()>
             <p class="part">{t!("playlists.public")}</p>
