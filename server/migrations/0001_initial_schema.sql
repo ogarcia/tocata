@@ -330,8 +330,16 @@ CREATE INDEX tracks_pick_idx ON tracks (library_id, year, id)
 --
 -- Not partial: three of those five figures are about the rows a `WHERE missing_since IS
 -- NULL` would leave out.
+--
+-- ⚠️ The order matters, and not for this statement — which walks the whole index either
+-- way — but for every other one. An index can only be *searched* by its leading columns,
+-- and `missing_since` first made this one look like the way to answer `t.missing_since IS
+-- NULL`, which appears inside the artists listing. There the planner dropped a lookup by
+-- track id in favour of walking this index once per artist, and fifteen hundred artists
+-- turned a listing that took 38ms into one that had not finished in two minutes. With the
+-- two sums in front, nothing can search it and the Overview still covers itself.
 CREATE INDEX tracks_figures_idx
-    ON tracks (missing_since, unreadable_since, file_size, duration_ms);
+    ON tracks (file_size, duration_ms, missing_since, unreadable_since);
 
 -- Credits carry a role and a position. The role covers artist, albumartist,
 -- composer, performer and whatever else a tag throws at us without adding a

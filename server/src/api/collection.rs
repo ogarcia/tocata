@@ -3743,6 +3743,69 @@ mod tests {
         assert!(counted.is_none());
     }
 
+    /// The Overview's index may not be walked once per row of something else.
+    ///
+    /// `tracks_figures_idx` covers five aggregates over every track, and adding it broke
+    /// the artists listing outright: the condition on `t.missing_since` inside its
+    /// correlated `EXISTS` made that index look like the way in, so the planner dropped a
+    /// lookup by track id and walked the index once per artist. Fifteen hundred artists
+    /// turned 38ms into a screen that never loaded. The index carries its two sums in
+    /// front now, so nothing can search it by `missing_since`.
+    ///
+    /// The rule is not "never": a count straight over the tracks *should* come off it,
+    /// which is one pass instead of opening the table, and the last case here asserts
+    /// exactly that. What must never happen is the same walk repeated per row of another
+    /// table — and this test exists because the mistake was not the column order, it was
+    /// measuring the statement I had just made faster and none of the ones around it.
+    #[tokio::test]
+    async fn the_figures_index_is_never_walked_once_per_row() {
+        let pool = a_collection().await;
+
+        async fn plan(pool: &SqlitePool, what: String) -> String {
+            let rows: Vec<(i64, i64, i64, String)> =
+                sqlx::query_as(sqlx::AssertSqlSafe(format!("EXPLAIN QUERY PLAN {what}")))
+                    .fetch_all(pool)
+                    .await
+                    .unwrap();
+
+            rows.into_iter()
+                .map(|row| row.3)
+                .collect::<Vec<_>>()
+                .join(" · ")
+        }
+
+        // Correlated: whatever answers these runs for every artist and every album there
+        // is.
+        for what in [
+            "SELECT count(*) FROM artists a WHERE EXISTS (SELECT 1 FROM tracks t
+               WHERE t.id IN (SELECT ta.track_id FROM track_artists ta WHERE ta.artist_id = a.id)
+                 AND t.missing_since IS NULL)",
+            "SELECT count(*) FROM albums al WHERE EXISTS (SELECT 1 FROM tracks t
+               WHERE t.album_id = al.id AND t.missing_since IS NULL)",
+        ] {
+            let said = plan(&pool, what.to_string()).await;
+
+            assert!(
+                !said.contains("tracks_figures_idx"),
+                "this one runs per row and must not walk the figures index: {said}"
+            );
+        }
+
+        // And one pass over the tracks, where it is the right answer.
+        let said = plan(
+            &pool,
+            "SELECT count(*) FILTER (WHERE missing_since IS NULL), sum(file_size)
+               FROM tracks"
+                .to_string(),
+        )
+        .await;
+
+        assert!(
+            said.contains("tracks_figures_idx"),
+            "the figures should still come off it: {said}"
+        );
+    }
+
     /// Marks something as a favourite the way `/rest` does, at a stated moment.
     ///
     /// The statement is picked from three written out in full rather than assembled,
