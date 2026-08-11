@@ -728,7 +728,7 @@ fn Destinations(
                 })
         }}
 
-        <div class:stilled=move || !passing.get()>
+        <div class="sending" class:stilled=move || !passing.get()>
             {move || match sending.get() {
                 None => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
                 Some(sending) if sending.scrobblers.is_empty() => {

@@ -3343,6 +3343,23 @@ button:disabled { opacity: 0.6; cursor: default; }
  * with an action on its line. */
 .whither { margin-top: 2.75rem; }
 
+/* What is under that heading: the destinations, or the band saying there are none.
+ * The air belongs to this box and not to the band, because `.nothing` is worn on
+ * seven screens and the gap this needs is the one the list of destinations already
+ * takes over its own first rule — the block begins in the same place whether it has
+ * destinations or not. Where the sentence explaining the block sits above it, that
+ * sentence's descenders were against the band's top rule.
+ *
+ * The list keeps its own margin and the two collapse into one, so nothing moved for
+ * the case that was already right. */
+.sending { margin-top: 1rem; }
+
+/* And the line under the band, which is about the band and not part of it. Said as
+ * `.nothing + .hint` rather than on the hint alone: the same words follow the list of
+ * destinations nowhere, and a margin on every hint in here would push the ones that
+ * belong to a field. */
+.sending > .nothing + .hint { margin-top: 1rem; }
+
 /* The form and the rail beside it, and neither of them a column of a grid: the two
  * ask for widths and the row gives what it can. Below about nine hundred pixels of
  * content the rail cannot have its 260 and wraps under the form on its own, which is
