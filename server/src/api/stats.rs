@@ -361,6 +361,45 @@ mod tests {
         assert_eq!(duration, Some(31_000));
     }
 
+    /// The figures are added up without opening the tracks table.
+    ///
+    /// Five aggregates over every track there is, and a track's row is thirty-odd columns
+    /// with a path and a title in it while these four are numbers — so `tracks_figures_idx`
+    /// covers them and the table is never read. On the machine that made this worth doing,
+    /// an Atom N2800 sharing a mechanical disk with a running scan, the Overview took
+    /// eleven and a half seconds.
+    ///
+    /// Asked of the plan rather than of a clock: a timing on a fast machine with the
+    /// database in memory says nothing about that one, and what has to stay true is that
+    /// this statement reads an index and not a table.
+    #[tokio::test]
+    async fn the_figures_are_added_up_from_an_index() {
+        let pool = a_collection_of_distinct_figures().await;
+
+        let plan: Vec<(i64, i64, i64, String)> = sqlx::query_as(
+            "EXPLAIN QUERY PLAN
+             SELECT count(*) FILTER (WHERE missing_since IS NULL),
+                    count(*) FILTER (WHERE missing_since IS NOT NULL),
+                    count(*) FILTER (WHERE unreadable_since IS NOT NULL),
+                    sum(file_size) FILTER (WHERE missing_since IS NULL),
+                    sum(duration_ms) FILTER (WHERE missing_since IS NULL)
+               FROM tracks",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        let said = plan
+            .into_iter()
+            .map(|row| row.3)
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert!(
+            said.contains("tracks_figures_idx"),
+            "the figures should come off the covering index: {said}"
+        );
+    }
+
     /// A server before its first scan. The figures come off an aggregate over an
     /// empty table, which answers with a row of nothing rather than with no row —
     /// and the difference is whether this screen opens at all.

@@ -320,6 +320,19 @@ CREATE INDEX tracks_present_idx ON tracks (album_id, library_id)
 CREATE INDEX tracks_pick_idx ON tracks (library_id, year, id)
     WHERE missing_since IS NULL;
 
+-- The figures on the Overview, which are five aggregates over every track there is:
+-- how many are here, how many have gone, how many cannot be read, how much disk they
+-- take and how long they run. That sum cannot avoid considering every song either, and
+-- like the one above it can avoid reading them — which is the whole point here, because
+-- a track's row is thirty-odd columns with a path, a title and a comment in it, and
+-- these four are numbers. Everything the Overview adds up is in the index, so the table
+-- is never opened for it.
+--
+-- Not partial: three of those five figures are about the rows a `WHERE missing_since IS
+-- NULL` would leave out.
+CREATE INDEX tracks_figures_idx
+    ON tracks (missing_since, unreadable_since, file_size, duration_ms);
+
 -- Credits carry a role and a position. The role covers artist, albumartist,
 -- composer, performer and whatever else a tag throws at us without adding a
 -- table per role; the position preserves credit order, so "A feat. B" can be

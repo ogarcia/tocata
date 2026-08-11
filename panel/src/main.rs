@@ -134,6 +134,11 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
     // answer from before one finished is a list that is wrong.
     provide_context(scan);
 
+    // The figures on the Overview, read once here rather than on every visit to it: they
+    // are five aggregates over every track there is, and a scan finishing is the only
+    // thing that changes them.
+    pages::home::read_the_figures(forget);
+
     // And how the walk for artist portraits is going, for the one screen that
     // draws it. A context for the same reason: it arrives on the stream that is
     // already open, and threading it down through the router would be handing
@@ -162,12 +167,7 @@ fn Inside(identity: Identity, forget: Callback<()>) -> impl IntoView {
                         path=path!("/")
                         view=move || {
                             view! {
-                                <pages::home::Home
-                                    scan
-                                    resources=live.resources
-                                    admin
-                                    on_expired=forget
-                                />
+                                <pages::home::Home scan resources=live.resources admin />
                             }
                         }
                     />

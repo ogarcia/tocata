@@ -26,14 +26,65 @@ use leptos_router::components::A;
 use rust_i18n::t;
 use tocata::types::{Resources, Stats, Status};
 
+/// The figures, held above the router so a visit to this screen does not pay for them
+/// again.
+///
+/// They were a resource inside the screen, which meant one request per visit: entering,
+/// walking off to Albums and coming back asked twice. On a fast machine that is a few
+/// milliseconds nobody notices; on the machine this was found on it was eleven seconds
+/// each time, because those five figures are aggregates over every track there is.
+///
+/// Held rather than cached: what is up here is the answer itself, and the one thing that
+/// can change it is a scan finishing. Marking a favourite or making a playlist moves two
+/// of these figures by one, which is not worth eleven seconds of an Atom — and the screen
+/// says when it was read.
+#[derive(Clone, Copy)]
+pub struct Counted {
+    held: RwSignal<Option<Stats>>,
+    failed: RwSignal<Option<Failure>>,
+}
+
+/// Reads them for the whole panel, and again whenever a scan finishes.
+///
+/// Not `counted`, which in this module is already the word for turning a scan's figure
+/// into a line of text.
+///
+/// Called where the stream is opened rather than by the screen, so the answer outlives
+/// every walk through the sections — and so somebody who is on Artists when a scan ends
+/// finds the Overview already right when they get back to it.
+pub fn read_the_figures(on_expired: Callback<()>) {
+    let counted = Counted {
+        held: RwSignal::new(None),
+        failed: RwSignal::new(None),
+    };
+    provide_context(counted);
+
+    let read = move || {
+        spawn_local(async move {
+            match api::stats().await {
+                Ok(stats) => {
+                    counted.held.set(Some(stats));
+                    counted.failed.set(None);
+                }
+                Err(Failure::Unauthenticated) => on_expired.run(()),
+                // What was read before stays on screen: a figure from a minute ago is
+                // worth more than a screen that empties because one request did not land.
+                Err(why) => counted.failed.set(Some(why)),
+            }
+        });
+    };
+
+    read();
+    super::endless::after_a_scan(read);
+}
+
 #[component]
 pub fn Home(
     scan: ReadSignal<Option<Status>>,
     resources: ReadSignal<Option<Resources>>,
     admin: bool,
-    on_expired: Callback<()>,
 ) -> impl IntoView {
-    let figures = LocalResource::new(api::stats);
+    let counted = use_context::<Counted>().expect("the figures are read above the router");
     // What they asked to be called, and their account's name only if they have not:
     // the greeting is the one line on the panel that addresses somebody. Read from
     // the same place the account menu reads it, so choosing a name shows in both at
@@ -62,21 +113,15 @@ pub fn Home(
             </Show>
         </header>
 
-        <Suspense fallback=|| view! { <p class="quiet">{t!("common.loading")}</p> }>
-            {move || Suspend::new(async move {
-                match figures.await {
-                    Ok(stats) => view! { <Figures stats scan resources admin /> }.into_any(),
-                    Err(Failure::Unauthenticated) => {
-                        on_expired.run(());
-                        ().into_any()
-                    }
-                    Err(_) => view! {
-                        <p class="failure" role="alert">{t!("login.unreachable")}</p>
-                    }
-                        .into_any(),
-                }
-            })}
-        </Suspense>
+        // What was read, or why it could not be — and the second only where there is no
+        // first: a figure from before is worth more than an empty screen.
+        {move || match (counted.held.get(), counted.failed.get()) {
+            (Some(stats), _) => view! { <Figures stats scan resources admin /> }.into_any(),
+            (None, Some(_)) => {
+                view! { <p class="failure" role="alert">{t!("login.unreachable")}</p> }.into_any()
+            }
+            (None, None) => view! { <p class="quiet">{t!("common.loading")}</p> }.into_any(),
+        }}
     }
 }
 

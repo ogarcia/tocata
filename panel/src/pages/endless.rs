@@ -353,7 +353,7 @@ impl<T: Send + Sync + 'static> Reel<T> {
 /// while the list behind it stayed empty. The stamp is written once per run and pushed by
 /// the same code that clears the flag, so it is seen whether or not anybody saw the
 /// middle.
-fn after_a_scan(and_then: impl Fn() + 'static) {
+pub fn after_a_scan(and_then: impl Fn() + 'static) {
     let Some(status) = use_context::<ReadSignal<Option<tocata::types::Status>>>() else {
         return;
     };
