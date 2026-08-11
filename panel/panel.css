@@ -5173,6 +5173,20 @@ select.narrow { width: 12.5rem; }
  * hairlines a pixel apart. */
 .leafing .figures.ruled { border-bottom: 1px solid var(--line); }
 
+/* Four figures that will not fit on one line break two and two rather than three and
+ * one. `auto-fit` cannot do it: the number of columns comes out of a division, and any
+ * minimum wide enough to rule out three rules out four as well. So the width is asked
+ * for once, and the figure it is asked about is what four columns take — four minimums,
+ * three gaps and the panel's padding — rather than a width somebody liked the look of.
+ *
+ * Asked of the fourth figure and not of the drawer it is in, because how many there are
+ * is the file's to say: a track that reports no bitrate has three, and so does an artist
+ * nobody has played. Three fit across a phone with room to spare, and dropping them to
+ * two and one would break what is not broken. */
+@media (max-width: 30.875rem) {
+  .leafing .figures:has(> :nth-child(4)) { grid-template-columns: 1fr 1fr; }
+}
+
 /* One sentence on the left saying where what you are reading came from, and what can
  * be done with it on the right. */
 .drawer > footer {
