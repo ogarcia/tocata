@@ -626,57 +626,62 @@ pub fn Adding(
                     }}
                 </p>
 
-                <div class="sheet-content">
-                    <ul class="choosing">
-                        // Keyed on the whole row: what a row shows is a count the server
-                        // works out, and keying on the identifier left it saying seven
-                        // after an eighth track went in.
-                        <For each=move || mine.get() key=|one| one.clone() let:one>
-                            {
-                                let held = already.get().contains(&one.id);
-                                let which = one.id.clone();
+                // Not here at all with nothing to choose from, rather than here and
+                // empty: what holds the choice stands off the line above it, and an
+                // empty one left that much air under a sentence that was the whole of
+                // what the sheet had to say.
+                <Show when=move || !mine.with(Vec::is_empty)>
+                    <div class="sheet-content">
+                        <ul class="choosing">
+                            // Keyed on the whole row: what a row shows is a count the server
+                            // works out, and keying on the identifier left it saying seven
+                            // after an eighth track went in.
+                            <For each=move || mine.get() key=|one| one.clone() let:one>
+                                {
+                                    let held = already.get().contains(&one.id);
+                                    let which = one.id.clone();
 
-                                view! {
-                                    <li>
-                                        <button
-                                            disabled=move || saving.get()
-                                            on:click=move |_| into(which.clone())
-                                        >
-                                            <span>{one.name}</span>
-                                            // How much it holds, always — that figure is
-                                            // how somebody sees their track went in — and
-                                            // beside it, where it applies, that it is in
-                                            // there already.
-                                            <span class="quiet">
-                                                {
-                                                    let counted = if one.tracks == 1 {
-                                                        t!("collection.one_track").to_string()
-                                                    } else {
-                                                        t!(
-                                                            "collection.many_tracks",
-                                                            count = one.tracks,
-                                                        )
-                                                            .to_string()
-                                                    };
+                                    view! {
+                                        <li>
+                                            <button
+                                                disabled=move || saving.get()
+                                                on:click=move |_| into(which.clone())
+                                            >
+                                                <span>{one.name}</span>
+                                                // How much it holds, always — that figure is
+                                                // how somebody sees their track went in — and
+                                                // beside it, where it applies, that it is in
+                                                // there already.
+                                                <span class="quiet">
+                                                    {
+                                                        let counted = if one.tracks == 1 {
+                                                            t!("collection.one_track").to_string()
+                                                        } else {
+                                                            t!(
+                                                                "collection.many_tracks",
+                                                                count = one.tracks,
+                                                            )
+                                                                .to_string()
+                                                        };
 
-                                                    if held {
-                                                        format!(
-                                                            "{counted} · {}",
-                                                            t!("playlists.already_in"),
-                                                        )
-                                                    } else {
-                                                        counted
+                                                        if held {
+                                                            format!(
+                                                                "{counted} · {}",
+                                                                t!("playlists.already_in"),
+                                                            )
+                                                        } else {
+                                                            counted
+                                                        }
                                                     }
-                                                }
-                                            </span>
-                                        </button>
-                                    </li>
+                                                </span>
+                                            </button>
+                                        </li>
+                                    }
                                 }
-                            }
-                        </For>
-                    </ul>
-
-                </div>
+                            </For>
+                        </ul>
+                    </div>
+                </Show>
             </div>
 
             <div class="sheet-foot">
