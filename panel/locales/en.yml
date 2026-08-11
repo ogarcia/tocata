@@ -294,6 +294,17 @@ playlists:
   # What a copy is called. Named here and not on the server, which speaks no language.
   copy_of: "%{name} (copy)"
   delete: Delete the list
+  # The confirmation. Nothing to type, unlike an account's: what is lost is a handful of
+  # rows somebody can gather again, not the history of a person.
+  delete_this: "Delete %{name}?"
+  delete_private: "A private list %{held} goes. It cannot be undone."
+  delete_public: "A public list %{held} goes. It cannot be undone."
+  # What is in it, preposition and all, because it goes inside the two sentences above
+  # and "with no tracks" reads as a count rather than as an empty list.
+  holds_none: with nothing in it
+  holds_one: with one track
+  holds_many: "with %{count} tracks"
+  delete_yes: Delete it
   # On the screen of one list.
   play: Play
   # At the foot of the panel: whose list this is, the one fact about it not on a row.

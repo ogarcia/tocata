@@ -68,6 +68,24 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
     };
     let none_at_all = move || held.get().is_some_and(|all| all.is_empty());
 
+    // Which list has been asked about, and the whole row rather than its identifier:
+    // what the question has to say — private or public, and how much of it there is —
+    // is on the row that opened it, and asking the server again for what is already on
+    // screen would leave the sentence to arrive after the question.
+    let asking = RwSignal::new(None::<Playlist>);
+
+    // One dialogue for the screen and not one per row. It is a question about whichever
+    // row was pressed, and twenty dialogues in the markup to ask it once is twenty.
+    let remove = Callback::new(move |id: String| {
+        spawn_local(async move {
+            match api::remove_playlist(&id).await {
+                Ok(()) => afresh(),
+                Err(api::Failure::Unauthenticated) => on_expired.run(()),
+                Err(why) => failure.set(Some(super::said(&why))),
+            }
+        });
+    });
+
     view! {
         <header class="titled">
             <div>
@@ -98,7 +116,7 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
             // nothing on screen until something made its id disappear. Everything about
             // it is the key, so a list that reads differently is a row drawn again.
             <For each=mine key=|one| one.clone() let:one>
-                <Row one afresh=Callback::new(move |()| afresh()) on_expired />
+                <Row one asking afresh=Callback::new(move |()| afresh()) on_expired />
             </For>
         </ul>
 
@@ -106,7 +124,7 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
             <p class="part">{t!("playlists.public")}</p>
             <ul class="made">
                 <For each=theirs key=|one| one.clone() let:one>
-                    <Row one afresh=Callback::new(move |()| afresh()) on_expired />
+                    <Row one asking afresh=Callback::new(move |()| afresh()) on_expired />
                 </For>
             </ul>
         </Show>
@@ -121,14 +139,24 @@ pub fn Playlists(on_expired: Callback<()>) -> impl IntoView {
         </Show>
 
         <Making making on_made=Callback::new(move |_: String| afresh()) on_expired />
+        <Removing asking remove />
     }
 }
 
 /// One list as a row: what it is, how much of it there is, and what may be done to it.
 #[component]
-fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl IntoView {
+fn Row(
+    one: Playlist,
+    /// Where a row says which list is being asked about before it goes.
+    asking: RwSignal<Option<Playlist>>,
+    afresh: Callback<()>,
+    on_expired: Callback<()>,
+) -> impl IntoView {
     let id = StoredValue::new(one.id.clone());
     let called = StoredValue::new(one.name.clone());
+    // The row as it stands, for the question to read. Taken before the markup takes the
+    // pieces of it.
+    let row = StoredValue::new(one.clone());
     let mine = one.mine;
     let public = RwSignal::new(one.public);
 
@@ -182,15 +210,9 @@ fn Row(one: Playlist, afresh: Callback<()>, on_expired: Callback<()>) -> impl In
         });
     };
 
-    let delete = move |_| {
-        spawn_local(async move {
-            match api::remove_playlist(&id.get_value()).await {
-                Ok(()) => afresh.run(()),
-                Err(api::Failure::Unauthenticated) => on_expired.run(()),
-                Err(_) => {}
-            }
-        });
-    };
+    // Asks rather than does. A list is gathered by hand, one track at a time, and it is
+    // the one thing on this screen that a mis-aimed press cannot hand back.
+    let delete = move |_| asking.set(Some(row.get_value()));
 
     view! {
         // The whole row opens the list, the way a row does in Artists and in Genres. It
@@ -393,6 +415,96 @@ pub fn Making(
                     failure.get().map(|why| view! { <p class="failure" role="alert">{why}</p> })
                 }}
             </form>
+        </dialog>
+    }
+}
+
+/// Being rid of one, asked before it happens.
+///
+/// Nothing to type, unlike the same question about an account. What is lost is a handful
+/// of rows somebody can gather again — the tracks themselves are not going anywhere — so
+/// what this owes them is the name of the list and what it held, and not an exercise.
+///
+/// It says which one and how much of it there is because the question is asked in the
+/// middle of the screen, where the row that would have answered both is no longer beside
+/// it.
+#[component]
+fn Removing(
+    /// The list being asked about, and nothing at all while nobody is being asked.
+    asking: RwSignal<Option<Playlist>>,
+    /// What to do once it is settled, by identifier.
+    remove: Callback<String>,
+) -> impl IntoView {
+    let dialog: NodeRef<leptos::html::Dialog> = NodeRef::new();
+
+    Effect::new(move |_| {
+        let Some(element) = dialog.get() else { return };
+
+        match asking.get() {
+            Some(_) => {
+                let _ = element.show_modal();
+            }
+            None => element.close(),
+        }
+    });
+
+    // What it holds, with the preposition: the sentence it goes into reads about a list
+    // and not about a number, and a list with nothing in it is not a list with a count of
+    // nought.
+    let held = move |one: &Playlist| match one.tracks {
+        0 => t!("playlists.holds_none").to_string(),
+        1 => t!("playlists.holds_one").to_string(),
+        many => t!("playlists.holds_many", count = super::thousands(many)).to_string(),
+    };
+
+    let settled = move |_| {
+        let Some(one) = asking.get() else { return };
+
+        remove.run(one.id);
+        asking.set(None);
+    };
+
+    view! {
+        // Narrow, the same as the question about a library: a sentence and two answers.
+        <dialog node_ref=dialog class="sheet narrow" on:close=move |_| asking.set(None)>
+            <div class="sheet-body">
+                <h2>
+                    {move || {
+                        asking
+                            .get()
+                            .map(|one| t!("playlists.delete_this", name = one.name).to_string())
+                    }}
+                </h2>
+
+                // Private or public, because a list going is one thing when nobody else
+                // could see it and another when the whole server could.
+                <p class="sheet-lead">
+                    {move || {
+                        asking
+                            .get()
+                            .map(|one| {
+                                let held = held(&one);
+
+                                if one.public {
+                                    t!("playlists.delete_public", held = held).to_string()
+                                } else {
+                                    t!("playlists.delete_private", held = held).to_string()
+                                }
+                            })
+                    }}
+                </p>
+            </div>
+
+            <div class="sheet-foot">
+                // "Leave it be", not "Cancel": what the safe answer does is worth saying
+                // when the other one cannot be undone.
+                <button type="button" class="away" on:click=move |_| asking.set(None)>
+                    {t!("common.keep")}
+                </button>
+                <button type="button" class="pill solid undoing" on:click=settled>
+                    {t!("playlists.delete_yes")}
+                </button>
+            </div>
         </dialog>
     }
 }

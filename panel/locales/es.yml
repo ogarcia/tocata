@@ -292,6 +292,17 @@ playlists:
   # El nombre de la copia. Se pone aquí y no en el servidor, que no habla ningún idioma.
   copy_of: "%{name} (copia)"
   delete: Eliminar la lista
+  # La confirmación. No pide escribir nada, a diferencia de la de una cuenta: lo que se
+  # pierde son unas filas que se vuelven a juntar, no el histórico de alguien.
+  delete_this: "¿Eliminar la lista %{name}?"
+  delete_private: "Se lleva una lista privada %{held}. No se puede deshacer."
+  delete_public: "Se lleva una lista pública %{held}. No se puede deshacer."
+  # Lo que hay dentro, con su preposición, porque va metido en las dos frases de arriba
+  # y «con ninguna pista» no es español.
+  holds_none: sin ninguna pista
+  holds_one: con una pista
+  holds_many: "con %{count} pistas"
+  delete_yes: Eliminarla
   # En la pantalla de una lista.
   play: Reproducir
   # Al pie del cajón: de quién es esta lista, que es lo único que no está en sus filas.
