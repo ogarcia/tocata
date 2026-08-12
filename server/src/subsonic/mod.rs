@@ -107,6 +107,7 @@ endpoints! {
         // registered at all.
         "getVideos" => unsupported::get_videos,
         "getChatMessages" => unsupported::get_chat_messages,
+        "addChatMessage" => unsupported::not_found,
         "getShares" => unsupported::get_shares,
         "getPodcasts" => unsupported::get_podcasts,
         "getInternetRadioStations" => unsupported::get_internet_radio_stations,

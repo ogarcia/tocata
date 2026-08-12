@@ -14,6 +14,12 @@
 //! section, while one that gets an error may show the user a failure. Anything
 //! naming a **particular thing** answers 70: that thing genuinely is not here.
 //!
+//! And an **action** answers 70 as well, which is the one place where the empty
+//! `ok` would be worse than an error. A chat message handed to a server that keeps
+//! none, and acknowledged, is somebody's words disappearing without a word back;
+//! the listing beside it always comes back empty, so nothing would ever show. Told
+//! plainly, the client says so and the words stay in the box.
+//!
 //! None of this is documented anywhere else. The specification defines
 //! getOpenSubsonicExtensions for a client to discover what a server can do, so
 //! documentation listing what it cannot would be a second list to keep in sync.
