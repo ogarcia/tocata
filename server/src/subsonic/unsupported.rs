@@ -20,9 +20,12 @@
 //! the listing beside it always comes back empty, so nothing would ever show. Told
 //! plainly, the client says so and the words stay in the box.
 //!
-//! None of this is documented anywhere else. The specification defines
-//! getOpenSubsonicExtensions for a client to discover what a server can do, so
-//! documentation listing what it cannot would be a second list to keep in sync.
+//! No client is ever told any of this in prose: the specification defines
+//! getOpenSubsonicExtensions for exactly that, and a client asks it rather than
+//! reading anything. The README carries the same list with the reason for each,
+//! which is written for whoever is deciding whether to run this server — so the
+//! two do have to agree, and an endpoint that moves in or out of scope moves in
+//! both places.
 
 use super::auth::Authenticated;
 use super::error::ApiError;
