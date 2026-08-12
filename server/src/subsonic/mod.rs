@@ -4,6 +4,7 @@
 //! The OpenSubsonic API, served under `/rest`.
 
 mod annotation;
+mod asked;
 mod auth;
 mod bookmarks;
 mod browsing;
@@ -246,5 +247,59 @@ mod every_endpoint {
             "endpoints answering with a fault of ours:\n  {}",
             broken.join("\n  ")
         );
+    }
+
+    /// A call asked for without what it needs answers in the protocol.
+    ///
+    /// It used to answer with axum's own refusal: HTTP 400 and a line of English in
+    /// the body. A client has no way to read that — everything else here, a wrong
+    /// password included, arrives as 200 with the trouble inside — and several
+    /// treat it as the server being broken and stop asking. Twelve calls were
+    /// answering that way, and the walk above could not see it: a 400 is not a
+    /// server error and carries no code 0.
+    #[tokio::test]
+    async fn a_call_asked_for_without_its_parameter_is_answered_in_the_protocol() {
+        let (router, credentials) = a_server().await;
+
+        for (format, code, message) in [
+            (
+                "json",
+                r#""code":10"#,
+                r#""Required parameter id is missing""#,
+            ),
+            (
+                "xml",
+                r#"code="10""#,
+                r#"message="Required parameter id is missing""#,
+            ),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/getAlbum?{credentials}&f={format}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::OK,
+                "the transport succeeded; the call did not"
+            );
+
+            let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            let body = String::from_utf8_lossy(&body).into_owned();
+
+            assert!(body.contains(code), "as {format}: {body}");
+            assert!(
+                body.contains(message),
+                "and it says which parameter, as {format}: {body}"
+            );
+        }
     }
 }

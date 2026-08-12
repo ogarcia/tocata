@@ -7,6 +7,7 @@
 //! whose file is gone keeps its row so the user's data survives, but it has no
 //! business appearing in a listing.
 
+use super::asked::Asked;
 use super::auth::Authenticated;
 use super::error::ApiError;
 use super::models::{
@@ -14,7 +15,7 @@ use super::models::{
 };
 use super::response;
 use crate::settings;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -223,7 +224,7 @@ pub async fn get_artists(auth: Authenticated, State(pool): State<SqlitePool>) ->
 pub async fn get_artist(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     let artist = match load_artist(&pool, auth.user.id, &query.id).await {
         Ok(Some(artist)) => artist,
@@ -250,7 +251,7 @@ pub async fn get_artist(
 pub async fn get_album(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     let album = match load_album(&pool, auth.user.id, &query.id).await {
         Ok(Some(album)) => album,
@@ -274,7 +275,7 @@ pub async fn get_album(
 pub async fn get_song(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     match load_song(&pool, auth.user.id, &query.id).await {
         Ok(Some(song)) => response::ok(auth.format, SongBody { song }),
@@ -292,7 +293,7 @@ pub async fn get_song(
 pub async fn get_artist_info(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     match load_artist(&pool, auth.user.id, &query.id).await {
         Ok(Some(artist)) => response::ok(
@@ -311,7 +312,7 @@ pub async fn get_artist_info(
 pub async fn get_artist_info2(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     match load_artist(&pool, auth.user.id, &query.id).await {
         Ok(Some(artist)) => response::ok(
@@ -331,7 +332,7 @@ pub async fn get_artist_info2(
 pub async fn get_album_info(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     match load_album(&pool, auth.user.id, &query.id).await {
         Ok(Some(album)) => response::ok(
@@ -370,7 +371,7 @@ const MAX_TOP_SONGS: i64 = 500;
 pub async fn get_top_songs(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<TopSongsQuery>,
+    Asked(query): Asked<TopSongsQuery>,
 ) -> Response {
     let count = query
         .count
@@ -1350,7 +1351,7 @@ struct Directory {
 pub async fn get_indexes(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IndexesQuery>,
+    Asked(query): Asked<IndexesQuery>,
 ) -> Response {
     let last_modified = match load_last_modified(&pool, auth.user.id, query.music_folder_id).await {
         Ok(value) => value,
@@ -1421,7 +1422,7 @@ pub async fn get_indexes(
 pub async fn get_music_directory(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     let folder: Option<(String, String, Option<String>)> = match sqlx::query_as(concat!(
         visible_libraries!(),

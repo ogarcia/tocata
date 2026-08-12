@@ -3,12 +3,13 @@
 
 //! The lists a client fills its home screen with.
 
+use super::asked::Asked;
 use super::auth::Authenticated;
 use super::browsing;
 use super::error::ApiError;
 use super::models::{AlbumId3, ArtistId3, Child, NamedEntry};
 use super::response;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -146,7 +147,7 @@ struct NowPlayingEntry {
 pub async fn get_album_list2(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<AlbumListQuery>,
+    Asked(query): Asked<AlbumListQuery>,
 ) -> Response {
     let size = clamp(query.size, DEFAULT_SIZE, MAX_SIZE);
     let offset = query.offset.unwrap_or(0).max(0);
@@ -264,7 +265,7 @@ pub async fn get_genres(auth: Authenticated, State(pool): State<SqlitePool>) -> 
 pub async fn get_random_songs(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<RandomSongsQuery>,
+    Asked(query): Asked<RandomSongsQuery>,
 ) -> Response {
     let size = clamp(query.size, DEFAULT_RANDOM_SIZE, MAX_RANDOM_SIZE);
 
@@ -313,7 +314,7 @@ pub async fn get_random_songs(
 pub async fn get_songs_by_genre(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<SongsByGenreQuery>,
+    Asked(query): Asked<SongsByGenreQuery>,
 ) -> Response {
     let count = clamp(query.count, DEFAULT_SIZE, MAX_SIZE);
     let offset = query.offset.unwrap_or(0).max(0);
@@ -1122,7 +1123,7 @@ struct Starred {
 pub async fn get_album_list(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<AlbumListQuery>,
+    Asked(query): Asked<AlbumListQuery>,
 ) -> Response {
     let size = clamp(query.size, DEFAULT_SIZE, MAX_SIZE);
     let offset = query.offset.unwrap_or(0).max(0);

@@ -18,6 +18,12 @@ const HELP_URL: &str = env!("CARGO_PKG_REPOSITORY");
 pub enum ApiError {
     /// 10 — a required parameter is missing.
     MissingParameter(&'static str),
+    /// 10 — a parameter is missing or cannot be read, in the words the reader of
+    /// the query string used.
+    ///
+    /// The same code as above because the protocol has only the one for a
+    /// parameter that will not do, so the sentence carries which it was.
+    UnreadableParameter(String),
     /// 40 — wrong username or password.
     WrongCredentials,
     /// 42 — the mechanism the client offered is not one this server accepts.
@@ -43,7 +49,7 @@ pub enum ApiError {
 impl ApiError {
     pub fn code(&self) -> u16 {
         match self {
-            Self::MissingParameter(_) => 10,
+            Self::MissingParameter(_) | Self::UnreadableParameter(_) => 10,
             Self::WrongCredentials => 40,
             Self::MechanismNotSupported => 42,
             Self::ConflictingMechanisms => 43,
@@ -57,6 +63,7 @@ impl ApiError {
     pub fn message(&self) -> String {
         match self {
             Self::MissingParameter(name) => format!("Required parameter {name} is missing"),
+            Self::UnreadableParameter(said) => said.clone(),
             Self::WrongCredentials => "Wrong username or password".into(),
             Self::MechanismNotSupported => "Provided authentication mechanism not supported".into(),
             Self::ConflictingMechanisms => {

@@ -8,14 +8,16 @@
 //! long mix — while the play queue is what a listener had lined up, so they can
 //! carry on from another device.
 
+use super::asked::Asked;
+use super::asked::Repeated;
 use super::auth::Authenticated;
 use super::browsing;
 use super::error::ApiError;
 use super::models::Child;
-use super::response::{self, Empty, Repeated};
+use super::response::{self, Empty};
 use crate::db;
 use crate::db::InTurn;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -150,7 +152,7 @@ pub async fn get_bookmarks(auth: Authenticated, State(pool): State<SqlitePool>) 
 pub async fn create_bookmark(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<CreateBookmarkQuery>,
+    Asked(query): Asked<CreateBookmarkQuery>,
 ) -> Response {
     let track_id: Result<Option<i64>, _> = sqlx::query_scalar(concat!(
         visible_libraries!(),
@@ -195,7 +197,7 @@ pub async fn create_bookmark(
 pub async fn delete_bookmark(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     let deleted = sqlx::query(
         "DELETE FROM bookmarks

@@ -3,12 +3,13 @@
 
 //! Searching the catalogue.
 
+use super::asked::Asked;
 use super::auth::Authenticated;
 use super::browsing;
 use super::error::ApiError;
 use super::models::{AlbumId3, ArtistId3, Child, NamedEntry};
 use super::response;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -49,7 +50,7 @@ struct SearchResult3 {
 pub async fn search3(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<Search3Query>,
+    Asked(query): Asked<Search3Query>,
 ) -> Response {
     let user_id = auth.user.id;
     let terms = query.query.as_deref().unwrap_or_default();
@@ -280,7 +281,7 @@ async fn load_songs(
 pub async fn search2(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<Search3Query>,
+    Asked(query): Asked<Search3Query>,
 ) -> Response {
     let user_id = auth.user.id;
     let terms = query.query.as_deref().unwrap_or_default();
@@ -394,7 +395,7 @@ struct SearchResult {
 pub async fn search(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<SearchQuery>,
+    Asked(query): Asked<SearchQuery>,
 ) -> Response {
     let count = query.count.unwrap_or(DEFAULT_COUNT);
     let offset = query.offset.unwrap_or(0);

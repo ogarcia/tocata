@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
 
+use super::asked::Asked;
 use super::auth::Authenticated;
 use super::error::ApiError;
 use super::response::{self, Empty, RequestFormat};
 use crate::scanner::{self, Mode, Progress};
 use crate::state::AppState;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -177,7 +178,7 @@ pub async fn get_scan_status(auth: Authenticated, State(scan): State<Arc<Progres
 pub async fn start_scan(
     auth: Authenticated,
     State(state): State<AppState>,
-    Query(query): Query<StartScanQuery>,
+    Asked(query): Asked<StartScanQuery>,
 ) -> Response {
     if !auth.user.is_admin {
         return ApiError::NotAuthorized

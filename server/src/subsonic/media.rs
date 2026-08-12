@@ -3,13 +3,14 @@
 
 //! Serving the files themselves.
 
+use super::asked::Asked;
 use super::auth::Authenticated;
 use super::browsing::IdQuery;
 use super::error::ApiError;
 use super::response::{self};
 use crate::artwork;
 use crate::config::Config;
-use axum::extract::{Query, Request, State};
+use axum::extract::{Request, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ use tracing::{error, warn};
 pub async fn stream(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
     request: Request,
 ) -> Response {
     match crate::media::locate(&pool, auth.user.id, &query.id).await {
@@ -42,7 +43,7 @@ pub async fn stream(
 pub async fn download(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
     request: Request,
 ) -> Response {
     let track = match crate::media::locate(&pool, auth.user.id, &query.id).await {
@@ -125,7 +126,7 @@ pub async fn get_cover_art(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
     State(config): State<Arc<Config>>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
     request: Request,
 ) -> Response {
     let found = picture_for(&pool, config.data_dir(), auth.user.id, &query.id).await;
@@ -290,7 +291,7 @@ async fn read_lyrics(path: PathBuf) -> Option<String> {
 pub async fn get_lyrics(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<LyricsQuery>,
+    Asked(query): Asked<LyricsQuery>,
 ) -> Response {
     let found: Result<Option<(String, String, Option<String>)>, _> = sqlx::query_as(concat!(
         visible_libraries!(),
@@ -353,7 +354,7 @@ pub async fn get_lyrics(
 pub async fn get_lyrics_by_song_id(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<IdQuery>,
+    Asked(query): Asked<IdQuery>,
 ) -> Response {
     let found: Result<Option<String>, _> = sqlx::query_scalar(concat!(
         visible_libraries!(),

@@ -12,12 +12,13 @@
 //! demoting each other at the same moment would each see the other and leave
 //! none.
 
+use super::asked::Asked;
 use super::auth::Authenticated;
 use super::error::ApiError;
 use super::response::{self, Empty};
 use crate::db::InTurn;
 use crate::{auth, db};
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -135,7 +136,7 @@ macro_rules! user_columns {
 pub async fn get_user(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<UsernameQuery>,
+    Asked(query): Asked<UsernameQuery>,
 ) -> Response {
     // Anybody may ask about themselves; only an administrator about others.
     if query.username != auth.user.username && !auth.user.is_admin {
@@ -195,7 +196,7 @@ pub async fn get_users(auth: Authenticated, State(pool): State<SqlitePool>) -> R
 pub async fn create_user(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<CreateUserQuery>,
+    Asked(query): Asked<CreateUserQuery>,
 ) -> Response {
     if !auth.user.is_admin {
         return ApiError::NotAuthorized
@@ -252,7 +253,7 @@ pub async fn create_user(
 pub async fn update_user(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<UpdateUserQuery>,
+    Asked(query): Asked<UpdateUserQuery>,
 ) -> Response {
     if !auth.user.is_admin {
         return ApiError::NotAuthorized
@@ -282,7 +283,7 @@ pub async fn update_user(
 pub async fn delete_user(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<UsernameQuery>,
+    Asked(query): Asked<UsernameQuery>,
 ) -> Response {
     if !auth.user.is_admin {
         return ApiError::NotAuthorized
@@ -315,7 +316,7 @@ pub async fn delete_user(
 pub async fn change_password(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
-    Query(query): Query<ChangePasswordQuery>,
+    Asked(query): Asked<ChangePasswordQuery>,
 ) -> Response {
     if query.username != auth.user.username && !auth.user.is_admin {
         return ApiError::NotAuthorized

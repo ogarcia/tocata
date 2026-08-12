@@ -6,9 +6,10 @@
 //! This is the half of the database that cannot be rebuilt by rescanning, which
 //! is why it lives in its own tables and why the scanner never touches it.
 
+use super::asked::Repeated;
 use super::auth::Authenticated;
 use super::error::ApiError;
-use super::response::{self, Empty, Repeated};
+use super::response::{self, Empty};
 use crate::db;
 use crate::net::Net;
 use axum::extract::State;
