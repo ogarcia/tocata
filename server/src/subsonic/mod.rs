@@ -58,6 +58,7 @@ endpoints! {
         "getArtist" => browsing::get_artist,
         "getAlbum" => browsing::get_album,
         "getSong" => browsing::get_song,
+        "getTopSongs" => browsing::get_top_songs,
         "getIndexes" => browsing::get_indexes,
         "getMusicDirectory" => browsing::get_music_directory,
         "stream" => media::stream,
@@ -113,7 +114,6 @@ endpoints! {
         "getAlbumInfo2" => unsupported::not_found,
         "getSimilarSongs" => unsupported::not_found,
         "getSimilarSongs2" => unsupported::not_found,
-        "getTopSongs" => unsupported::not_found,
 }
 
 #[cfg(test)]

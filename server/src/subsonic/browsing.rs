@@ -97,6 +97,26 @@ struct SongBody {
     song: Child,
 }
 
+/// What getTopSongs asks with: a name rather than an id, which is the call's own
+/// oddity and not ours — it predates the identified artists by several versions.
+#[derive(Debug, Deserialize)]
+pub(super) struct TopSongsQuery {
+    artist: String,
+    count: Option<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TopSongsBody {
+    top_songs: TopSongs,
+}
+
+#[derive(Serialize)]
+struct TopSongs {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    song: Vec<Child>,
+}
+
 pub async fn get_music_folders(auth: Authenticated, State(pool): State<SqlitePool>) -> Response {
     let rows: Result<Vec<(i64, String)>, _> = sqlx::query_as(concat!(
         visible_libraries!(),
@@ -220,6 +240,87 @@ pub async fn get_song(
         Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => internal(e, auth.format, "loading a song"),
     }
+}
+
+/// Songs returned when a client does not say how many, and the ceiling on what it
+/// may ask for. Fifty is the number the call itself names as its default.
+const DEFAULT_TOP_SONGS: i64 = 50;
+const MAX_TOP_SONGS: i64 = 500;
+
+/// An artist's songs, most played first.
+///
+/// The call was invented for what a scrobbling service knows and this server does
+/// not: what the world plays most of an artist. What it does know is what *this
+/// listener* has played, which is the only honest answer available here and the
+/// more useful one on a shelf somebody chose themselves.
+///
+/// Songs nobody has played yet come last rather than being left out — `DESC` puts
+/// the nulls at the end, which is the behaviour wanted and not an accident. A
+/// server on its first day has no plays at all, and an artist's page with nothing
+/// under "top songs" tells the listener less than the same page with the artist's
+/// songs in it; as the counts arrive, the list becomes what it says it is.
+///
+/// Asked for by name, because that is what the call takes. Any credit counts —
+/// signed or played on — the way it does everywhere else an artist is looked up.
+pub async fn get_top_songs(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<TopSongsQuery>,
+) -> Response {
+    let count = query
+        .count
+        .filter(|count| *count > 0)
+        .unwrap_or(DEFAULT_TOP_SONGS)
+        .min(MAX_TOP_SONGS);
+
+    let ids = match top_song_ids(&pool, auth.user.id, &query.artist, count).await {
+        Ok(ids) => ids,
+        Err(e) => return internal(e, auth.format, "picking an artist's most played songs"),
+    };
+
+    match load_tracks_by_ids(&pool, auth.user.id, &ids).await {
+        Ok(songs) => response::ok(
+            auth.format,
+            TopSongsBody {
+                top_songs: TopSongs { song: songs },
+            },
+        ),
+        Err(e) => internal(e, auth.format, "loading an artist's most played songs"),
+    }
+}
+
+/// The tracks credited to a name, most played by this listener first.
+///
+/// Apart from the handler so that the order and the wall around a library can be
+/// asserted without standing up a router: what a client gets out of this is one
+/// `ORDER BY` and one `EXISTS`, and both are worth a test of their own.
+async fn top_song_ids(
+    pool: &SqlitePool,
+    user_id: i64,
+    artist: &str,
+    count: i64,
+) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar(concat!(
+        visible_libraries!(),
+        "SELECT t.id
+           FROM tracks t
+           LEFT JOIN user_track_stats s ON s.track_id = t.id AND s.user_id = ?
+          WHERE t.missing_since IS NULL
+            AND t.library_id IN (SELECT id FROM visible_libraries)
+            AND EXISTS (
+                    SELECT 1 FROM track_artists ta
+                      JOIN artists ar ON ar.id = ta.artist_id
+                     WHERE ta.track_id = t.id AND ar.name = ?
+                )
+          ORDER BY s.play_count DESC, t.title COLLATE NOCASE
+          LIMIT ?"
+    ))
+    .bind(user_id)
+    .bind(user_id)
+    .bind(artist)
+    .bind(count)
+    .fetch_all(pool)
+    .await
 }
 
 /// A database failure is ours, not the client's: log the detail and return the
@@ -2081,5 +2182,87 @@ mod visibility_tests {
 
         let albums = load_albums_by_ids(&pool, unrestricted, &ids).await.unwrap();
         assert_eq!(albums.len(), 1, "switched off, so nobody sees it");
+    }
+
+    /// The most played first, the unplayed after them, and never one from a
+    /// library this account may not see.
+    ///
+    /// Both halves are quiet when they break. An order that goes the other way is
+    /// a list that still looks like a list, and a track reached across the wall
+    /// arrives with its title and its record on it — which is the thing that was
+    /// to be kept back.
+    #[tokio::test]
+    async fn the_most_played_songs_of_an_artist_come_first_and_only_from_where_they_may() {
+        let (pool, everybody, restricted, _) = two_libraries().await;
+        let at = db::now();
+
+        // A second song for the first artist, in the library everybody sees, and
+        // the only one with a play behind it.
+        sqlx::query(
+            "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
+                                 file_size, file_modified_at, content_type, suffix, title,
+                                 last_seen_scan, created_at, updated_at)
+             VALUES (3, 'trk3', 1, 1, 1, '/a/two.wav', 1, ?, 'audio/wav', 'wav', 'Another',
+                     1, ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role) VALUES (3, 1, 'artist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO user_track_stats (user_id, track_id, play_count) VALUES (?, 3, 7)",
+        )
+        .bind(everybody)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // And the same artist credited on the song in the walled-off library.
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role) VALUES (2, 1, 'artist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let top = top_song_ids(&pool, everybody, "Artist a", 50)
+            .await
+            .unwrap();
+        assert_eq!(
+            top,
+            [3, 1, 2],
+            "the played one first, then the rest by title"
+        );
+
+        // Whose plays they are, since the count sits in a row per listener. The
+        // other account played the other song, and is walled out of the second
+        // library — so both halves show in one answer.
+        sqlx::query(
+            "INSERT INTO user_track_stats (user_id, track_id, play_count) VALUES (?, 1, 2)",
+        )
+        .bind(restricted)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let theirs = top_song_ids(&pool, restricted, "Artist a", 50)
+            .await
+            .unwrap();
+        assert_eq!(
+            theirs,
+            [1, 3],
+            "their own plays lead, and nothing from the library barred"
+        );
+
+        let asked = top_song_ids(&pool, everybody, "Artist a", 1).await.unwrap();
+        assert_eq!(asked, [3], "and the count is a count");
     }
 }
