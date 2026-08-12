@@ -140,10 +140,79 @@ does not.
 | `/api/docs` | Reference for that API, generated from it |
 | `/api/health` | Whether the server is up and its database answers |
 
-Clients authenticate with a password or with an API key, which is made in the
-panel. Token and salt authentication is refused with error 42 and cannot be
-otherwise: verifying `md5(password + salt)` needs the password back in clear, and
-what Tocata keeps is an Argon2id hash.
+## Authentication
+
+There are two doors and they work differently, because a browser and a music
+player are not in the same situation.
+
+### The panel
+
+A username — or the account's email address — and a password, exchanged for a
+session. The session is a row in Tocata's own database: 256 bits from the system's
+random number generator, kept as a SHA-256 digest, so what is stored is not the
+token that opens it. The token travels in a cookie named `tocata_session`, scoped
+to `/api`, `HttpOnly` and `SameSite=Strict`. `HttpOnly` keeps it out of reach of
+the panel's own scripts, and so of anything injected into the page; it is also
+what makes the event stream work, since `EventSource` cannot set a header and a
+bearer token would have nowhere to go.
+
+None of this needs a secret configured, because nothing is signed. A signed token
+— a JWT — is a way of not looking anything up, and it earns its keep when the
+lookup is the expense; here every request reaches SQLite anyway, and this
+particular lookup is a unique index on a digest. What a signature would cost is
+the part that matters: a token nobody can take back. The panel lists the sessions
+an account has open and can close the rest, and changing a password closes them —
+with a signed token that needs a list of the ones no longer welcome, which is
+precisely the state the signature was avoiding. The secret itself is the other
+cost: one more thing to generate, keep and hand to a container, where losing it
+logs everybody out and leaking it lets anybody issue sessions.
+
+How long a session lasts is a setting rather than an environment variable, thirty
+days to begin with, and it is absolute rather than sliding: shortening it applies
+to the next login and leaves the people already inside where they are.
+
+Keeping the login is what adds `Max-Age` to the cookie. Without it the browser
+drops the cookie when it closes while the row keeps its own expiry — what has
+been forgotten is the way back in, not the session. Logging out ends the row, and
+only that one: the other browsers stay logged in.
+
+### The API
+
+A client under `/rest` proves who it is with a username and a password, `u` and
+`p`, the latter either plain or as hex behind `enc:`, which the protocol allows
+and which conceals nothing, being reversible by anybody.
+
+Or with an API key, from the `apiKeyAuthentication` extension. Keys are made in
+the panel, each with a label to tell it from the others, and each can be withdrawn
+on its own without disturbing the rest. The extension is explicit that a key
+travels alone, so a request carrying `apiKey` alongside any of `u`, `p`, `t` or
+`s` is refused with error 43.
+
+A key is also accepted where a password goes, because a client's login screen has
+one box for a password and usually no field for anything else — so a key pasted
+into it works. Only the key belonging to the account named in `u`, though:
+somebody else's opens nothing, and rather than being refused outright it falls
+through to the password check, since what was offered may still be this account's
+password. Keys are for players and not for the panel, which takes a password.
+
+### Token and salt, and why not
+
+The mechanism the specification calls token authentication — `s` and
+`t=md5(password + salt)` — is refused with error 42, "provided authentication
+mechanism not supported", and cannot be anything else.
+
+Verifying that token means computing `md5(password + salt)` here, which means
+having the password to hand: in clear, or encrypted beside the key that decrypts
+it, which is the same thing the day somebody copies the database. What Tocata
+keeps is an Argon2id hash, and the whole purpose of one is that the password
+cannot be got back out of it.
+
+So this is not a feature nobody has written yet. It is a mechanism that cannot
+coexist with storing passwords properly, and between the two the passwords win.
+Error 42 is the specification's own way of saying a server does not offer a
+mechanism, and every client we have tried has a setting for the other way —
+worded as plain, clear text or legacy password authentication, depending on the
+client — which is what Tocata answers.
 
 ## What Tocata does not answer
 
