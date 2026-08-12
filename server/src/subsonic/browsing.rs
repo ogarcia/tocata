@@ -141,9 +141,15 @@ struct AlbumInfoBody {
 
 /// What getTopSongs asks with: a name rather than an id, which is the call's own
 /// oddity and not ours — it predates the identified artists by several versions.
+///
+/// Which is what the `topSongsByArtistId` extension is for, and this server
+/// declares it: an `id` may come instead, and where both come the id wins. So
+/// neither is required on its own and one of the two still is — a request naming
+/// no artist at all is answered as the missing parameter it is.
 #[derive(Debug, Deserialize)]
 pub(super) struct TopSongsQuery {
-    artist: String,
+    id: Option<String>,
+    artist: Option<String>,
     count: Option<i64>,
 }
 
@@ -366,8 +372,14 @@ const MAX_TOP_SONGS: i64 = 500;
 /// under "top songs" tells the listener less than the same page with the artist's
 /// songs in it; as the counts arrive, the list becomes what it says it is.
 ///
-/// Asked for by name, because that is what the call takes. Any credit counts —
-/// signed or played on — the way it does everywhere else an artist is looked up.
+/// Any credit counts — signed or played on — the way it does everywhere else an
+/// artist is looked up.
+///
+/// By id where the client sends one, which is the `topSongsByArtistId` extension
+/// and the better of the two: a name is not an identity, and two people can share
+/// one. An id nobody answers to is a 70, the way it is on every other call that
+/// names a particular thing — where a *name* nobody answers to is an empty list,
+/// because a name that matches nothing is a search that found nothing.
 pub async fn get_top_songs(
     auth: Authenticated,
     State(pool): State<SqlitePool>,
@@ -379,7 +391,29 @@ pub async fn get_top_songs(
         .unwrap_or(DEFAULT_TOP_SONGS)
         .min(MAX_TOP_SONGS);
 
-    let ids = match top_song_ids(&pool, auth.user.id, &query.artist, count).await {
+    // The id wins where both come, which the extension is explicit about, and it
+    // travels to the statement as an id: resolved to a name and matched as one, it
+    // would hand back the songs of everybody who happens to share it, which is the
+    // very ambiguity the extension exists to remove.
+    //
+    // Looked up first all the same, for two reasons. An id nobody answers to is a
+    // 70 rather than an empty list, and the lookup is what keeps the wall around a
+    // library standing: an id this account may not see is not there at all.
+    let credited = match (&query.id, &query.artist) {
+        (Some(id), _) => match load_artist(&pool, auth.user.id, id).await {
+            Ok(Some(_)) => Credited::Id(id),
+            Ok(None) => return ApiError::NotFound.in_format(auth.format).into_response(),
+            Err(e) => return internal(e, auth.format, "looking up an artist by id"),
+        },
+        (None, Some(name)) => Credited::Named(name),
+        (None, None) => {
+            return ApiError::MissingParameter("artist")
+                .in_format(auth.format)
+                .into_response();
+        }
+    };
+
+    let ids = match top_song_ids(&pool, auth.user.id, credited, count).await {
         Ok(ids) => ids,
         Err(e) => return internal(e, auth.format, "picking an artist's most played songs"),
     };
@@ -395,17 +429,34 @@ pub async fn get_top_songs(
     }
 }
 
-/// The tracks credited to a name, most played by this listener first.
+/// Which artist the songs are wanted of, and how they were asked for.
+#[derive(Debug, Clone, Copy)]
+enum Credited<'a> {
+    /// By the id this server handed out, which names one artist and no other.
+    Id(&'a str),
+    /// By the name the client typed or read off a song, which may name more.
+    Named(&'a str),
+}
+
+/// The tracks credited to an artist, most played by this listener first.
 ///
 /// Apart from the handler so that the order and the wall around a library can be
 /// asserted without standing up a router: what a client gets out of this is one
 /// `ORDER BY` and one `EXISTS`, and both are worth a test of their own.
+///
+/// One statement for both ways of asking rather than two nearly identical ones:
+/// whichever half is not being used is bound as null and the clause stands aside.
 async fn top_song_ids(
     pool: &SqlitePool,
     user_id: i64,
-    artist: &str,
+    credited: Credited<'_>,
     count: i64,
 ) -> Result<Vec<i64>, sqlx::Error> {
+    let (id, name) = match credited {
+        Credited::Id(id) => (Some(id), None),
+        Credited::Named(name) => (None, Some(name)),
+    };
+
     sqlx::query_scalar(concat!(
         visible_libraries!(),
         "SELECT t.id
@@ -416,14 +467,19 @@ async fn top_song_ids(
             AND EXISTS (
                     SELECT 1 FROM track_artists ta
                       JOIN artists ar ON ar.id = ta.artist_id
-                     WHERE ta.track_id = t.id AND ar.name = ?
+                     WHERE ta.track_id = t.id
+                       AND (? IS NULL OR ar.public_id = ?)
+                       AND (? IS NULL OR ar.name = ?)
                 )
           ORDER BY s.play_count DESC, t.title COLLATE NOCASE
           LIMIT ?"
     ))
     .bind(user_id)
     .bind(user_id)
-    .bind(artist)
+    .bind(id)
+    .bind(id)
+    .bind(name)
+    .bind(name)
     .bind(count)
     .fetch_all(pool)
     .await
@@ -2339,7 +2395,7 @@ mod visibility_tests {
         .await
         .unwrap();
 
-        let top = top_song_ids(&pool, everybody, "Artist a", 50)
+        let top = top_song_ids(&pool, everybody, Credited::Named("Artist a"), 50)
             .await
             .unwrap();
         assert_eq!(
@@ -2359,7 +2415,7 @@ mod visibility_tests {
         .await
         .unwrap();
 
-        let theirs = top_song_ids(&pool, restricted, "Artist a", 50)
+        let theirs = top_song_ids(&pool, restricted, Credited::Named("Artist a"), 50)
             .await
             .unwrap();
         assert_eq!(
@@ -2368,7 +2424,65 @@ mod visibility_tests {
             "their own plays lead, and nothing from the library barred"
         );
 
-        let asked = top_song_ids(&pool, everybody, "Artist a", 1).await.unwrap();
+        let asked = top_song_ids(&pool, everybody, Credited::Named("Artist a"), 1)
+            .await
+            .unwrap();
         assert_eq!(asked, [3], "and the count is a count");
+    }
+
+    /// Asked by id, which is what the `topSongsByArtistId` extension adds, and the
+    /// reason it is worth having: two people can be called the same thing, and a
+    /// name asks for both of them.
+    #[tokio::test]
+    async fn an_artists_id_names_one_artist_where_their_name_may_name_two() {
+        let (pool, everybody, _, _) = two_libraries().await;
+        let at = db::now();
+
+        // A second artist by the same name, with a song of their own in the library
+        // everybody can see. Which happens for real — two bands, one word — and it
+        // is the whole reason a client should be sending the id.
+        sqlx::query(
+            "INSERT INTO artists (id, public_id, name, created_at, updated_at)
+             VALUES (3, 'art3', 'Artist a', ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracks (id, public_id, library_id, folder_id, album_id, path,
+                                 file_size, file_modified_at, content_type, suffix, title,
+                                 last_seen_scan, created_at, updated_at)
+             VALUES (3, 'trk3', 1, 1, 1, '/a/other.wav', 1, ?, 'audio/wav', 'wav', 'Namesake',
+                     1, ?, ?)",
+        )
+        .bind(&at)
+        .bind(&at)
+        .bind(&at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO track_artists (track_id, artist_id, role) VALUES (3, 3, 'artist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let by_name = top_song_ids(&pool, everybody, Credited::Named("Artist a"), 50)
+            .await
+            .unwrap();
+        assert_eq!(by_name, [3, 1], "a name asks for both of them");
+
+        let by_id = top_song_ids(&pool, everybody, Credited::Id("art1"), 50)
+            .await
+            .unwrap();
+        assert_eq!(by_id, [1], "and an id for the one it names");
+
+        let theirs = top_song_ids(&pool, everybody, Credited::Id("art3"), 50)
+            .await
+            .unwrap();
+        assert_eq!(theirs, [3], "each to their own");
     }
 }

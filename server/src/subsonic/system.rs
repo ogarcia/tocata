@@ -38,6 +38,11 @@ const EXTENSIONS: &[Extension] = &[
         name: "songLyrics",
         versions: &[1],
     },
+    // `getTopSongs` taking an artist's id, which is the whole of it.
+    Extension {
+        name: "topSongsByArtistId",
+        versions: &[1],
+    },
 ];
 
 #[derive(Serialize)]
@@ -194,6 +199,10 @@ mod tests {
                 "songLyrics",
                 "getLyricsBySongId answers in structuredLyrics, timings and all",
             ),
+            (
+                "topSongsByArtistId",
+                "getTopSongs takes an artist's id, which takes precedence",
+            ),
         ] {
             assert!(
                 EXTENSIONS.iter().any(|e| e.name == name),
@@ -203,7 +212,7 @@ mod tests {
 
         assert_eq!(
             EXTENSIONS.len(),
-            2,
+            3,
             "an extension was declared without saying here what makes it true"
         );
     }
