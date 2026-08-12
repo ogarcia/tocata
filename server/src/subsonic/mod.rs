@@ -59,6 +59,11 @@ endpoints! {
         "getAlbum" => browsing::get_album,
         "getSong" => browsing::get_song,
         "getTopSongs" => browsing::get_top_songs,
+        "getArtistInfo" => browsing::get_artist_info,
+        "getArtistInfo2" => browsing::get_artist_info2,
+        // One handler for both, because both answer in `albumInfo`.
+        "getAlbumInfo" => browsing::get_album_info,
+        "getAlbumInfo2" => browsing::get_album_info,
         "getIndexes" => browsing::get_indexes,
         "getMusicDirectory" => browsing::get_music_directory,
         "stream" => media::stream,
@@ -108,10 +113,6 @@ endpoints! {
         "getCaptions" => unsupported::not_found,
         "hls.m3u8" => unsupported::not_found,
         "getAvatar" => unsupported::not_found,
-        "getArtistInfo" => unsupported::not_found,
-        "getArtistInfo2" => unsupported::not_found,
-        "getAlbumInfo" => unsupported::not_found,
-        "getAlbumInfo2" => unsupported::not_found,
         "getSimilarSongs" => unsupported::not_found,
         "getSimilarSongs2" => unsupported::not_found,
 }

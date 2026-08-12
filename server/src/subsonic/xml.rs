@@ -13,10 +13,11 @@
 //! element; an array becomes a repeated element under its key. Adding an
 //! endpoint costs nothing here.
 //!
-//! With one exception the protocol forces. A few responses put their payload in
+//! With two exceptions the protocol forces. A few responses put their payload in
 //! the element's text rather than in an attribute — `<genre songCount="28">Rock
 //! </genre>`, and the body of a lyric — while JSON has to call it something, and
-//! calls it `value`. So a key named `value` becomes the text of its element.
+//! calls it `value`. So a key named `value` becomes the text of its element. And
+//! three responses are written entirely of child elements: see [`TEXT_BODIED`].
 
 use quick_xml::Writer;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
@@ -25,6 +26,21 @@ use std::io::Cursor;
 
 /// Key whose value belongs in the element's text instead of an attribute.
 const TEXT_KEY: &str = "value";
+
+/// The responses whose fields the protocol writes as child elements carrying
+/// text, where every other response writes them as attributes:
+///
+/// ```xml
+/// <artistInfo2><musicBrainzId>c8da2e40…</musicBrainzId></artistInfo2>
+/// ```
+///
+/// Gated on the name of the element they sit in rather than on their own, because
+/// `musicBrainzId` is an attribute in the three places it appears elsewhere — on
+/// an artist, on a record and on a song. A rule about the key alone would rewrite
+/// those and break every client that reads them.
+///
+/// JSON is unaffected: there a field is a field, and it is the same field.
+const TEXT_BODIED: [&str; 3] = ["artistInfo", "artistInfo2", "albumInfo"];
 
 /// Namespace every XML response carries. It is meaningless in JSON, so it
 /// lives here rather than in the response types.
@@ -56,19 +72,22 @@ fn write_element(
     match value {
         Value::Object(map) => {
             let text = map.get(TEXT_KEY).and_then(scalar_to_string);
+            let spelt_out = TEXT_BODIED.contains(&name);
 
-            for (key, child) in map {
-                if key == TEXT_KEY && text.is_some() {
-                    continue;
-                }
-                if let Some(attribute) = scalar_to_string(child) {
-                    start.push_attribute((key.as_str(), attribute.as_str()));
+            if !spelt_out {
+                for (key, child) in map {
+                    if key == TEXT_KEY && text.is_some() {
+                        continue;
+                    }
+                    if let Some(attribute) = scalar_to_string(child) {
+                        start.push_attribute((key.as_str(), attribute.as_str()));
+                    }
                 }
             }
 
             let has_children = map
                 .iter()
-                .any(|(key, v)| key != TEXT_KEY && scalar_to_string(v).is_none());
+                .any(|(key, v)| key != TEXT_KEY && (spelt_out || scalar_to_string(v).is_none()));
 
             if !has_children && text.is_none() {
                 writer.write_event(Event::Empty(start))?;
@@ -91,6 +110,9 @@ fn write_element(
                         }
                     }
                     Value::Object(_) => write_element(writer, key, child, None)?,
+                    // A scalar is an attribute everywhere but in the three
+                    // responses above, where it is an element of its own.
+                    _ if spelt_out => write_element(writer, key, child, None)?,
                     _ => {}
                 }
             }
@@ -236,6 +258,49 @@ mod tests {
         assert!(xml.contains(r#"openSubsonic="true""#));
         assert!(xml.contains(r#"count="42""#));
         assert!(xml.contains(r#"gain="1.5""#));
+    }
+
+    /// The three responses the protocol spells out in elements. What makes this
+    /// worth a test of its own is that the same key is an attribute anywhere else,
+    /// so getting it right here and wrong there is one line apart.
+    #[test]
+    fn the_info_responses_spell_their_fields_out() {
+        let xml = render(
+            "subsonic-response",
+            &json!({"artistInfo2": {"musicBrainzId": "c8da2e40", "biography": "Left home."}}),
+        )
+        .unwrap();
+
+        assert!(
+            xml.contains("<musicBrainzId>c8da2e40</musicBrainzId>"),
+            "got {xml}"
+        );
+        assert!(
+            xml.contains("<biography>Left home.</biography>"),
+            "got {xml}"
+        );
+        assert!(
+            !xml.contains(r#"musicBrainzId="c8da2e40""#),
+            "and not as an attribute: {xml}"
+        );
+    }
+
+    #[test]
+    fn an_info_response_with_nothing_in_it_still_closes_itself() {
+        let xml = render("subsonic-response", &json!({"albumInfo": {}})).unwrap();
+        assert!(xml.contains("<albumInfo/>"), "got {xml}");
+    }
+
+    /// The same key elsewhere is untouched, which is the whole reason the rule is
+    /// gated on the element and not on the key.
+    #[test]
+    fn the_same_key_on_a_song_stays_an_attribute() {
+        let xml = render(
+            "subsonic-response",
+            &json!({"song": {"musicBrainzId": "c8da2e40"}}),
+        )
+        .unwrap();
+        assert!(xml.contains(r#"musicBrainzId="c8da2e40""#), "got {xml}");
     }
 
     #[test]

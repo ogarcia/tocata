@@ -97,6 +97,47 @@ struct SongBody {
     song: Child,
 }
 
+/// What this server holds of the three "info" calls, which is one field.
+///
+/// The rest of what they were made to carry is what a scrobbling service knew and
+/// this one does not: a biography, a page on the web, and three sizes of picture
+/// hosted elsewhere. None of them is invented here.
+///
+/// The picture in particular is not missing, it is somewhere better: an artist and
+/// a record both come with `coverArt` on them already, which is an id for
+/// getCoverArt and needs nobody to guess this server's address from the outside.
+/// The three `*ImageUrl` fields are absolute URLs, and behind a proxy an absolute
+/// URL made up by the server is a guess handed to the client as a fact.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Info {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    music_brainz_id: Option<String>,
+}
+
+/// `getArtistInfo` and `getArtistInfo2` differ in the element they answer in and
+/// in nothing else here — the similar artists they would also carry are what this
+/// server does not know.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtistInfoBody {
+    artist_info: Info,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtistInfo2Body {
+    artist_info2: Info,
+}
+
+/// Both album calls answer in `albumInfo`. Not a slip: the specification names
+/// getAlbumInfo2 for its argument, an ID3 album id, and leaves the element alone.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AlbumInfoBody {
+    album_info: Info,
+}
+
 /// What getTopSongs asks with: a name rather than an id, which is the call's own
 /// oddity and not ours — it predates the identified artists by several versions.
 #[derive(Debug, Deserialize)]
@@ -239,6 +280,70 @@ pub async fn get_song(
         Ok(Some(song)) => response::ok(auth.format, SongBody { song }),
         Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
         Err(e) => internal(e, auth.format, "loading a song"),
+    }
+}
+
+/// What is known about an artist beyond the artist itself.
+///
+/// Both spellings of the call are answered from the same place, because the id
+/// they take is the same id: an artist as this server hands it out. A client
+/// browsing by folder passes a directory id instead and gets a 70, which is the
+/// truth — that id names a folder, and there is no artist by it.
+pub async fn get_artist_info(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    match load_artist(&pool, auth.user.id, &query.id).await {
+        Ok(Some(artist)) => response::ok(
+            auth.format,
+            ArtistInfoBody {
+                artist_info: Info {
+                    music_brainz_id: artist.music_brainz_id,
+                },
+            },
+        ),
+        Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
+        Err(e) => internal(e, auth.format, "loading what is known of an artist"),
+    }
+}
+
+pub async fn get_artist_info2(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    match load_artist(&pool, auth.user.id, &query.id).await {
+        Ok(Some(artist)) => response::ok(
+            auth.format,
+            ArtistInfo2Body {
+                artist_info2: Info {
+                    music_brainz_id: artist.music_brainz_id,
+                },
+            },
+        ),
+        Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
+        Err(e) => internal(e, auth.format, "loading what is known of an artist"),
+    }
+}
+
+/// The same for a record, and for both spellings of that call too.
+pub async fn get_album_info(
+    auth: Authenticated,
+    State(pool): State<SqlitePool>,
+    Query(query): Query<IdQuery>,
+) -> Response {
+    match load_album(&pool, auth.user.id, &query.id).await {
+        Ok(Some(album)) => response::ok(
+            auth.format,
+            AlbumInfoBody {
+                album_info: Info {
+                    music_brainz_id: album.music_brainz_id,
+                },
+            },
+        ),
+        Ok(None) => ApiError::NotFound.in_format(auth.format).into_response(),
+        Err(e) => internal(e, auth.format, "loading what is known of a record"),
     }
 }
 
