@@ -101,6 +101,7 @@ endpoints! {
         "getAlbumList" => lists::get_album_list,
         "getStarred" => lists::get_starred,
         "search2" => search::search2,
+        "search" => search::search,
         // Out of scope. A listing comes back empty; anything naming one thing
         // comes back as not found. See the unsupported module for why they are
         // registered at all.
