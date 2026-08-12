@@ -78,6 +78,7 @@ endpoints! {
         "unstar" => annotation::unstar,
         "setRating" => annotation::set_rating,
         "scrobble" => annotation::scrobble,
+        "reportPlayback" => annotation::report_playback,
         "getAlbumList2" => lists::get_album_list2,
         "getStarred2" => lists::get_starred2,
         "getGenres" => lists::get_genres,

@@ -43,6 +43,13 @@ const EXTENSIONS: &[Extension] = &[
         name: "topSongsByArtistId",
         versions: &[1],
     },
+    // `reportPlayback`, where the client says where it is and this server decides
+    // what was played. The timeline fields this extension also allows in
+    // `getNowPlaying` are not among what it answers, and are not required.
+    Extension {
+        name: "playbackReport",
+        versions: &[1],
+    },
 ];
 
 #[derive(Serialize)]
@@ -203,6 +210,10 @@ mod tests {
                 "topSongsByArtistId",
                 "getTopSongs takes an artist's id, which takes precedence",
             ),
+            (
+                "playbackReport",
+                "reportPlayback reads a timeline and decides what was played",
+            ),
         ] {
             assert!(
                 EXTENSIONS.iter().any(|e| e.name == name),
@@ -212,7 +223,7 @@ mod tests {
 
         assert_eq!(
             EXTENSIONS.len(),
-            3,
+            4,
             "an extension was declared without saying here what makes it true"
         );
     }

@@ -12,6 +12,31 @@
 use crate::db::InTurn;
 use sqlx::SqlitePool;
 
+/// The listen after which a song counts as played, where somebody has to decide.
+///
+/// Four minutes, or half the song if it is shorter than eight — which is the rule
+/// every scrobbling service settled on, and settled on for good reasons: half is
+/// too much of an hour-long mix and four minutes is more than all of a punk single.
+///
+/// Nobody needed this until [`crate::subsonic`] grew `reportPlayback`. Every other
+/// way in counts a play when it is asked to: a client that says "this was played"
+/// has been keeping its own clock and is the only thing that knows whether the
+/// listener was in the room. That endpoint is the one where the client reports a
+/// timeline and leaves the judgement here, so here is where the judgement is
+/// written down — once, in the module that owns what a play is, rather than in
+/// whichever handler needed it first.
+const LONG_ENOUGH_MS: i64 = 4 * 60 * 1000;
+
+/// Whether a listen of this length, of a song of that length, is a play.
+///
+/// A song of unknown length is judged by the four minutes alone: it is the only
+/// half of the rule that can be applied without knowing.
+pub fn counts_as_played(position_ms: i64, duration_ms: Option<i64>) -> bool {
+    let half = duration_ms.map(|duration| duration / 2).unwrap_or(i64::MAX);
+
+    position_ms >= LONG_ENOUGH_MS.min(half)
+}
+
 /// Counts a play: one more for the tally, and the time it happened.
 pub async fn record_play(
     pool: &SqlitePool,
@@ -146,6 +171,26 @@ pub async fn record_now_playing(
     .await?;
 
     Ok(Some(track_id))
+}
+
+/// Stops saying that this client is playing anything.
+///
+/// For the listener who pressed stop on something they had barely started: the
+/// play does not count, and the announcement should not outlive it either. Only
+/// this client's row, because the same person on another device is another row and
+/// still playing.
+pub async fn forget_now_playing(
+    pool: &SqlitePool,
+    user_id: i64,
+    client: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM now_playing WHERE user_id = ? AND client = ?")
+        .bind(user_id)
+        .bind(client)
+        .in_turn(pool)
+        .await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -297,5 +342,47 @@ mod now_playing_tests {
             .unwrap();
 
         assert_eq!(clients(&pool).await, ["Leo phone", "Phone"]);
+    }
+    /// Stopping short takes this player off and leaves the other one where it was:
+    /// the same person on two devices is two rows, and only one of them stopped.
+    #[tokio::test]
+    async fn forgetting_takes_off_the_player_that_stopped_and_no_other() {
+        let (pool, ana) = a_song().await;
+
+        record_now_playing(&pool, ana, "Phone", "trk1", &db::now())
+            .await
+            .unwrap();
+        record_now_playing(&pool, ana, "Desktop", "trk1", &db::now())
+            .await
+            .unwrap();
+
+        forget_now_playing(&pool, ana, "Phone").await.unwrap();
+
+        assert_eq!(clients(&pool).await, ["Desktop"]);
+    }
+
+    /// What a listen has to reach to be a play, which is the one rule this server
+    /// applies on somebody's behalf rather than on their word — see `reportPlayback`.
+    #[test]
+    fn four_minutes_or_half_of_it_whichever_comes_first() {
+        let three_minutes = Some(180_000);
+        assert!(
+            counts_as_played(90_000, three_minutes),
+            "half of a short one"
+        );
+        assert!(!counts_as_played(89_000, three_minutes));
+
+        let an_hour = Some(3_600_000);
+        assert!(
+            counts_as_played(240_000, an_hour),
+            "four minutes of a long one"
+        );
+        assert!(!counts_as_played(239_000, an_hour));
+
+        assert!(
+            counts_as_played(240_000, None),
+            "and of one that never said"
+        );
+        assert!(!counts_as_played(1, None));
     }
 }
