@@ -16,13 +16,29 @@ use tracing::{debug, error, info};
 /// Extensions of OpenSubsonic this server implements.
 ///
 /// This list is the canonical answer to "what does this server support": the
-/// specification defines this endpoint so clients can find out by asking
-/// instead of reading documentation. It must never claim something that does
-/// not actually work.
-const EXTENSIONS: &[Extension] = &[Extension {
-    name: "apiKeyAuthentication",
-    versions: &[1],
-}];
+/// specification defines this endpoint so clients can find out by asking instead
+/// of reading documentation. It must never claim something that does not actually
+/// work.
+///
+/// And it must claim everything that does, which is the half that had gone
+/// unnoticed. Structured lyrics with their timings have been answered here since
+/// the lyrics went in, and no client ever asked for them — because a client reads
+/// this list first and this list did not say so. Nothing failed, which is what
+/// made it last: an extension implemented and not declared is an extension nobody
+/// has.
+const EXTENSIONS: &[Extension] = &[
+    Extension {
+        name: "apiKeyAuthentication",
+        versions: &[1],
+    },
+    // Version 1 is `getLyricsBySongId` answering in `structuredLyrics`, which is
+    // what this server does. Version 2 is timings by word and lyric layers, which
+    // it does not, so it is not claimed.
+    Extension {
+        name: "songLyrics",
+        versions: &[1],
+    },
+];
 
 #[derive(Serialize)]
 struct Extension {
@@ -34,6 +50,17 @@ struct Extension {
 #[serde(rename_all = "camelCase")]
 struct Extensions {
     open_subsonic_extensions: &'static [Extension],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TokenInfoBody {
+    token_info: TokenInfo,
+}
+
+#[derive(Serialize)]
+struct TokenInfo {
+    username: String,
 }
 
 #[derive(Serialize)]
@@ -77,6 +104,32 @@ pub async fn get_open_subsonic_extensions(RequestFormat(format): RequestFormat) 
     )
 }
 
+/// Who a key belongs to.
+///
+/// Part of the same extension as the key itself, and it was the half that was
+/// missing: this server has been telling clients it does `apiKeyAuthentication`
+/// while answering nothing here.
+///
+/// A key that is not valid never reaches this. The extension asks for a 44 in that
+/// case, and 44 is what the authentication answers before any of this runs — which
+/// is the whole of what a client uses this call for: holding a key, finding out
+/// whether it still works and whose it is.
+///
+/// Asked with a password instead of a key, it answers the same way rather than
+/// refusing. The response has one field in it and it is the username, which is as
+/// true of the one mechanism as of the other; a 44 would be saying a key is
+/// invalid when there was no key in the request at all.
+pub async fn token_info(auth: Authenticated) -> Response {
+    response::ok(
+        auth.format,
+        TokenInfoBody {
+            token_info: TokenInfo {
+                username: auth.user.username,
+            },
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,13 +164,47 @@ mod tests {
         })
         .unwrap();
         assert_eq!(licensed["license"]["valid"], true);
+
+        let token = serde_json::to_value(TokenInfoBody {
+            token_info: TokenInfo {
+                username: "ana".to_string(),
+            },
+        })
+        .unwrap();
+        assert_eq!(token["tokenInfo"]["username"], "ana");
     }
 
+    /// Everything this server can do beyond the base protocol is declared, and the
+    /// list is the only way a client learns any of it.
+    ///
+    /// Which is why each one is named here with what makes it true. Structured
+    /// lyrics were answered for months and never asked for, because the answer was
+    /// there and the declaration was not — and nothing failed, which is what made
+    /// it last. The count is asserted so that an extension added without a line in
+    /// here stops the suite instead of going out undeclared or, worse, declared and
+    /// unimplemented.
     #[test]
-    fn the_api_key_extension_is_advertised() {
-        assert!(
-            EXTENSIONS.iter().any(|e| e.name == "apiKeyAuthentication"),
-            "the auth layer accepts apiKey, so clients must be told"
+    fn every_extension_declared_is_one_this_server_keeps() {
+        for (name, because) in [
+            (
+                "apiKeyAuthentication",
+                "the auth layer accepts apiKey, and tokenInfo answers for a key",
+            ),
+            (
+                "songLyrics",
+                "getLyricsBySongId answers in structuredLyrics, timings and all",
+            ),
+        ] {
+            assert!(
+                EXTENSIONS.iter().any(|e| e.name == name),
+                "{name} is not declared: {because}"
+            );
+        }
+
+        assert_eq!(
+            EXTENSIONS.len(),
+            2,
+            "an extension was declared without saying here what makes it true"
         );
     }
 

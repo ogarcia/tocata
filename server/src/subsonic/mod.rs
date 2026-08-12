@@ -52,6 +52,7 @@ endpoints! {
     "ping" => system::ping,
         "getLicense" => system::get_license,
         "getOpenSubsonicExtensions" => system::get_open_subsonic_extensions,
+        "tokenInfo" => system::token_info,
         "getScanStatus" => system::get_scan_status,
         "startScan" => system::start_scan,
         "getMusicFolders" => browsing::get_music_folders,
