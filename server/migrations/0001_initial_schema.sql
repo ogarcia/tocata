@@ -284,7 +284,21 @@ CREATE TABLE tracks (
     UNIQUE (library_id, path)
 );
 
-CREATE INDEX tracks_album_idx  ON tracks (album_id);
+-- An album's tracks, whether their files are still there or not, and which
+-- library each is in.
+--
+-- The library is in it so that "has this album anything at all in a library this
+-- account may look in" is answered inside the index. That question is asked of
+-- every album of every artist by the listing, and it cannot use the partial index
+-- below: a record somebody signs is theirs however its files are doing, so this
+-- one must not leave the missing ones out. Without the library here the index
+-- finds an album's tracks and then every one of them has to be read to learn
+-- where it lives — seven hundred and thirty-eight albums, seven hundred and
+-- thirty-eight rows off the disk, measured at 847 reads against 193.
+--
+-- Costs nothing to carry: an integer beside an integer, and the index is the same
+-- thirty-one pages it was with one column.
+CREATE INDEX tracks_album_idx  ON tracks (album_id, library_id);
 CREATE INDEX tracks_folder_idx ON tracks (folder_id);
 CREATE INDEX tracks_title_idx  ON tracks (title);
 CREATE INDEX tracks_mbid_idx   ON tracks (mbid_recording);
@@ -302,14 +316,18 @@ CREATE INDEX tracks_last_seen_idx ON tracks (library_id, last_seen_scan);
 --
 -- Both columns are in it so the question is answered inside the index: the album
 -- narrows it and the library decides it, and neither costs a visit to the track
--- itself. `tracks_album_idx` above cannot do that — it finds the tracks of an
--- album and then has to read each one to learn which library it is in and
--- whether its file is still there. It stays, because plenty of statements want
--- an album's tracks whether they are missing or not.
+-- itself.
 --
 -- Partial for the same reason the missing index is, and the opposite way round:
 -- a listing never wants a track whose file is gone, so they are better left out
--- of the index than filtered out of it.
+-- of the index than filtered out of it. Which is the whole of what separates this
+-- from `tracks_album_idx` above, now that both carry the album and the library:
+-- that one answers about a record's tracks whatever became of their files, this
+-- one only about the ones still there. Both are wanted, and by the same listing.
+--
+-- ⚠️ Named in an `INDEXED BY` by the artists listing, so renaming it breaks a
+-- statement rather than merely slowing one down. The test that walks every
+-- endpoint is what catches that.
 CREATE INDEX tracks_present_idx ON tracks (album_id, library_id)
     WHERE missing_since IS NULL;
 

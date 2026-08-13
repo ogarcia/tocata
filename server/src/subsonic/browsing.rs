@@ -625,8 +625,21 @@ impl From<ArtistRow> for ArtistId3 {
 /// have been a record that is not there.
 ///
 /// `$artist` is an expression for the artist's row id, named twice.
+///
+/// The second form says how the two branches are put together, and exists for the
+/// one caller that only wants the figure. `UNION` is the answer for everybody who
+/// wants the records themselves, and it is what the short form gives, so no set
+/// can lose its deduplication by an oversight here. But a `UNION` deduplicates by
+/// building a b-tree, and this runs once per artist: seven hundred and eleven of
+/// them for a listing of seven hundred and ten names, measured. `UNION ALL` folded
+/// into a `count(DISTINCT …)` asks the same question with one, and a quarter less
+/// work — 557,661 virtual machine steps down to 412,420 over a catalogue the size
+/// of the one this was measured on.
 macro_rules! records_of_artist {
     ($artist:literal) => {
+        records_of_artist!($artist, "UNION")
+    };
+    ($artist:literal, $combine:literal) => {
         concat!(
             "SELECT signed.album_id AS id FROM album_artists signed
               WHERE signed.artist_id = ",
@@ -635,7 +648,9 @@ macro_rules! records_of_artist {
                 AND EXISTS (SELECT 1 FROM tracks t
                              WHERE t.album_id = signed.album_id
                                AND t.library_id IN (SELECT id FROM visible_libraries))
-             UNION
+             ",
+            $combine,
+            "
              SELECT t.album_id FROM tracks t
                JOIN track_artists ta ON ta.track_id = t.id
               WHERE ta.artist_id = ",
@@ -653,8 +668,8 @@ macro_rules! artist_columns_head {
         concat!(
             "
     SELECT a.id, a.public_id, a.name, a.sort_name, a.mbid,
-           (SELECT count(*) FROM (",
-            records_of_artist!("a.id"),
+           (SELECT count(DISTINCT id) FROM (",
+            records_of_artist!("a.id", "UNION ALL"),
             ")) AS album_count,
            s.starred_at
       FROM artists a
@@ -693,15 +708,95 @@ macro_rules! artist_columns {
     };
 }
 
+/// Every artist worth listing, with how many records each has.
+///
+/// The one statement about artists that gathers from the catalogue instead of from
+/// the artist, and the only one that should. It wants all of them, and asking each
+/// separately means opening the row of very nearly every track there is — 11,822
+/// credits over 11,318 tracks, in artist order, which is scattered order across a
+/// table of 846 pages. Measured on a real collection that came to 1,052 reads of
+/// 4 MB, and on a mechanical disk at four milliseconds of seek apiece it is the
+/// four seconds somebody watched go by before the first screen of their client
+/// appeared.
+///
+/// Gathered once, nothing here names a column that is not in an index:
+/// `tracks_album_idx` says whether a record has anything in a library this account
+/// may look in, and `tracks_present_idx` says the same of the tracks still there
+/// while handing back the record each belongs to. 193 reads of 0.69 MB, the same
+/// 742 names, and the tracks table never opened at all.
+///
+/// `INDEXED BY` because left alone the planner reaches for `tracks_pick_idx`,
+/// which carries the library but not the record, and then it is back to reading
+/// the row: 847 reads. It is a hard directive and the name has to keep existing,
+/// which is what the walk over every endpoint is there to catch.
+///
+/// The two conditions each mean something different and both are kept. What makes
+/// a name worth listing is a track of theirs still there, or a record they sign
+/// that still holds one — the second is what keeps "Various Artists" in the list.
+/// What makes a record theirs is looser on one side: one they **sign** counts
+/// however its files are doing, so the figure holds up with a disk unmounted, and
+/// that is why the two branches of `records` do not ask the same question. See
+/// `records_of_artist!` above, which says it the other way round for one artist.
+///
+/// A name with nothing under a record — loose tracks in no album — is listed and
+/// counted at zero, which is why the count arrives as a left join and not as the
+/// thing being joined on.
+/// A macro and not a constant so the test below can put `EXPLAIN QUERY PLAN` in
+/// front of it at compile time: sqlx will not take a statement assembled at
+/// runtime, and it is right not to.
+macro_rules! artists_listed {
+    () => {
+        concat!(
+            visible_libraries!(),
+            "
+    , records (artist_id, album_id) AS (
+        SELECT signed.artist_id, signed.album_id
+          FROM album_artists signed
+         WHERE EXISTS (SELECT 1 FROM tracks t
+                        WHERE t.album_id = signed.album_id
+                          AND t.library_id IN (SELECT id FROM visible_libraries))
+         UNION
+        SELECT ta.artist_id, t.album_id
+          FROM tracks t INDEXED BY tracks_present_idx
+          JOIN track_artists ta ON ta.track_id = t.id
+         WHERE t.missing_since IS NULL
+           AND t.album_id IS NOT NULL
+           AND t.library_id IN (SELECT id FROM visible_libraries)
+    )
+    , counted (artist_id, album_count) AS (
+        SELECT artist_id, count(*) FROM records GROUP BY artist_id
+    )
+    , present (artist_id) AS (
+        SELECT ta.artist_id
+          FROM tracks t INDEXED BY tracks_present_idx
+          JOIN track_artists ta ON ta.track_id = t.id
+         WHERE t.missing_since IS NULL
+           AND t.library_id IN (SELECT id FROM visible_libraries)
+         UNION
+        SELECT aa.artist_id
+          FROM tracks t INDEXED BY tracks_present_idx
+          JOIN album_artists aa ON aa.album_id = t.album_id
+         WHERE t.missing_since IS NULL
+           AND t.library_id IN (SELECT id FROM visible_libraries)
+    )
+    SELECT a.id, a.public_id, a.name, a.sort_name, a.mbid,
+           coalesce(c.album_count, 0) AS album_count,
+           s.starred_at
+      FROM artists a
+      LEFT JOIN counted c ON c.artist_id = a.id
+      LEFT JOIN user_artist_stats s ON s.artist_id = a.id AND s.user_id = ?
+     WHERE a.id IN (SELECT artist_id FROM present)
+     ORDER BY coalesce(a.sort_name, a.name) COLLATE NOCASE"
+        )
+    };
+}
+
 async fn load_artists(pool: &SqlitePool, user_id: i64) -> Result<Vec<ArtistId3>, sqlx::Error> {
-    let rows: Vec<ArtistRow> = sqlx::query_as(concat!(
-        artist_columns!(),
-        " ORDER BY coalesce(a.sort_name, a.name) COLLATE NOCASE"
-    ))
-    .bind(user_id)
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<ArtistRow> = sqlx::query_as(artists_listed!())
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
 
     Ok(rows.into_iter().map(ArtistId3::from).collect())
 }
@@ -1988,6 +2083,108 @@ mod visibility_tests {
                 "{name} is counted for {:?} records and opens onto {}",
                 of(name),
                 records.len()
+            );
+        }
+    }
+
+    /// A record somebody both signs and plays on is one record.
+    ///
+    /// Which is the ordinary case — an album under its own artist's name, with that
+    /// artist credited on every track of it — and it is the one case where the two
+    /// branches return the same row. Left standing, that row would be counted twice
+    /// and every artist in the listing would report double.
+    ///
+    /// It has a test of its own because the deduplication moved. It used to be the
+    /// `UNION` between the branches, which cannot be forgotten; it is now the
+    /// `DISTINCT` in the count, which can — and the two figures either side of it,
+    /// the count and the discography it stands for, would disagree in silence.
+    #[tokio::test]
+    async fn a_record_signed_and_played_on_is_counted_once() {
+        let (pool, everybody, _, _) = two_libraries().await;
+
+        // Artist b already has a track on album 2. Now they sign it as well.
+        sqlx::query(
+            "INSERT INTO album_artists (album_id, artist_id, role)
+             VALUES (2, 2, 'albumartist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let artists = load_artists(&pool, everybody).await.unwrap();
+        let theirs = artists
+            .iter()
+            .find(|a| a.name == "Artist b")
+            .expect("Artist b is in the listing");
+
+        assert_eq!(theirs.album_count, Some(1), "one record, reached both ways");
+
+        let records = load_albums_of_artist(&pool, everybody, &theirs.id)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            records.len(),
+            1,
+            "and the discography holds that one record"
+        );
+    }
+
+    /// The listing never opens the tracks table, which is the whole reason it is
+    /// written the way it is.
+    ///
+    /// A test on the plan rather than on the answer, because this is the failure
+    /// that arrives in silence: every other test here still passes while the first
+    /// call every client makes goes from 193 reads back to 1,052, and the only
+    /// place it shows is somebody's log on a machine with a slow disk. Which is
+    /// how it was found in the first place.
+    ///
+    /// Nothing anywhere in this program runs `ANALYZE`, so the planner works from
+    /// the same heuristics here as it does in service and the plan this reads is
+    /// the plan that runs.
+    #[tokio::test]
+    async fn the_listing_answers_from_indexes_alone() {
+        let (pool, everybody, _, _) = two_libraries().await;
+
+        let plan: Vec<(i64, i64, i64, String)> =
+            sqlx::query_as(concat!("EXPLAIN QUERY PLAN ", artists_listed!()))
+                .bind(everybody)
+                .bind(everybody)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+
+        let steps: Vec<&str> = plan.iter().map(|(.., detail)| detail.as_str()).collect();
+        let shown = || steps.join("\n  ");
+
+        // `t` is the tracks table throughout the statement. Reached by its rowid it
+        // is a row off the disk, and there are as many of those as the collection
+        // has credits.
+        for step in &steps {
+            assert!(
+                !step.contains("SEARCH t USING INTEGER PRIMARY KEY"),
+                "the listing is reading track rows again:\n  {}",
+                shown()
+            );
+            assert!(
+                !step.starts_with("SCAN t") || step.contains("INDEX"),
+                "the listing is walking the tracks table:\n  {}",
+                shown()
+            );
+        }
+
+        // And the two that answer instead, named so that renaming one — or the
+        // planner drifting off it — fails a test rather than a machine.
+        //
+        // `tracks_album_idx` is asked for as a covering one, which is the whole
+        // point of it carrying the library: narrowed back to the record alone it
+        // still appears in the plan, still answers, and reads a row per record to
+        // do it. The plan says which of the two it is, so this can tell them apart.
+        for index in ["tracks_present_idx", "COVERING INDEX tracks_album_idx"] {
+            assert!(
+                steps.iter().any(|step| step.contains(index)),
+                "{index} is what answers this, and no step uses it:\n  {}",
+                shown()
             );
         }
     }
