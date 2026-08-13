@@ -50,6 +50,13 @@ const EXTENSIONS: &[Extension] = &[
         name: "playbackReport",
         versions: &[1],
     },
+    // `getPlayQueueByIndex` and `savePlayQueueByIndex`, which say what is playing
+    // by its place in the queue rather than by its id — the one way of saying it
+    // that survives the same song appearing twice.
+    Extension {
+        name: "indexBasedQueue",
+        versions: &[1],
+    },
 ];
 
 #[derive(Serialize)]
@@ -214,6 +221,11 @@ mod tests {
                 "playbackReport",
                 "reportPlayback reads a timeline and decides what was played",
             ),
+            (
+                "indexBasedQueue",
+                "the queue keeps the place of what is playing, not its id, so \
+                 getPlayQueueByIndex and savePlayQueueByIndex can both answer",
+            ),
         ] {
             assert!(
                 EXTENSIONS.iter().any(|e| e.name == name),
@@ -223,7 +235,7 @@ mod tests {
 
         assert_eq!(
             EXTENSIONS.len(),
-            4,
+            5,
             "an extension was declared without saying here what makes it true"
         );
     }

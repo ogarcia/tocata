@@ -95,6 +95,8 @@ endpoints! {
         "deleteBookmark" => bookmarks::delete_bookmark,
         "getPlayQueue" => bookmarks::get_play_queue,
         "savePlayQueue" => bookmarks::save_play_queue,
+        "getPlayQueueByIndex" => bookmarks::get_play_queue_by_index,
+        "savePlayQueueByIndex" => bookmarks::save_play_queue_by_index,
         "getUser" => users::get_user,
         "getUsers" => users::get_users,
         "createUser" => users::create_user,

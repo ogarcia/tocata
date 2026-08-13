@@ -679,10 +679,26 @@ CREATE TABLE bookmarks (
     PRIMARY KEY (user_id, track_id)
 ) WITHOUT ROWID;
 
+-- Where somebody left off, so a queue can be picked up on another device.
+--
+-- What is playing is kept as **a place in the queue and not as a track**, which
+-- is the one thing here worth explaining. A queue may hold the same song twice —
+-- a record queued after itself, a track that appears on two of them — and a track
+-- id cannot say which of the two is the one sounding. That is what the
+-- indexBasedQueue extension exists for, and a server that keeps the id has
+-- nothing to answer it with. Keeping the place answers both: the track is looked
+-- up from the place, while the place cannot be recovered from the track.
+--
+-- No foreign key on it, because it is not a reference to a row: it names a
+-- position in `play_queue_tracks`. Which is also what makes it fail safely. The
+-- id it replaces was `ON DELETE SET NULL`, so purging a track cleared it; purging
+-- one now takes its entry out of the queue below and leaves the position naming
+-- nothing, which resolves to nobody playing anything — the same answer, reached
+-- without the constraint.
 CREATE TABLE play_queues (
     user_id          INTEGER NOT NULL PRIMARY KEY REFERENCES users (id)
                      ON DELETE CASCADE,
-    current_track_id INTEGER          REFERENCES tracks (id) ON DELETE SET NULL,
+    current_position INTEGER,
     position_ms      INTEGER NOT NULL DEFAULT 0,
     changed_at       TEXT    NOT NULL,
     changed_by       TEXT    NOT NULL

@@ -220,9 +220,9 @@ Audio is the whole of what this server is for, and the OpenSubsonic API covers
 more than audio. What follows is the part it does not do, and why.
 
 `getOpenSubsonicExtensions` is the canonical answer to this question — a client
-asks it rather than reading documentation — and Tocata declares four extensions
-there: `apiKeyAuthentication`, `songLyrics`, `topSongsByArtistId` and
-`playbackReport`.
+asks it rather than reading documentation — and Tocata declares five extensions
+there: `apiKeyAuthentication`, `songLyrics`, `topSongsByArtistId`,
+`playbackReport` and `indexBasedQueue`.
 
 ### Answered in the protocol, with nothing behind them
 
@@ -250,4 +250,3 @@ comes back empty, and anything naming one particular thing comes back as error 7
 | `jukeboxControl` | Playing music out of the speakers attached to the server. That needs an audio device and a decoder inside a binary that is meant to have neither. |
 | `getTranscodeDecision`, `getTranscodeStream` | Tocata serves files as they are on disk. There is no transcoder in it. |
 | `findSonicPath`, `getSonicSimilarTracks` | Analysing what the music sounds like, which is a field of its own. |
-| `getPlayQueueByIndex`, `savePlayQueueByIndex` | The `indexBasedQueue` extension, which exists to say which copy of a repeated track is playing. No known client asks for it, and `getPlayQueue` and `savePlayQueue` are both answered. |
