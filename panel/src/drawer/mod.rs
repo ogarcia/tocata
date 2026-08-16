@@ -135,6 +135,38 @@ pub fn shut() {
     opened().set(None);
 }
 
+/// Opens the panel of whoever a track is credited to.
+///
+/// For the one place that has a track and no artist to open: the player. Its queue is
+/// identifiers and what it knows about the song is the row a listing draws, which
+/// carries the credit line as a *sentence* — "Above & Beyond feat. Zoë Johnston" —
+/// and no identifier for anybody in it. So the sentence is pressed as a whole and
+/// this asks who wrote it, which costs one request at the moment of pressing rather
+/// than one on every change of song.
+///
+/// The first name credited, because a line pressed as a whole cannot say which of two
+/// it meant. Elsewhere in the panel each name leads to its own artist, and that is not
+/// this being sloppy: those places were given the names one by one and this one was
+/// given a sentence.
+///
+/// Nothing at all where nobody is credited, which is a track whose file named an
+/// artist this server has no row for. Leading nowhere is the answer — the same answer
+/// [`credited`] gives a name it cannot place — and it is a better one than leading
+/// somewhere arbitrary.
+pub fn open_artist_of(track: String) {
+    // Picked up out here rather than after the await. A future resumed later is not
+    // owned by the scope that spawned it, so asking in there finds no context at all.
+    let opened = opened();
+
+    spawn_local(async move {
+        if let Ok(read) = api::detail(&track).await
+            && let Some(who) = read.credits.into_iter().next()
+        {
+            opened.set(Some(Open::Artist(who.id)));
+        }
+    });
+}
+
 /// Whichever is open, drawn.
 ///
 /// Mounted once, outside the router, so the thing on screen outlives the row that
@@ -308,8 +340,12 @@ pub fn Head(
 /// As big as it goes means whichever is smaller — the screen, or the picture
 /// itself. A sleeve scanned at 300 pixels blown up to fill a 4K display is a
 /// blurred square, so nothing here is ever drawn above its own size.
+///
+/// Public because the cover in the sidebar's player opens the same thing. Looking at
+/// a sleeve properly is one act, and it had better be one dialogue: a second written
+/// for the player would be the same picture with a different way out of it.
 #[component]
-fn Enlarged(
+pub fn Enlarged(
     showing: RwSignal<bool>,
     picture: Signal<Option<String>>,
     /// What it is a picture of, which is the alternative text: a screen reader

@@ -193,6 +193,15 @@ pub fn Shell(
     //
     // Two effects and not a ping-pong: shutting the queue does not answer the second,
     // which only fires while it is open, and closing a panel does not answer the first.
+    //
+    // **The player at full height is not one of them, on purpose.** It is not a drawer
+    // on that edge — it is the whole of a phone's screen, and on a phone it is where a
+    // panel is opened from: the title and the credit on it both lead to one. Closing it
+    // on the way, which this did at first, put somebody back on the bar at the foot when
+    // they shut the panel, having lost the view they pressed from. So it stays open
+    // underneath and the panel simply covers it, which is what the stacking already
+    // says — the bar is at 3, the player at 5, the scrim at 6 and the panel at 7 — and
+    // what the queue opened from that same player has always done.
     Effect::new(move |_| {
         if opened.get().is_some() {
             queue.set(false);
@@ -592,6 +601,13 @@ fn Half(
 }
 
 /// What is sounding, as the column shows it.
+///
+/// **All three things it says lead somewhere.** They were three lines of text for as
+/// long as this existed, which is a block about a song that cannot answer a single
+/// question about the song. The cover opens the cover, the title opens what is known
+/// about the track, and the credit opens whoever is playing it — the same three
+/// panels a row in a listing opens, reached from the one place that is on screen
+/// wherever you have wandered off to.
 #[component]
 fn Dock(queue: RwSignal<bool>) -> impl IntoView {
     let player = crate::player::player();
@@ -612,17 +628,72 @@ fn Dock(queue: RwSignal<bool>) -> impl IntoView {
             .unwrap_or_default()
     };
 
+    // Which song these lines are about, and nothing at all in the moment between
+    // stepping onto a track and the server saying what it is.
+    let sounding = move || player.now.get().map(|track| track.id);
+
+    // Where its cover is, and whether asking for it came back with nothing.
+    //
+    // The second half is what a drawer's heading asks too, and for the same reason: a
+    // record nothing has looked at yet is indistinguishable from one with no art at
+    // all until something fetches it. Without it the press would open a broken picture
+    // full screen, which is worse than a picture that cannot be pressed.
+    let art = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.album_id)
+            .map(|album| api::cover(&album))
+    };
+    let missing = RwSignal::new(false);
+
+    // Asked again for every song, so one record without a cover does not leave the
+    // next one showing a glyph over art that is there.
+    Effect::new(move |_| {
+        art();
+        missing.set(false);
+    });
+
+    let there = move || art().is_some() && !missing.get();
+
+    // What the picture is of, for whatever reads the page aloud: the record, since
+    // that is what a cover is a picture of, and the song only where there is no record
+    // to name.
+    let showing = RwSignal::new(false);
+    let named = move || {
+        player
+            .now
+            .get()
+            .and_then(|track| track.album.or(Some(track.title)))
+            .unwrap_or_default()
+    };
+
     view! {
         <Show when=move || player.loaded()>
             <div class="dock">
                 <div class="sounding">
                     // The cover of the record it is from, which is the one picture
-                    // the sidebar has room for.
-                    {move || match player.now.get().and_then(|track| track.album_id) {
-                        Some(album) => {
-                            view! { <img class="art" src=api::cover(&album) alt="" /> }.into_any()
-                        }
-                        None => {
+                    // the sidebar has room for. A button only where there is one to
+                    // look at: the glyph standing in for a missing cover leads
+                    // nowhere, exactly as in the heading of a drawer.
+                    {move || {
+                        if there() {
+                            view! {
+                                <button
+                                    class="see-art"
+                                    title=t!("player.this_cover")
+                                    on:click=move |_| showing.set(true)
+                                >
+                                    <img
+                                        class="art"
+                                        src=move || art().unwrap_or_default()
+                                        alt=""
+                                        on:error=move |_| missing.set(true)
+                                    />
+                                </button>
+                            }
+                                .into_any()
+                        } else {
                             view! {
                                 <span class="art">
                                     <Glyph icon=Icon::Albums />
@@ -633,10 +704,48 @@ fn Dock(queue: RwSignal<bool>) -> impl IntoView {
                     }}
 
                     <span class="what">
-                        <span>{title}</span>
-                        <span class="by">{who}</span>
+                        <button
+                            class="bare"
+                            title=t!("player.this_track")
+                            on:click=move |_| {
+                                if let Some(id) = sounding() {
+                                    crate::drawer::open(crate::drawer::Open::Track(id));
+                                }
+                            }
+                        >
+                            {title}
+                        </button>
+
+                        // Only where the file credited somebody. A line with nothing
+                        // in it is not a line, and an empty one that could be pressed
+                        // is worse than that.
+                        {move || {
+                            let line = who();
+                            (!line.is_empty())
+                                .then(|| {
+                                    view! {
+                                        <button
+                                            class="bare by"
+                                            title=t!("player.this_artist")
+                                            on:click=move |_| {
+                                                if let Some(id) = sounding() {
+                                                    crate::drawer::open_artist_of(id);
+                                                }
+                                            }
+                                        >
+                                            {line}
+                                        </button>
+                                    }
+                                })
+                        }}
                     </span>
                 </div>
+
+                <crate::drawer::Enlarged
+                    showing
+                    picture=Signal::derive(art)
+                    heading=Signal::derive(named)
+                />
 
                 <div class="along">
                     <span>{move || pages::length(player.elapsed.get() as i64)}</span>
@@ -820,6 +929,9 @@ fn Sheet(open: RwSignal<bool>, queue: RwSignal<bool>) -> impl IntoView {
             .unwrap_or_default()
     };
 
+    // Which song the two lines are about, as in the column.
+    let sounding = move || player.now.get().map(|track| track.id);
+
     // Which record it is from, over the top of the sheet. Nothing at all for a track
     // that belongs to no album, rather than a heading with an empty name in it.
     let from = move || {
@@ -918,9 +1030,49 @@ fn Sheet(open: RwSignal<bool>, queue: RwSignal<bool>) -> impl IntoView {
                         }
                     }}
 
+                    // Both lines lead where the column's do, and the cover does not:
+                    // it is already being looked at at the width of the screen, and
+                    // there is nothing full screen can add to that.
+                    //
+                    // The sheet stays open behind whatever they open, so shutting that
+                    // panel comes back here rather than to the bar at the foot. See the
+                    // shell, where the two things that do close each other are.
                     <div class="naming">
-                        <h1>{title}</h1>
-                        <p class="quiet">{who}</p>
+                        <h1>
+                            <button
+                                class="bare"
+                                title=t!("player.this_track")
+                                on:click=move |_| {
+                                    if let Some(id) = sounding() {
+                                        crate::drawer::open(crate::drawer::Open::Track(id));
+                                    }
+                                }
+                            >
+                                {title}
+                            </button>
+                        </h1>
+
+                        {move || {
+                            let line = who();
+                            (!line.is_empty())
+                                .then(|| {
+                                    view! {
+                                        <p class="quiet">
+                                            <button
+                                                class="bare"
+                                                title=t!("player.this_artist")
+                                                on:click=move |_| {
+                                                    if let Some(id) = sounding() {
+                                                        crate::drawer::open_artist_of(id);
+                                                    }
+                                                }
+                                            >
+                                                {line}
+                                            </button>
+                                        </p>
+                                    }
+                                })
+                        }}
                     </div>
 
                     <div class="along">

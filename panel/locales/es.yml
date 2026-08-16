@@ -422,6 +422,11 @@ player:
   queued_it: Añadida a la cola
   play_record: Reproducir este disco
   open: Qué está sonando
+  # Las tres cosas que dice el reproductor y los tres cajones que abre cada una. La
+  # carátula solo donde no se está viendo ya, que es el móvil.
+  this_cover: La carátula, más grande
+  this_track: Qué es esta pista
+  this_artist: Quién la interpreta
   from: "De %{album}"
   kbps: "%{rate} kbps"
   seek: Moverse por la pista

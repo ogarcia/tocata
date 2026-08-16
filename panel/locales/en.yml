@@ -424,6 +424,11 @@ player:
   queued_it: Added to the queue
   play_record: Play this record
   open: What is playing
+  # The three things the player says, and the three panels each of them opens. The
+  # cover only where it is not already being looked at, which is the phone.
+  this_cover: The cover, larger
+  this_track: What this track is
+  this_artist: Who is playing it
   from: "From %{album}"
   kbps: "%{rate} kbps"
   seek: Move about in the track

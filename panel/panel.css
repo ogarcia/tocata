@@ -4032,6 +4032,22 @@ select.narrow { width: 12.5rem; }
   border-radius: 3px;
 }
 
+/* The cover leads to the cover on its own, and the cursor is the whole of what says
+ * so — no line lighting up under the pointer, here or on the two lines beside it.
+ * The player is three things in a corner of the column and nothing in it should
+ * change colour for being passed over.
+ *
+ * A button around the picture rather than a pressable span, because there is nothing
+ * wrapping it here to conflict with: what a button gives for nothing is the keyboard,
+ * which the span in a drawer's heading had to be handed a key listener to have. */
+.dock .see-art {
+  display: grid;
+  flex: none;
+  padding: 0;
+  border: none;
+  cursor: zoom-in;
+}
+
 .dock .art .icon {
   width: 1.1875rem;
   height: 1.1875rem;
@@ -4051,6 +4067,32 @@ select.narrow { width: 12.5rem; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Both lines are buttons now, and a button's label is centred by the browser. This
+ * column is read down its left edge, title against credit, so they are aligned and
+ * not balanced. */
+.dock .what > button { text-align: left; }
+
+/* The words that were already there, made pressable and left looking exactly as they
+ * did: the title and the credit, in the column and on the phone alike.
+ *
+ * Deliberately not `.toward`, which is what a name in a credit wears in a drawer and
+ * which underlines itself under the pointer. There it earns the mark — a line reading
+ * "Above & Beyond feat. Zoë Johnston" has to say which stretch of the sentence leads
+ * anywhere, and each stretch leads somewhere different. Here the line is pressed
+ * whole, so there is nothing to pick out of it, and a title has never been underlined
+ * anywhere in this panel. The cursor says it can be pressed and nothing else needs to.
+ *
+ * No `font` here, so a button keeps arriving at the size of a control: that is what
+ * the title in the column should be, and it leaves the credit under it the smaller
+ * size and the quieter ink that `.dock .by` gives it. The phone sets both lines
+ * itself, which is where the font is inherited instead. */
+.dock .what > .bare, .sheet-player .naming .bare {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .dock .by {
@@ -4423,6 +4465,11 @@ select.narrow { width: 12.5rem; }
   }
 
   .sheet-player .naming p { font-size: var(--name); }
+
+  /* Both lines are buttons, and a button arrives at the size of a control. Here the
+   * heading and the name above and below it are set by the two rules just above, so
+   * what the button has to do is take the size of whatever it is inside. */
+  .sheet-player .naming .bare { font: inherit; }
 
   .sheet-player .along { margin-top: 1.625rem; }
 
