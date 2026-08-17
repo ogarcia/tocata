@@ -160,7 +160,7 @@ a {
  *
  * Two tests were tried before this and both were wrong the same way. "A rule that lays
  * things out belongs to one screen" flagged twenty-four names, nearly all deliberate:
- * `.titled`, `.pill`, `.search` and `.checkbox` are one shape wherever they appear.
+ * `.titled`, `.pill`, `.finding` and `.checkbox` are one shape wherever they appear.
  * "A scoped name does not get a bare rule later" flagged twenty more, because this
  * sheet is ordered by screen rather than base-then-variant, so `.brand .icon` sits
  * hundreds of lines above the bare `.icon` it refines. Nothing mechanical can tell
@@ -171,7 +171,7 @@ a {
  *
  * Roughly, the words fall into three groups. How something reads wherever it is —
  * `quiet`, `lead`, `part`, `note`, `hint`, `lettering`, `path`, `failure`. Furniture
- * every screen has — `titled`, `nothing`, `finding`, `search`, `facts`, `figures`,
+ * every screen has — `titled`, `nothing`, `finding`, `facts`, `figures`,
  * `counts`, `count`, `named-figure`, `bled`, `two`, `rail`, `settings`, `saving`,
  * `after`, `instead`, `option`, `options`. And things that are the same thing wherever
  * they appear — `pill`, `link`, `checkbox`, `icon`, `art`, `avatar`, `badge`, `menu`,
@@ -2397,13 +2397,6 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   .picking button { padding: 0.75rem 0; }
 }
 
-/* What a search left, at the end of the field it was typed into. */
-.search .found {
-  flex: 0 0 auto;
-  font-size: var(--lettering);
-  font-variant-numeric: tabular-nums;
-}
-
 /* --- libraries ----------------------------------------------------------- */
 
 /* One row per library on three columns: what it is, how much of it there is, and
@@ -2586,8 +2579,27 @@ form .failure, .sheet .failure { margin-top: 0.25rem; }
   font-size: var(--control);
 }
 
+/* The cross that empties the field, at the end of the field. No colour of its own:
+ * it takes the box's, so it is grey at rest and in the accent while something is
+ * being typed into it, which is where it is any use.
+ *
+ * `stretch` and no height, because a square tall enough to press would be taller
+ * than a line of text — and the cross comes and goes with the first letter typed, so
+ * anything that made the box taller would move the rule under it as you type. This
+ * way it is as tall as the field already is, and all of that is pressable. */
+.search .wipe {
+  display: grid;
+  place-items: center;
+  flex: none;
+  align-self: stretch;
+  width: 1.5rem;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
 /* The browser's own cross on a search field, which is a different grey in every
- * browser and a second thing to press where the field is already one word long. */
+ * browser and is now a second one beside ours. */
 .search input::-webkit-search-cancel-button { display: none; }
 
 .search:focus-within { color: var(--accent); }

@@ -201,6 +201,68 @@ pub fn Setting(
     }
 }
 
+/// A field to narrow a list with, and the cross that empties it again.
+///
+/// One component rather than the same three tags on six screens, which is what this
+/// was before it had anything in it worth sharing. Now it has: the cross is only
+/// there while there is something to take out, and it hands the field back the
+/// cursor on its way, because emptying a search is usually the start of the next one
+/// rather than the end of searching.
+///
+/// The cross is what stands at that end of the field. What stood there on the four
+/// collection screens was how many the search had left, which is a figure those
+/// screens already carry under their title — said twice, and neither of them a
+/// place to press.
+///
+/// Two callbacks and not one, because a key and the cross are not the same event. A
+/// listing lets a keystroke settle before it asks the server anything, and there is
+/// nothing to wait for behind a press that empties the whole field: whoever pressed
+/// it has finished typing by definition.
+#[component]
+pub fn Search(
+    /// What the field says while nothing is in it.
+    #[prop(into)]
+    placeholder: String,
+    /// What is in it.
+    #[prop(into)]
+    value: Signal<String>,
+    /// A key was pressed: this is what the field holds now.
+    on_type: Callback<String>,
+    /// The cross was pressed.
+    on_clear: Callback<()>,
+) -> impl IntoView {
+    let field: NodeRef<leptos::html::Input> = NodeRef::new();
+
+    view! {
+        <label class="search">
+            <Glyph icon=Icon::Search />
+            <input
+                node_ref=field
+                type="search"
+                placeholder=placeholder
+                prop:value=value
+                on:input:target=move |e| on_type.run(e.target().value())
+            />
+            <Show when=move || !value.with(String::is_empty)>
+                <button
+                    class="wipe"
+                    type="button"
+                    title=t!("common.clear_search")
+                    on:click=move |_| {
+                        on_clear.run(());
+
+                        if let Some(field) = field.get() {
+                            let _ = field.focus();
+                        }
+                    }
+                >
+                    <Glyph icon=Icon::Close />
+                </button>
+            </Show>
+        </label>
+    }
+}
+
 /// Grouped with a space, which every language this speaks agrees on and no
 /// language mistakes for a decimal point.
 pub fn thousands(count: i64) -> String {

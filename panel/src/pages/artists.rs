@@ -20,7 +20,6 @@
 
 use super::endless::{Fetch, Foot, Reel};
 use crate::api;
-use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use rust_i18n::t;
 use tocata::types::Artist;
@@ -45,20 +44,12 @@ pub fn Artists(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             </div>
 
             <div class="finding">
-                <label class="search">
-                    <Glyph icon=Icon::Search />
-                    <input
-                        type="search"
-                        placeholder=t!("artists.search")
-                        prop:value=reel.typing
-                        on:input:target=move |e| reel.typed(e.target().value())
-                    />
-                    <Show when=move || !reel.typing.with(String::is_empty)>
-                        <span class="found">
-                            {move || super::thousands(reel.total.get().unwrap_or_default())}
-                        </span>
-                    </Show>
-                </label>
+                <super::Search
+                    placeholder=t!("artists.search")
+                    value=reel.typing
+                    on_type=Callback::new(move |typed| reel.typed(typed))
+                    on_clear=Callback::new(move |()| reel.clear())
+                />
             </div>
         </header>
 

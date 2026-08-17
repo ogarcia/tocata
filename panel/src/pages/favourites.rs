@@ -22,7 +22,6 @@
 
 use super::endless::{Fetch, Foot, Reel};
 use crate::api;
-use crate::icon::{Glyph, Icon};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use rust_i18n::t;
@@ -115,15 +114,12 @@ pub fn Favourites(on_expired: Callback<()>) -> impl IntoView {
             // Nothing to search through while nothing is marked.
             <Show when=move || !bare()>
                 <div class="finding">
-                    <label class="search">
-                        <Glyph icon=Icon::Search />
-                        <input
-                            type="search"
-                            placeholder=t!("favourites.search")
-                            prop:value=needle
-                            on:input:target=move |e| needle.set(e.target().value())
-                        />
-                    </label>
+                    <super::Search
+                        placeholder=t!("favourites.search")
+                        value=needle
+                        on_type=Callback::new(move |typed| needle.set(typed))
+                        on_clear=Callback::new(move |()| needle.set(String::new()))
+                    />
                 </div>
             </Show>
         </header>

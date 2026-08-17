@@ -47,23 +47,12 @@ pub fn Tracks(admin: bool, on_expired: Callback<()>) -> impl IntoView {
             </div>
 
             <div class="finding">
-                <label class="search">
-                    <Glyph icon=Icon::Search />
-                    <input
-                        type="search"
-                        placeholder=t!("tracks.search")
-                        prop:value=reel.typing
-                        on:input:target=move |e| reel.typed(e.target().value())
-                    />
-                    // What the search left, beside the search itself. Only while
-                    // there is one: with the field empty this is the figure the
-                    // lead already carries, said twice.
-                    <Show when=move || !reel.typing.with(String::is_empty)>
-                        <span class="found">
-                            {move || super::thousands(reel.total.get().unwrap_or_default())}
-                        </span>
-                    </Show>
-                </label>
+                <super::Search
+                    placeholder=t!("tracks.search")
+                    value=reel.typing
+                    on_type=Callback::new(move |typed| reel.typed(typed))
+                    on_clear=Callback::new(move |()| reel.clear())
+                />
             </div>
         </header>
 

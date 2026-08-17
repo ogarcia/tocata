@@ -847,6 +847,11 @@ common:
   copied: Copied
   done: Done
   close: Close
+  # The cross at the end of a search field, on every screen that has one. Said again
+  # here rather than borrowed off `empty`, where the same words are a button in an
+  # empty listing: that one is one screen's answer to having found nothing, and this
+  # is what a search box does wherever there is one.
+  clear_search: Clear the search
   # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
   # and off as booleans, in keys and in values alike, so `no: No` becomes the key
   # `false` holding the value `false` — which is what the panel then shows

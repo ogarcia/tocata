@@ -205,15 +205,12 @@ pub fn Accounts(on_expired: Callback<()>) -> impl IntoView {
             // The search and the one action, together at the other end of the line.
             // Both are about the list as a whole, which is what the title is too.
             <div class="finding">
-                <label class="search">
-                    <Glyph icon=Icon::Search />
-                    <input
-                        type="search"
-                        placeholder=t!("accounts.search")
-                        prop:value=looking
-                        on:input:target=move |e| set_looking.set(e.target().value())
-                    />
-                </label>
+                <super::Search
+                    placeholder=t!("accounts.search")
+                    value=looking
+                    on_type=Callback::new(move |typed| set_looking.set(typed))
+                    on_clear=Callback::new(move |()| set_looking.set(String::new()))
+                />
                 <button class="pill solid" on:click=move |_| set_adding.set(true)>
                     <Glyph icon=Icon::Add />
                     {t!("accounts.add")}

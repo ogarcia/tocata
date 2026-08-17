@@ -840,6 +840,11 @@ common:
   copied: Copiada
   done: Hecho
   close: Cerrar
+  # La cruz al final de una caja de búsqueda, en todas las pantallas que tienen una.
+  # Repetida aquí en vez de tomarla de `empty`, donde las mismas palabras son un botón
+  # de un listado vacío: aquello es la respuesta de una pantalla a no haber encontrado
+  # nada, y esto es lo que hace una caja de búsqueda donde haya una.
+  clear_search: Limpiar la búsqueda
   # Quoted on both sides, and they have to stay that way. YAML reads yes, no, on
   # and off as booleans, in keys and in values alike, so `no: No` becomes the key
   # `false` holding the value `false` — which is what the panel then shows

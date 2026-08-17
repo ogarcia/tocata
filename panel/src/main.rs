@@ -351,7 +351,7 @@ mod tests {
     /// library and the play glyph over a track number, `named` was a link in the roster
     /// and the title block of the opened player. The way out of those is a different
     /// word, never a line here.
-    const SHARED: [&str; 83] = [
+    const SHARED: [&str; 81] = [
         // How something reads, wherever it is.
         "quiet",
         "lead",
@@ -374,7 +374,6 @@ mod tests {
         "chosen",
         "sounding",
         "doing",
-        "found",
         "exact",
         "narrow",
         "instead",
@@ -384,8 +383,11 @@ mod tests {
         // something is both a heading and a place to add from.
         "parted",
         "nothing",
+        // The place at the other end of a title where a screen is searched from. The
+        // field itself is not here any more and is not a word two screens share: six of
+        // them wear one `Search`, so `search` and the cross in it belong to that
+        // component alone.
         "finding",
-        "search",
         "facts",
         "figures",
         "counts",
