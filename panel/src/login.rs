@@ -3,12 +3,11 @@
 
 //! The way in, and the only screen with no panel around it.
 //!
-//! Two bands that lay themselves out: the form and, beside it on a wide screen,
-//! the name and one line saying what this is. The form comes first in the source
-//! and the row is reversed, which is what puts it on the right without leaving a
-//! narrow screen reading the two in the wrong order — and without `wrap-reverse`,
-//! which inside something that scrolls lays the wrapped line above the scroll
-//! origin, where nobody can reach it.
+//! Two bands: the name of the program, and the form. Side by side on a wide
+//! screen, with the name on the left and one line under it saying what this is;
+//! stacked on a narrow one, with the name at the top and the form under it. That
+//! is the order they are written in, so neither layout has to reorder the other's
+//! and neither is read in an order nobody would say it in.
 //!
 //! A real form with a submit button, not a div listening for clicks: pressing
 //! enter in a password field has meant "log in" since before any of this, and a
@@ -75,8 +74,21 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
 
     view! {
         <main class="entry">
-            // First in the source, on the right when there is room for two
-            // columns, and on top when there is not.
+            // The name, and on a wide screen the one line that says what this is.
+            // Nothing else — what a stranger can read here is the whole of what
+            // this page tells anybody who has not got in.
+            <div class="banner">
+                <p class="mark">
+                    <Glyph icon=Icon::Logo />
+                    {t!("app.name")}
+                </p>
+
+                // Beside the form, never over it: on a narrow screen the band has
+                // nothing to be beside and this line is a second heading arguing
+                // with the first, so the stylesheet takes it away.
+                <p class="claim">{t!("login.claim")}</p>
+            </div>
+
             <div class="entering">
                 <form on:submit=submit>
                     <h1>{t!("login.heading")}</h1>
@@ -182,15 +194,6 @@ pub fn LogIn(on_in: Callback<Identity>) -> impl IntoView {
 
                     <p class="recovery">{t!("login.forgotten")}</p>
                 </form>
-            </div>
-
-            <div class="banner">
-                <p class="mark">
-                    <Glyph icon=Icon::Logo />
-                    {t!("app.name")}
-                </p>
-
-                <p class="claim">{t!("login.claim")}</p>
             </div>
         </main>
     }

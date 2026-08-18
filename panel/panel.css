@@ -1291,30 +1291,27 @@ h1 {
 /* The one screen with nothing around it — no column, no header, nowhere else to
  * go.
  *
- * Two bands. `row-reverse` with the form first in the source is what puts the
- * form on the right of a wide screen while leaving a narrow one reading them in
- * the order they are written: form, then name. ⚠️ Not `wrap-reverse`, which would
- * give the same order and lay the wrapped line above the scroll origin — where
- * scrolling can never reach it, because a scroll offset is never negative.
+ * Two bands over 47.5rem — the name and then the form, in that order both across
+ * and down — and one column under it, at the foot of this section.
  *
- * `box-sizing` on the bands and not only on the page, because the basis is
- * resolved against the content box: without it the padding is added to 380 and
- * two bands wrap while there was still room for both. */
+ * ⚠️ Not `flex-wrap`, which is what folded this screen before. Two bands of
+ * `23.75rem` do fold under 47.5rem on their own, and that is the trouble: the
+ * width where the screen changes shape was then said twice, once as a basis here
+ * and once as a query there, and the two disagree the moment a scrollbar takes its
+ * pixels out of the content box. The bands fold while the query still says there
+ * is room for both, and the fold arrives without any of the rules that make it a
+ * screen. One authority, and it is the query. */
 .entry {
   position: fixed;
   inset: 0;
   z-index: 20;
   overflow-y: auto;
   display: flex;
-  flex-direction: row-reverse;
-  flex-wrap: wrap;
-  align-content: stretch;
   background: var(--paper);
 }
 
 .entry > * {
   flex: 1 1 23.75rem;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   padding: clamp(1.75rem, 5vw, 3.5rem);
@@ -1477,6 +1474,50 @@ h1 {
   border-top: 1px solid var(--line);
   font-size: var(--aside);
   color: var(--quiet);
+}
+
+/* One column: a phone, and anything else too narrow to stand two bands. The
+ * threshold is two bands of `23.75rem`, which is where they stopped fitting when
+ * this screen folded itself.
+ *
+ * Five things in a single stack — the name, the heading, the fields, the button,
+ * and what to do when the password is the thing that is lost. The band beside the
+ * form has nothing to be beside any more, so it is reduced to the one thing in it
+ * that says whose screen this is.
+ *
+ * Nothing here stretches the form to the height of what is left, which was tried:
+ * the note at its foot then went to the foot of the screen and took the whole gap
+ * under the button with it, which reads as something missing between the two. The
+ * note keeps the distance it has under the button on every other screen, and the
+ * form keeps the top of the column: what was tried after that was letting the band
+ * centre it, and a form centred under a name it belongs to reads as a form that
+ * came loose from it. */
+@media (max-width: 47.5rem) {
+  .entry { flex-direction: column; }
+
+  /* The name at the top and no taller than the name: `flex: none` against the
+   * `23.75rem` every band has, which down here is a basis in the other axis and
+   * would otherwise hold a third of a phone screen open under one line of text. */
+  .banner {
+    flex: none;
+    padding-bottom: 0;
+    border-right: none;
+  }
+
+  /* The line of large type. It was written to fill the height of a band beside the
+   * form, and above the form it is the largest thing on a screen whose heading is
+   * the second largest. */
+  .claim { display: none; }
+
+  /* The form under the name rather than in the middle of what is left of the
+   * screen: `.entering` centres what it holds, which is right when the band is a
+   * column beside another one and wrong when it is the screen. The heading is
+   * further from the name than the fields are from each other and no further —
+   * enough to be a second block, not enough to be somewhere else. */
+  .entering {
+    justify-content: flex-start;
+    padding-top: 2.375rem;
+  }
 }
 
 /* --- where you land ------------------------------------------------------ */
