@@ -276,6 +276,12 @@ pub fn Shell(
                     <Glyph icon=Icon::Logo />
                     {t!("app.name")}
                 </A>
+
+                // The corner nothing else was using. The bar is always there and
+                // the column is not, so the one block in it that is not navigation
+                // — who you are and the way out — costs nothing to reach from here,
+                // where it used to cost opening the sections and dismissing them.
+                <WhoAmI admin on_out fold cornered=true />
             </header>
 
             <main class="body">{children()}</main>
@@ -1235,17 +1241,31 @@ pub fn called_me() -> Signal<String> {
 
 /// Who is asking, and what that lets them reach.
 ///
-/// The whole row opens the menu rather than the small round thing at its left end,
-/// which is a target the size of the column instead of the size of a coin.
+/// Twice in the frame and never twice on the screen: at the foot of the column,
+/// where the whole row opens the menu — a target the size of the column instead of
+/// the size of a coin — and in the bar at the top of a narrow screen, where the row
+/// will not fit and the disc alone stands in the corner. The stylesheet keeps
+/// whichever of the two belongs to the width, so the one that is not there is not
+/// there at all rather than folded away somewhere.
 ///
-/// It opens upward because it is the last thing in the column and there is nothing
-/// below it. Closing it was `focusout` on the container, which reads well and does
-/// not work: the order is mousedown, then focusout, then click, so the menu went
-/// away before the click could land on anything in it. So it closes the way the
-/// folded sections do — a sheet behind it catches anything aimed elsewhere — and
-/// every entry closes it on the way out, since choosing one is finishing with it.
+/// It opens upward from the column, because that is the last thing in it and there
+/// is nothing below it, and downward from the bar for the same reason the other way
+/// round. Closing it was `focusout` on the container, which reads well and does not
+/// work: the order is mousedown, then focusout, then click, so the menu went away
+/// before the click could land on anything in it. So it closes the way the folded
+/// sections do — a sheet behind it catches anything aimed elsewhere — and every
+/// entry closes it on the way out, since choosing one is finishing with it.
 #[component]
-fn WhoAmI(admin: bool, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl IntoView {
+fn WhoAmI(
+    admin: bool,
+    on_out: Callback<()>,
+    fold: WriteSignal<bool>,
+    /// In the corner of the bar rather than at the foot of the column: the disc on
+    /// its own, and the name it stands for said in a label instead, since a name
+    /// nobody can see is a name nothing reads out either.
+    #[prop(optional)]
+    cornered: bool,
+) -> impl IntoView {
     let (open, set_open) = signal(false);
 
     // What they asked to be called, falling back to the name of the account, and read
@@ -1269,11 +1289,39 @@ fn WhoAmI(admin: bool, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl In
         fold.set(false);
     };
 
+    // Said twice on a narrow screen and once anywhere else: the block in the column
+    // has it written across it, and the disc in the corner has room for a letter.
+    let role = move || {
+        if admin {
+            t!("header.administrator").to_string()
+        } else {
+            t!("header.listener").to_string()
+        }
+    };
+
     view! {
-        <div class="dropdown">
+        <div class="dropdown" class:cornered=cornered>
             <Show when=move || open.get()>
                 <div class="veil" on:click=move |_| set_open.set(false)></div>
-                <div class="upward">
+                <div class="mine">
+                    // Whose account it is, before what can be done to it. Only up in
+                    // the bar, where what opened this is a disc with one letter on it
+                    // and the sheet comes up from the opposite edge of the screen: it
+                    // has to say what it belongs to, because nothing around it does.
+                    // At the foot of the column the block it hangs off says both.
+                    {cornered
+                        .then(|| {
+                            view! {
+                                <p class="mine-who">
+                                    <span class="avatar">{initial}</span>
+                                    <span class="who">
+                                        <span>{name}</span>
+                                        <span class="role">{role}</span>
+                                    </span>
+                                </p>
+                            }
+                        })}
+
                     {MINE
                         .iter()
                         .map(|section| {
@@ -1285,7 +1333,12 @@ fn WhoAmI(admin: bool, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl In
                         })
                         .collect_view()}
 
-                    <hr />
+                    // A line between going somewhere and leaving, in the box that
+                    // has no other division in it. The sheet divides every row from
+                    // the next, so a line here would be the second one in a row and
+                    // say nothing: up there the space under the last of them is what
+                    // sets leaving apart.
+                    {(!cornered).then(|| view! { <hr /> })}
 
                     <button
                         class="menu-item leave"
@@ -1305,16 +1358,14 @@ fn WhoAmI(admin: bool, on_out: Callback<()>, fold: WriteSignal<bool>) -> impl In
 
             <button
                 class="whoami"
-                class:plain-role=!admin
+                aria-label=move || cornered.then(|| name.get())
                 aria-expanded=move || open.get().to_string()
                 on:click=move |_| set_open.update(|shown| *shown = !*shown)
             >
                 <span class="avatar">{initial}</span>
                 <span class="who">
                     <span>{name}</span>
-                    <span class="role">
-                        {if admin { t!("header.administrator") } else { t!("header.listener") }}
-                    </span>
+                    <span class="role">{role}</span>
                 </span>
                 <span class="chevron">
                     <Glyph icon=Icon::Chevron />

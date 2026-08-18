@@ -470,6 +470,12 @@ h1 {
     color: inherit;
   }
 
+  /* Who you are is up in the bar at this width, and the bar is where the way out
+   * is with it. Left in the column it would be the same block twice on one screen
+   * — once behind a button, once in the corner — and the one behind the button is
+   * the one that costs a tap to reach. */
+  .side .dropdown { display: none; }
+
   .body { padding: 1.125rem; }
 
   h1 { font-size: 1.625rem; }
@@ -501,20 +507,20 @@ h1 {
 
 /* Two lines that must not push what follows off the end, whatever the name is: the
  * chevron in the sidebar, the badge and the columns in a row of the accounts. */
-.whoami .who, .roster .who {
+.whoami .who, .roster .who, .mine-who .who {
   display: flex;
   flex-direction: column;
   min-width: 0;
   line-height: 1.25;
 }
 
-.whoami .who > *, .roster .who > * {
+.whoami .who > *, .roster .who > *, .mine-who .who > * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.whoami .role { font-size: var(--lettering); color: var(--quiet); }
+.whoami .role, .mine-who .role { font-size: var(--lettering); color: var(--quiet); }
 
 /* Pointing along the row rather than down: what it opens comes up from here. */
 .whoami .chevron {
@@ -527,7 +533,7 @@ h1 {
  * Inset from both edges rather than hung off one, so it reads as belonging to the
  * block underneath it rather than to the window's edge — and no minimum width, since
  * what it has to fit inside is a 240px column. */
-.upward {
+.mine {
   position: absolute;
   left: 0.875rem;
   right: 0.875rem;
@@ -535,13 +541,99 @@ h1 {
   z-index: 3;
 }
 
+/* The same block in the corner of the bar, which is the other place it is: the disc
+ * on its own, in a square a finger can hit, and the name and the role left out
+ * because there is a wordmark beside them and no room for both.
+ *
+ * The bar is always there and the column is not, so what was a tap into the sections
+ * and a tap back out of them is now a corner nothing else was using — and the auto
+ * margin is what claims it, the bar being a row with the way to the sections and the
+ * wordmark at the other end of it. The margin on the other side is what keeps the
+ * disc off the edge of the screen: the square around it is bigger than it is, so
+ * without it the two look the same distance from the edge and the disc is not. */
+.cornered { margin: 0 0.5rem 0 auto; }
+
+.cornered .whoami {
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-top: none;
+}
+
+.cornered .whoami .who, .cornered .whoami .chevron { display: none; }
+
+/* Filled while it is open, which is the whole of what the corner has to say: there
+ * is no chevron up here to turn, and the menu it opens is over the screen rather
+ * than beside the disc. */
+.cornered .whoami[aria-expanded="true"] .avatar {
+  background: var(--accent);
+  color: light-dark(#fff, #0c1a14);
+}
+
+/* What the corner opens is a sheet up from the bottom edge of the screen rather than
+ * a box hanging off the disc that opened it.
+ *
+ * The disc is in the top right corner, which on a phone is the far corner: under the
+ * hand holding it and above every finger that could reach it. So what it opens comes
+ * up from the near edge instead, where the panel already puts a short list on a
+ * phone — the dialogues arrive from this edge at this width, with these corners and
+ * this shadow, and this is the same thing asked of the same screen. */
+.cornered .mine {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 9;
+  padding: 0;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -14px 40px light-dark(rgb(0 0 0 / 14%), rgb(0 0 0 / 45%));
+}
+
+/* Whose account it is, before what can be done to it. The disc is larger here than
+ * the one that opened the sheet, because up in the bar it is a landmark and here it
+ * is the subject, and the two lines beside it are the pair the column carries. */
+.mine-who {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1.125rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.mine-who .avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: var(--control);
+}
+
+/* Rows a thumb can hit, divided rather than spaced. Three links in a box at the foot
+ * of a column are a menu and the rounded highlight on each of them is what says
+ * which one the pointer is on; across the whole width of a phone the same three are
+ * a list, and a list is a thing with lines in it. */
+.cornered .mine a, .cornered .mine .menu-item {
+  min-height: 3.25rem;
+  padding: 0.875rem 1.25rem;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The way out is the last row and keeps no line under it: the sheet's own edge is
+ * there, and under that the strip a phone keeps for itself. The space is what sets
+ * leaving apart from going somewhere, which in the column is a rule across the box. */
+.cornered .mine .leave {
+  padding-bottom: 1.75rem;
+  border-bottom: none;
+}
+
 /* The one entry that is not a place to go. Its colour has to survive the rule
  * above, which sets `inherit` for everything else in here. */
-.upward .leave { color: var(--alarm); }
+.mine .leave { color: var(--alarm); }
 
 /* Between what you can go and see and what acts: the one thing that ends the
  * session in the sidebar, and cutting somebody off in a row of the accounts. */
-.upward hr, .menu hr {
+.mine hr, .menu hr {
   height: 0;
   margin: 0.375rem 0.25rem;
   border: none;
@@ -737,11 +829,20 @@ h1 {
   z-index: 2;
 }
 
+/* Except under the sheet the bar opens, where it dims what it covers — the same
+ * tint, and for the same reason, as the one behind a drawer: what is over the screen
+ * there is the width of the screen, and a sheet that dims nothing looks like part of
+ * the page it is sitting on. */
+.cornered .veil {
+  z-index: 8;
+  background: light-dark(rgb(20 20 20 / 22%), rgb(0 0 0 / 45%));
+}
+
 /* The box a menu comes in, wherever it opens from: the dots at the end of a row, the
- * scan button, the account block at the foot of the column. One box, because they
+ * scan button, the block with your name on it. One box, because they
  * are one thing — a raised surface with a short list on it — and the popover in the
  * column was the only one that had been brought to the drawing. */
-.menu, .upward {
+.menu, .mine {
   display: flex;
   flex-direction: column;
   padding: 0.375rem;
@@ -763,10 +864,10 @@ h1 {
   overflow-y: auto;
 }
 
-/* One rule for an entry in any of them. The popover that opens upward from the
- * account block had a rule of its own with the padding and the size in it and not
- * the colour, so its three links came out accented in the middle of a menu. */
-.menu a, .menu-item, .upward a {
+/* One rule for an entry in any of them. The popover on the block with your name on
+ * it had a rule of its own with the padding and the size in it and not the colour,
+ * so its three links came out accented in the middle of a menu. */
+.menu a, .menu-item, .mine a {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -784,7 +885,7 @@ h1 {
   cursor: pointer;
 }
 
-.menu a:hover, .menu-item:hover, .upward a:hover {
+.menu a:hover, .menu-item:hover, .mine a:hover {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
