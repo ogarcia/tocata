@@ -624,6 +624,11 @@ sessions:
   lead: "Navegadores con sesión abierta en este panel. Cerrar una no detiene ninguna música."
   this_browser: "Este navegador"
   another_browser: "Otro navegador"
+  # Un navegador y el sistema que hay debajo, que es lo que dice una sesión de
+  # dónde se abrió cuando nadie le ha puesto nombre. Dos palabras que el servidor
+  # ha leído de lo que el navegador dice de sí mismo, así que la frase tiene que
+  # aguantar que cualquiera de las dos sea un nombre que aquí no conocemos.
+  browser_on: "%{browser} en %{system}"
   this_one: "estás aquí"
   since: "Desde %{when}"
   seen: "Vista %{when}"

@@ -46,7 +46,18 @@ pub struct Session {
 /// Expired rows are cleared here rather than on a timer: the table only grows
 /// when somebody logs in, so that is the moment worth tidying, and a server
 /// nobody touches needs no upkeep at all.
-pub async fn create(pool: &SqlitePool, user_id: i64, days: i64) -> Result<(String, String)> {
+///
+/// What the browser said it was is written down as it said it, so that afterwards
+/// the list of open sessions can be a list of recognisable browsers rather than
+/// three rows saying "another browser". Nothing is decided by it: see
+/// [`crate::browser`] for why a sentence a client writes about itself is only ever
+/// worth a word on a screen.
+pub async fn create(
+    pool: &SqlitePool,
+    user_id: i64,
+    days: i64,
+    user_agent: Option<String>,
+) -> Result<(String, String)> {
     let token = auth::generate_token()?;
     let timestamp = db::now();
     let expires_at = db::from_now(Duration::days(days));
@@ -58,11 +69,13 @@ pub async fn create(pool: &SqlitePool, user_id: i64, days: i64) -> Result<(Strin
         .context("clearing expired sessions")?;
 
     sqlx::query(
-        "INSERT INTO sessions (user_id, token_hash, created_at, last_seen_at, expires_at)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO sessions
+                (user_id, token_hash, user_agent, created_at, last_seen_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(user_id)
     .bind(auth::hash_secret(&token))
+    .bind(user_agent)
     .bind(&timestamp)
     .bind(&timestamp)
     .bind(&expires_at)
@@ -196,7 +209,7 @@ mod tests {
             .unwrap();
 
             for _ in 0..2 {
-                create(&pool, user_id, A_MONTH).await.unwrap();
+                create(&pool, user_id, A_MONTH, None).await.unwrap();
             }
 
             ids.push(user_id);
@@ -220,8 +233,8 @@ mod tests {
     async fn a_session_lasts_as_long_as_it_was_told() {
         let (pool, ana, _) = two_users_logged_in_twice().await;
 
-        let (_, tomorrow) = create(&pool, ana, 1).await.unwrap();
-        let (_, next_month) = create(&pool, ana, A_MONTH).await.unwrap();
+        let (_, tomorrow) = create(&pool, ana, 1, None).await.unwrap();
+        let (_, next_month) = create(&pool, ana, A_MONTH, None).await.unwrap();
 
         assert!(tomorrow > db::now());
         assert!(tomorrow < db::from_now(Duration::days(2)));

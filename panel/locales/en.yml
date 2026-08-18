@@ -627,6 +627,11 @@ sessions:
   lead: "Browsers logged in to this panel. Closing one does not stop any music."
   this_browser: "This browser"
   another_browser: "Another browser"
+  # A browser and the system under it, which is what a session says it was
+  # opened from when nobody has given it a name. Two words the server read off
+  # what the browser said about itself, so the sentence has to hold either of
+  # them being a name nobody here has heard of.
+  browser_on: "%{browser} on %{system}"
   this_one: "you are here"
   since: "Since %{when}"
   seen: "Last seen %{when}"

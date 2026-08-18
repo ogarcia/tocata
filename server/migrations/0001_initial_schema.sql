@@ -575,6 +575,19 @@ CREATE TABLE sessions (
     id           INTEGER PRIMARY KEY,
     user_id      INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     token_hash   TEXT    NOT NULL UNIQUE,
+    -- A name somebody gave this session, or null for one nobody has named. It is
+    -- theirs to write: a browser can only say what it is, and only the person
+    -- sitting at it knows that it is the laptop in the kitchen.
+    label        TEXT,
+    -- What the browser called itself when the session was opened, kept as it said
+    -- it rather than as a name and a system worked out from it. Reading it is a
+    -- guess about a string anybody can write anything into, and a guess belongs
+    -- where it can be improved without every row written under the old one having
+    -- to be found again.
+    --
+    -- Null for a login that sent no such header, which is every session opened by
+    -- anything that is not a browser.
+    user_agent   TEXT,
     created_at   TEXT    NOT NULL,
     -- Written back only when it is already stale, so following the panel around
     -- does not mean a write per request.

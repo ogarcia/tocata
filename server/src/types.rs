@@ -231,6 +231,21 @@ pub struct NewScrobbler {
 #[serde(rename_all = "camelCase")]
 pub struct Login {
     pub id: i64,
+    /// What somebody called this session, or null for one nobody has named. Theirs
+    /// to write, and the only thing here that cannot be wrong: a browser can say
+    /// what it is, and only the person sitting at it knows which room it is in.
+    #[schema(example = "the laptop in the kitchen")]
+    pub label: Option<String>,
+    /// The browser the session was opened from, as far as it can be read, and null
+    /// for a login that said nothing a browser is known by.
+    ///
+    /// A guess about a sentence the client wrote about itself. Nothing is decided
+    /// by it; it is here so that a list of open sessions can be told apart.
+    #[schema(example = "Firefox")]
+    pub browser: Option<String>,
+    /// And the system under it, on the same terms.
+    #[schema(example = "Linux")]
+    pub system: Option<String>,
     pub created_at: String,
     /// Roughly when a request last arrived on it, to the nearest few minutes.
     pub last_seen_at: String,
@@ -238,6 +253,19 @@ pub struct Login {
     /// Whether this is the session asking. What keeps somebody from closing the
     /// window they are looking through by mistake.
     pub current: bool,
+}
+
+/// A name for a session, or the empty string to take away the one it has.
+///
+/// Blank is a name withdrawn rather than a name of no characters, which is the one
+/// place this differs from a key's label: a key is named when it is issued and has
+/// to keep being called something, and a session starts with no name at all — so
+/// going back to that state has to be sayable.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Naming {
+    #[schema(example = "the laptop in the kitchen")]
+    pub label: String,
 }
 
 /// How many keys were revoked, so the panel can say something true afterwards.

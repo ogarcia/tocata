@@ -171,6 +171,17 @@ How long a session lasts is a setting rather than an environment variable, thirt
 days to begin with, and it is absolute rather than sliding: shortening it applies
 to the next login and leaves the people already inside where they are.
 
+Telling one session from another is what the browser said it was, written down as
+it said it: a list of three rows all reading "another browser" is a list nobody
+can act on. Which browser that sentence names — Firefox, on Linux — is read when
+the list is asked for rather than when the session is opened, so the reading can
+get better without any row having to be written again, and it is a guess either
+way. The string is the client's own account of itself and nothing is decided by
+it, so the worst a lie in it can do is put a wrong word on a screen. A session
+can also be given a name, and that is the one thing said about it that cannot be
+wrong: a browser can only say what it is, and only the person sitting at it knows
+it is the laptop in the kitchen.
+
 Keeping the login is what adds `Max-Age` to the cookie. Without it the browser
 drops the cookie when it closes while the row keeps its own expiry — what has
 been forgotten is the way back in, not the session. Logging out ends the row, and

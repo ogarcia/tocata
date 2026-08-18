@@ -16,11 +16,14 @@ use super::error::ApiError;
 use super::session::Panel;
 use crate::db::InTurn;
 use crate::session;
-use crate::types::{Closed, ErrorBody, Login};
+use crate::types::{Closed, ErrorBody, Login, Naming};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use sqlx::SqlitePool;
+
+/// Every column the listing selects, in the order it selects them.
+type SessionRow = (i64, Option<String>, Option<String>, String, String, String);
 
 /// Anybody may manage their own sessions; only an administrator somebody else's.
 ///
@@ -63,8 +66,8 @@ pub async fn list(
 
     // Expired rows are only cleared on the next login, so they can still be
     // sitting here. Showing one as an open session would be a lie.
-    let rows: Vec<(i64, String, String, String)> = sqlx::query_as(
-        "SELECT id, created_at, last_seen_at, expires_at
+    let rows: Vec<SessionRow> = sqlx::query_as(
+        "SELECT id, label, user_agent, created_at, last_seen_at, expires_at
            FROM sessions WHERE user_id = ? AND expires_at > ?
           ORDER BY created_at",
     )
@@ -76,15 +79,85 @@ pub async fn list(
 
     Ok(Json(
         rows.into_iter()
-            .map(|(id, created_at, last_seen_at, expires_at)| Login {
-                id,
-                created_at,
-                last_seen_at,
-                expires_at,
-                current: id == panel.id,
-            })
+            .map(
+                |(id, label, user_agent, created_at, last_seen_at, expires_at)| {
+                    // Read on the way out rather than stored read. The sentence in
+                    // the row is what the browser said; which browser that is, is a
+                    // guess this server is free to get better at.
+                    let (browser, system) = user_agent
+                        .as_deref()
+                        .map(crate::browser::read)
+                        .unwrap_or_default();
+
+                    Login {
+                        id,
+                        label,
+                        browser: browser.map(str::to_string),
+                        system: system.map(str::to_string),
+                        created_at,
+                        last_seen_at,
+                        expires_at,
+                        current: id == panel.id,
+                    }
+                },
+            )
             .collect(),
     ))
+}
+
+/// Name a session
+///
+/// Gives one login a name of somebody's own choosing, or takes away the name it
+/// has when what arrives is blank. Everything else about a session is either the
+/// server's record of it or a guess read off what the browser said; this is the one
+/// field a person writes, and it is the one that cannot be wrong.
+///
+/// Yours, or anybody's if you administer the server — the same reach as closing
+/// one, and naming is the lesser of the two.
+#[utoipa::path(
+    patch,
+    path = "/users/{username}/sessions/{id}",
+    tag = "sessions",
+    params(
+        ("username" = String, Path, description = "Whose session"),
+        ("id" = i64, Path, description = "Which one, from the listing"),
+    ),
+    request_body = Naming,
+    responses(
+        (status = 204, description = "Named"),
+        (status = 401, description = "No valid session", body = ErrorBody),
+        (status = 403, description = "Somebody else's session", body = ErrorBody),
+        (status = 404, description = "No such account, or no such session of theirs", body = ErrorBody),
+    )
+)]
+pub async fn name(
+    panel: Panel,
+    State(pool): State<SqlitePool>,
+    Path((username, id)): Path<(String, i64)>,
+    Json(naming): Json<Naming>,
+) -> Result<StatusCode, ApiError> {
+    let user_id = owner(&pool, &panel, &username).await?;
+
+    let label = naming.label.trim();
+    // A row that says nothing is a null and not an empty string, so that "has no
+    // name" is one state in the table rather than two that read the same.
+    let label = (!label.is_empty()).then_some(label);
+
+    // Scoped to the account named in the path for the same reason closing one is:
+    // an id on its own would otherwise be a way to write on a stranger's row.
+    let done = sqlx::query("UPDATE sessions SET label = ? WHERE id = ? AND user_id = ?")
+        .bind(label)
+        .bind(id)
+        .bind(user_id)
+        .in_turn(&pool)
+        .await
+        .map_err(|e| ApiError::internal(e, "naming a session"))?;
+
+    if done.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Close a session
@@ -188,7 +261,9 @@ mod tests {
         .unwrap();
 
         for _ in 0..3 {
-            session::create(&pool, user_id, A_MONTH).await.unwrap();
+            session::create(&pool, user_id, A_MONTH, None)
+                .await
+                .unwrap();
         }
 
         // The middle one, so that neither the first nor the last row surviving
@@ -257,7 +332,7 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        session::create(&pool, other, A_MONTH).await.unwrap();
+        session::create(&pool, other, A_MONTH, None).await.unwrap();
 
         let his: i64 = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
             .bind(other)
@@ -327,6 +402,154 @@ mod tests {
         assert!(
             left.contains(&panel.id),
             "including the one she is asking from"
+        );
+    }
+
+    /// The one row a person writes on. Blank is the way back to a row that says
+    /// nothing, which is where every session starts.
+    #[tokio::test]
+    async fn naming_a_session_says_it_and_blank_unsays_it() {
+        let (pool, panel) = logged_in_thrice().await;
+
+        let named = |label: &str| {
+            Json(Naming {
+                label: label.to_string(),
+            })
+        };
+
+        assert_eq!(
+            name(
+                panel_like(&panel),
+                State(pool.clone()),
+                Path(("ana".to_string(), panel.id)),
+                named("  the laptop in the kitchen  "),
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+
+        let Json(list) = list(panel_like(&panel), State(pool.clone()), Path("ana".into()))
+            .await
+            .unwrap();
+        let mine = list.iter().find(|login| login.current).unwrap();
+        assert_eq!(
+            mine.label.as_deref(),
+            Some("the laptop in the kitchen"),
+            "and trimmed, since the spaces around it are typing rather than a name"
+        );
+
+        name(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), panel.id)),
+            named("   "),
+        )
+        .await
+        .unwrap();
+
+        let written: Option<String> = sqlx::query_scalar("SELECT label FROM sessions WHERE id = ?")
+            .bind(panel.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(written, None, "a name taken away is a null and not a blank");
+    }
+
+    /// The name is nobody else's to write, by the same rule that says whose session
+    /// is whose to close.
+    #[tokio::test]
+    async fn a_session_of_another_account_cannot_be_named_through_this_one() {
+        let (pool, panel) = logged_in_thrice().await;
+
+        let timestamp = crate::db::now();
+        let other: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES ('beto', 'x', 0, ?, ?) RETURNING id",
+        )
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        session::create(&pool, other, A_MONTH, None).await.unwrap();
+
+        let his: i64 = sqlx::query_scalar("SELECT id FROM sessions WHERE user_id = ?")
+            .bind(other)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let missed = name(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("ana".to_string(), his)),
+            Json(Naming {
+                label: "his".to_string(),
+            }),
+        )
+        .await
+        .expect_err("his session is not hers to name");
+        assert!(matches!(missed, ApiError::NotFound));
+
+        let refused = name(
+            panel_like(&panel),
+            State(pool.clone()),
+            Path(("beto".to_string(), his)),
+            Json(Naming {
+                label: "his".to_string(),
+            }),
+        )
+        .await
+        .expect_err("and she is not an administrator");
+        assert!(matches!(refused, ApiError::NotAuthorized));
+
+        let written: Option<String> = sqlx::query_scalar("SELECT label FROM sessions WHERE id = ?")
+            .bind(his)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(written, None, "his row is untouched");
+    }
+
+    /// What the browser said, read on the way out. Two rows, because the answer for
+    /// a login that said nothing has to be nothing rather than a guess.
+    #[tokio::test]
+    async fn a_session_is_listed_as_the_browser_it_was_opened_from() {
+        let (pool, panel) = logged_in_thrice().await;
+
+        session::create(
+            &pool,
+            panel.user.id,
+            A_MONTH,
+            Some(
+                "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0"
+                    .to_string(),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let Json(list) = list(panel_like(&panel), State(pool.clone()), Path("ana".into()))
+            .await
+            .unwrap();
+
+        let read: Vec<(Option<String>, Option<String>)> = list
+            .iter()
+            .map(|login| (login.browser.clone(), login.system.clone()))
+            .collect();
+
+        assert_eq!(
+            read.iter()
+                .filter(|pair| **pair == (Some("Firefox".to_string()), Some("Linux".to_string())))
+                .count(),
+            1,
+            "the one opened from a browser"
+        );
+        assert_eq!(
+            read.iter().filter(|pair| **pair == (None, None)).count(),
+            3,
+            "and the three that said nothing say nothing"
         );
     }
 

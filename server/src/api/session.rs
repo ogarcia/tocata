@@ -174,6 +174,7 @@ pub async fn log_in(
     State(pool): State<SqlitePool>,
     State(attempts): State<Arc<Attempts>>,
     ConnectInfo(from): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(credentials): Json<Credentials>,
 ) -> Result<Response, ApiError> {
     // Before the password is even hashed. Argon2 is deliberately slow, so a
@@ -202,7 +203,16 @@ pub async fn log_in(
         .map_err(|e| ApiError::internal(e, "reading the settings"))?
         .session_days;
 
-    let (token, expires_at) = session::create(&pool, user.id, days)
+    // Read here and not inside the session, which is a mechanism and has no
+    // business knowing that this one came in over HTTP: what it is given is a
+    // sentence, and what asks for the sentence is the thing holding the request.
+    let said = crate::browser::as_said(
+        headers
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|header| header.to_str().ok()),
+    );
+
+    let (token, expires_at) = session::create(&pool, user.id, days, said)
         .await
         .map_err(|e| ApiError::internal(e, "creating a session"))?;
 
@@ -307,12 +317,78 @@ mod tests {
         ConnectInfo(SocketAddr::new(address.parse().unwrap(), 51000))
     }
 
+    /// The one header a login reads, as a browser would have sent it.
+    fn saying(user_agent: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::USER_AGENT,
+            user_agent.parse().expect("a header a browser could send"),
+        );
+
+        headers
+    }
+
     fn credentials(password: &str, remember: bool) -> Json<Credentials> {
         Json(Credentials {
             username: "ana".to_string(),
             password: password.to_string(),
             remember,
         })
+    }
+
+    /// What the browser said it was is written down as it said it, which is the
+    /// whole of what later lets somebody tell their own open sessions apart. Read
+    /// back through the reader rather than compared as a string: what matters is
+    /// that the sentence arrived whole enough to be read.
+    #[tokio::test]
+    async fn logging_in_writes_down_what_the_browser_said_it_was() {
+        let (pool, attempts) = a_server().await;
+
+        log_in(
+            State(pool.clone()),
+            State(attempts),
+            from("203.0.113.7"),
+            saying(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 \
+                 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+            ),
+            credentials(PASSWORD, true),
+        )
+        .await
+        .expect("the password is hers");
+
+        let said: Option<String> = sqlx::query_scalar("SELECT user_agent FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            crate::browser::read(&said.expect("the header arrived with the request")),
+            (Some("Safari"), Some("macOS")),
+        );
+    }
+
+    /// And a login from something that is not a browser leaves the column empty
+    /// rather than storing a sentence nobody wrote.
+    #[tokio::test]
+    async fn a_login_that_said_nothing_is_a_row_that_says_nothing() {
+        let (pool, attempts) = a_server().await;
+
+        log_in(
+            State(pool.clone()),
+            State(attempts),
+            from("203.0.113.7"),
+            HeaderMap::new(),
+            credentials(PASSWORD, true),
+        )
+        .await
+        .unwrap();
+
+        let said: Option<String> = sqlx::query_scalar("SELECT user_agent FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(said, None);
     }
 
     /// What a `Set-Cookie` header said, if there was one.
@@ -343,6 +419,7 @@ mod tests {
             State(pool.clone()),
             State(attempts),
             from("203.0.113.7"),
+            HeaderMap::new(),
             credentials(PASSWORD, true),
         )
         .await
@@ -367,6 +444,7 @@ mod tests {
             State(pool.clone()),
             State(attempts.clone()),
             from("203.0.113.7"),
+            HeaderMap::new(),
             credentials(PASSWORD, true),
         )
         .await
@@ -380,6 +458,7 @@ mod tests {
             State(pool.clone()),
             State(attempts),
             from("203.0.113.7"),
+            HeaderMap::new(),
             credentials(PASSWORD, false),
         )
         .await
@@ -408,6 +487,7 @@ mod tests {
             State(pool.clone()),
             State(attempts),
             from("203.0.113.7"),
+            HeaderMap::new(),
             credentials("not hers", true),
         )
         .await
@@ -434,6 +514,7 @@ mod tests {
                 State(pool.clone()),
                 State(attempts.clone()),
                 from("203.0.113.7"),
+                HeaderMap::new(),
                 credentials("not hers", true),
             )
             .await;
@@ -443,6 +524,7 @@ mod tests {
             State(pool.clone()),
             State(attempts.clone()),
             from("203.0.113.7"),
+            HeaderMap::new(),
             credentials(PASSWORD, true),
         )
         .await
@@ -453,6 +535,7 @@ mod tests {
             State(pool.clone()),
             State(attempts),
             from("198.51.100.4"),
+            HeaderMap::new(),
             credentials(PASSWORD, true),
         )
         .await
@@ -470,6 +553,7 @@ mod tests {
                 State(pool.clone()),
                 State(attempts.clone()),
                 from("203.0.113.7"),
+                HeaderMap::new(),
                 credentials(PASSWORD, true),
             )
             .await
@@ -480,6 +564,7 @@ mod tests {
                 State(pool.clone()),
                 State(attempts),
                 from("198.51.100.4"),
+                HeaderMap::new(),
                 credentials(PASSWORD, true),
             )
             .await

@@ -36,7 +36,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 use rust_i18n::t;
-use tocata::types::{Account, AccountChanges, Holdings, PreferenceChanges};
+use tocata::types::{Account, AccountChanges, Holdings, Login, PreferenceChanges};
 
 /// Who you are, in two forms rather than one.
 ///
@@ -2219,11 +2219,7 @@ fn MySessions(
                                     view! {
                                         <li>
                                             <span class="what">
-                                                {if current {
-                                                    t!("sessions.this_browser")
-                                                } else {
-                                                    t!("sessions.another_browser")
-                                                }}
+                                                {called(&login)}
                                                 {current
                                                     .then(|| {
                                                         view! {
@@ -2304,5 +2300,37 @@ fn MySessions(
                 <A href=crate::layout::MINE_PATH>{t!("access.change_password")}</A>
             </p>
         </section>
+    }
+}
+
+/// What one session is called on its row.
+///
+/// The name somebody gave it if they gave it one, since that is the only line here
+/// that cannot be wrong — a browser can say what it is, and only the person sitting
+/// at it knows which room it is in. Failing that, the browser and the system it was
+/// opened from, which the server reads off what the browser said about itself.
+///
+/// And failing both, the two words this said before any of it existed. Something
+/// that logs in without saying what it is — a script, a browser told to say
+/// nothing — is still either the one being used or one of the others, which is the
+/// least a row can say and enough to act on.
+fn called(login: &Login) -> String {
+    if let Some(label) = login
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+    {
+        return label.to_string();
+    }
+
+    match (login.browser.as_deref(), login.system.as_deref()) {
+        (Some(browser), Some(system)) => {
+            t!("sessions.browser_on", browser = browser, system = system).to_string()
+        }
+        (Some(browser), None) => browser.to_string(),
+        (None, Some(system)) => system.to_string(),
+        (None, None) if login.current => t!("sessions.this_browser").to_string(),
+        (None, None) => t!("sessions.another_browser").to_string(),
     }
 }

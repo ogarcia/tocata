@@ -779,7 +779,7 @@ mod tests {
         .await
         .unwrap();
 
-        let (token, _) = crate::session::create(&pool, id, crate::session::A_MONTH)
+        let (token, _) = crate::session::create(&pool, id, crate::session::A_MONTH, None)
             .await
             .unwrap();
 

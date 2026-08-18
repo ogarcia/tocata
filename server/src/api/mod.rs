@@ -154,7 +154,7 @@ fn v1() -> OpenApiRouter<AppState> {
         .routes(routes!(keys::revoke))
         .routes(routes!(keys::rotate))
         .routes(routes!(sessions::list, sessions::close_all))
-        .routes(routes!(sessions::close))
+        .routes(routes!(sessions::close, sessions::name))
         .routes(routes!(settings::read, settings::change))
         .routes(routes!(preferences::change))
         .routes(routes!(scrobblers::list))
@@ -240,7 +240,7 @@ mod every_endpoint {
         .await
         .unwrap();
 
-        let (token, _) = session::create(&pool, user, 1).await.unwrap();
+        let (token, _) = session::create(&pool, user, 1, None).await.unwrap();
 
         // The sender is dropped here on purpose. The event stream ends when the
         // server says it is stopping, and a dropped sender says exactly that —
