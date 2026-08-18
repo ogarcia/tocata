@@ -1305,27 +1305,40 @@ h1 {
   position: fixed;
   inset: 0;
   z-index: 20;
-  overflow-y: auto;
+  overflow-y: hidden;
   display: flex;
   background: var(--paper);
 }
 
+/* Each band takes its own scrolling, and the screen takes none. A phone held
+ * sideways is where that matters: the name and its line fit such a screen with
+ * room to spare and the form does not, and while the screen scrolled as a whole
+ * the only way to reach the button was to push the name off the top — moving the
+ * half that fitted in order to see the half that did not. Now the band that ran
+ * out of room is the band that moves. */
 .entry > * {
   flex: 1 1 23.75rem;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   padding: clamp(1.75rem, 5vw, 3.5rem);
 }
 
-.entering { justify-content: center; }
-
 /* Wide enough for the longest label either language has, and no wider: a login
  * form as wide as a monitor is a login form that looks mislaid. Centred in its
- * own band, which is the one thing on this screen that is. */
+ * own band, which is the one thing on this screen that is.
+ *
+ * ⚠️ By its own auto margins and not by `justify-content: center`, which centres
+ * past the top of a band that has run out of room: the space is taken from both
+ * ends, and the end a scroll starts at is the end it can never get back to — the
+ * heading and the first field were above the form's own scroll origin, where
+ * nothing reaches them. An auto margin gives up instead, resolving to 0 when there
+ * is nothing left to divide, so a form taller than its band starts at the top of
+ * it and all of it can be scrolled to. */
 .entry form {
   width: 100%;
   max-width: 25rem;
-  margin: 0 auto;
+  margin: auto;
 }
 
 /* Spaced by margins rather than by one gap on the form, because the rows are not
@@ -1493,7 +1506,15 @@ h1 {
  * centre it, and a form centred under a name it belongs to reads as a form that
  * came loose from it. */
 @media (max-width: 47.5rem) {
-  .entry { flex-direction: column; }
+  /* One column, and one thing that scrolls again: the screen. Up there the name
+   * stays while the form moves beside it, because they are two bands; down here it
+   * is what the form is under, part of the same column, and it goes up with it. */
+  .entry {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .entry > * { overflow-y: visible; }
 
   /* The name at the top and no taller than the name: `flex: none` against the
    * `23.75rem` every band has, which down here is a basis in the other axis and
@@ -1509,15 +1530,16 @@ h1 {
    * the second largest. */
   .claim { display: none; }
 
-  /* The form under the name rather than in the middle of what is left of the
-   * screen: `.entering` centres what it holds, which is right when the band is a
-   * column beside another one and wrong when it is the screen. The heading is
-   * further from the name than the fields are from each other and no further —
-   * enough to be a second block, not enough to be somewhere else. */
-  .entering {
-    justify-content: flex-start;
-    padding-top: 2.375rem;
-  }
+  /* The heading stands further from the name than the fields stand from each
+   * other, and no further: enough to be a second block, not enough to look like
+   * it belongs to something else. */
+  .entering { padding-top: 2.375rem; }
+
+  /* And the form at the top of what is left rather than in the middle of it: the
+   * auto margin that centres it in a band of its own has nothing to centre it
+   * against down here — a form centred under a name it belongs to reads as a form
+   * that came loose from it. */
+  .entry form { margin-top: 0; }
 }
 
 /* --- where you land ------------------------------------------------------ */
