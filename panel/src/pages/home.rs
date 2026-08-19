@@ -34,14 +34,50 @@ use tocata::types::{Resources, Stats, Status};
 /// milliseconds nobody notices; on the machine this was found on it was eleven seconds
 /// each time, because those five figures are aggregates over every track there is.
 ///
-/// Held rather than cached: what is up here is the answer itself, and the one thing that
-/// can change it is a scan finishing. Marking a favourite or making a playlist moves two
-/// of these figures by one, which is not worth eleven seconds of an Atom — and the screen
-/// says when it was read.
+/// Held rather than cached: what is up here is the answer itself, read again only when
+/// something has happened that changes it — a scan finishing, or one of the maintenance
+/// jobs running. Marking a favourite or making a playlist moves two of these figures by
+/// one, which is not worth eleven seconds of an Atom.
 #[derive(Clone, Copy)]
 pub struct Counted {
     held: RwSignal<Option<Stats>>,
     failed: RwSignal<Option<Failure>>,
+    expired: Callback<()>,
+}
+
+impl Counted {
+    /// Reads them again, because something that changes them has happened.
+    ///
+    /// Whoever caused it says so, and there is no other way for these to be right: a
+    /// figure held until the next scan is a figure that goes on reporting a problem
+    /// after somebody has fixed it. Which is what the Overview did — it went on
+    /// counting missing tracks that a purge had already taken out of the collection.
+    pub fn read(self) {
+        spawn_local(async move {
+            match api::stats().await {
+                Ok(stats) => {
+                    self.held.set(Some(stats));
+                    self.failed.set(None);
+                }
+                Err(Failure::Unauthenticated) => self.expired.run(()),
+                // What was read before stays on screen: a figure from a minute ago is
+                // worth more than a screen that empties because one request did not land.
+                Err(why) => self.failed.set(Some(why)),
+            }
+        });
+    }
+
+    /// What the database file weighs, out of the figures already in hand.
+    ///
+    /// The one of them another screen reads: Maintenance says it beside what a compact
+    /// would give back. Taken from here rather than asked for on its own, because the
+    /// answer it is part of is the slowest the server gives and it has already been
+    /// paid for once.
+    pub fn database_size(self) -> Signal<Option<i64>> {
+        let held = self.held;
+
+        Signal::derive(move || held.with(|held| held.as_ref().map(|stats| stats.database_size)))
+    }
 }
 
 /// Reads them for the whole panel, and again whenever a scan finishes.
@@ -56,26 +92,12 @@ pub fn read_the_figures(on_expired: Callback<()>) {
     let counted = Counted {
         held: RwSignal::new(None),
         failed: RwSignal::new(None),
+        expired: on_expired,
     };
     provide_context(counted);
 
-    let read = move || {
-        spawn_local(async move {
-            match api::stats().await {
-                Ok(stats) => {
-                    counted.held.set(Some(stats));
-                    counted.failed.set(None);
-                }
-                Err(Failure::Unauthenticated) => on_expired.run(()),
-                // What was read before stays on screen: a figure from a minute ago is
-                // worth more than a screen that empties because one request did not land.
-                Err(why) => counted.failed.set(Some(why)),
-            }
-        });
-    };
-
-    read();
-    super::endless::after_a_scan(read);
+    counted.read();
+    super::endless::after_a_scan(move || counted.read());
 }
 
 #[component]

@@ -13,6 +13,7 @@
 //! one in front of this one.
 
 use crate::api::{self, Failure};
+use crate::pages::home::Counted;
 use crate::pages::{bytes, elapsed, on_day, said, since, thousands};
 use leptos::html::Dialog;
 use leptos::prelude::*;
@@ -25,10 +26,11 @@ use tocata::types::{
 #[component]
 pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
     let (state, set_state) = signal(Option::<Maintenance>::None);
-    // What the database takes as a whole, which is the figure that makes the
-    // reclaimable one mean something. It belongs to the collection's statistics
-    // rather than to a job, so it comes from where that lives.
-    let (occupied, set_occupied) = signal(Option::<i64>::None);
+    // The figures the whole panel holds, which this screen both reads from and moves.
+    // What the database takes as a whole is one of them — the figure that makes the
+    // reclaimable one mean something — and what a job removes moves several more.
+    let counted = use_context::<Counted>().expect("the figures are read above the router");
+    let occupied = counted.database_size();
     let (failure, set_failure) = signal(Option::<String>::None);
     // Which job is running, since a POST that waits means the row has to say so
     // and nothing else may be started meanwhile.
@@ -41,12 +43,6 @@ pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
                 Ok(fresh) => set_state.set(Some(fresh)),
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(_) => set_failure.set(Some(t!("login.unreachable").to_string())),
-            }
-        });
-
-        spawn_local(async move {
-            if let Ok(stats) = api::stats().await {
-                set_occupied.set(Some(stats.database_size));
             }
         });
     };
@@ -62,7 +58,20 @@ pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
                 // Everything on the screen moves when a job runs — what the next
                 // one would do as much as what this one did — so the answer is
                 // read again rather than patched in.
-                Ok(_) => load(),
+                //
+                // And so are the figures, which are not this screen's: a purge
+                // takes tracks out of the collection and a compact changes what
+                // the file weighs, and until this was here the Overview went on
+                // sending somebody back here for missing tracks that were gone.
+                // Every job but the check, which reads the database and leaves it
+                // exactly as it was — and is the slowest of them to boot.
+                Ok(_) => {
+                    load();
+
+                    if job != Job::Check {
+                        counted.read();
+                    }
+                }
                 Err(Failure::Unauthenticated) => on_expired.run(()),
                 Err(why) => set_failure.set(Some(said(&why))),
             }
@@ -139,7 +148,7 @@ pub fn Maintenance(on_expired: Callback<()>) -> impl IntoView {
 #[component]
 fn Chore(
     job: JobState,
-    occupied: ReadSignal<Option<i64>>,
+    occupied: Signal<Option<i64>>,
     running: ReadSignal<Option<Job>>,
     start: Callback<Job>,
     set_asking: WriteSignal<bool>,
@@ -148,9 +157,10 @@ fn Chore(
     let busy = move || running.get().is_some();
     let mine = move || running.get() == Some(which);
 
-    // The figures line is read again when the size of the database lands, which
-    // is a call of its own and arrives after this row is on screen. Written once,
-    // the one row that uses that size would have kept the dash it was drawn with.
+    // The figures line is read again when the size of the database changes, which
+    // it does under this row: a compact gives space back, and the figure comes from
+    // the panel's own statistics rather than from this screen. Written once, the one
+    // row that uses that size would have kept whatever it was drawn with.
     let pending = job.pending;
     let last = job.last_run.clone();
     let figures = move || lately(which, pending, occupied, &last);
@@ -816,7 +826,7 @@ fn about(job: Job, pending: Option<i64>, look_again: Option<i64>) -> String {
 fn lately(
     job: Job,
     pending: Option<i64>,
-    occupied: ReadSignal<Option<i64>>,
+    occupied: Signal<Option<i64>>,
     last: &Option<Run>,
 ) -> String {
     // Compacting is about the file, so its own figures say more than a date: what
