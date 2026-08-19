@@ -475,6 +475,7 @@ scan:
   cancel: Cancel
   folders: Folders
   added: Added
+  changed: Changed
   unchanged: Unchanged
   failed: Unreadable
   gone: Gone missing

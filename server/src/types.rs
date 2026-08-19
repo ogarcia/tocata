@@ -298,6 +298,17 @@ pub struct Status {
     pub tracks: u64,
     /// Of those, the ones already known and unchanged, so never reopened.
     pub unchanged: u64,
+    /// Of those, the ones that were not in the collection before this scan and were
+    /// not recognised as a file that had moved.
+    pub added: u64,
+    /// Of those, the ones that were already in the collection and are not as they
+    /// were: another size, another modification time, a file that would not read
+    /// before, or the same music at a new path.
+    ///
+    /// Never a file that a full scan merely reopened. A scan of that kind reads every
+    /// file there is, and counting all of them as changed would be a figure that says
+    /// what the scan did rather than what happened to the music.
+    pub changed: u64,
     /// Of those, the ones whose tags could not be understood.
     pub failed: u64,
     /// Marked absent because they are no longer on disk. Marked, never deleted.

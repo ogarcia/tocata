@@ -28,6 +28,8 @@ impl From<Snapshot> for Status {
             folders: snapshot.folders,
             tracks: snapshot.tracks,
             unchanged: snapshot.unchanged,
+            added: snapshot.added,
+            changed: snapshot.changed,
             failed: snapshot.failed,
             gone: snapshot.gone,
             started_at: snapshot.started_at,

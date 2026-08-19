@@ -473,6 +473,7 @@ scan:
   cancel: Cancelar
   folders: Carpetas
   added: Nuevas
+  changed: Modificadas
   unchanged: Sin cambios
   failed: Ilegibles
   gone: Desaparecidas

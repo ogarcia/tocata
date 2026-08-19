@@ -125,11 +125,15 @@ async fn a_second_incremental_scan_reads_nothing_again() {
     let first = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(first.tracks, 5);
     assert_eq!(first.unchanged, 0, "nothing was known yet");
+    assert_eq!(first.added, 5, "so all five arrived");
+    assert_eq!(first.changed, 0);
 
     let second = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(second.tracks, 5);
     assert_eq!(second.unchanged, 5, "no file changed, so none was reopened");
     assert_eq!(second.gone, 0);
+    assert_eq!(second.added, 0, "and nothing arrived the second time");
+    assert_eq!(second.changed, 0);
 
     assert_eq!(count(&pool, "SELECT count(*) FROM tracks").await, 5);
 }
@@ -305,6 +309,10 @@ async fn a_full_scan_reads_everything_again() {
 
     assert_eq!(full.unchanged, 0, "a full scan skips nothing");
     assert_eq!(full.tracks, 1);
+    // Which is the figure a summary of the scan must not be built out of: reading a
+    // file again is something the scan did, and nothing that happened to the music.
+    assert_eq!(full.added, 0, "the file was already there");
+    assert_eq!(full.changed, 0, "and reopening it is not a change to it");
 }
 
 /// Reading a file again must not make a second record of the album it is on.
@@ -897,6 +905,8 @@ async fn a_changed_file_is_read_again() {
 
     let second = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(second.unchanged, 0, "the size changed, so it was reopened");
+    assert_eq!(second.changed, 1, "and that is what changed means");
+    assert_eq!(second.added, 0, "it is the same file, not a new one");
 }
 
 #[tokio::test]
@@ -1007,6 +1017,11 @@ async fn a_moved_file_keeps_its_identity_and_user_data() {
 
     let outcome = scan(&pool, id, &root, Mode::Incremental).await.unwrap();
     assert_eq!(outcome.gone, 0, "nothing actually went away");
+    // And nothing arrived either. There is no row at the new path, which is what
+    // makes a moved file look like an arrival — and it is the same music with the
+    // same row, so what changed about it is where it lives.
+    assert_eq!(outcome.added, 0, "the collection gained nothing");
+    assert_eq!(outcome.changed, 1, "it is the same track at a new path");
 
     let rows: Vec<(i64, String, String, Option<String>)> =
         sqlx::query_as("SELECT id, public_id, path, missing_since FROM tracks")
@@ -1698,6 +1713,11 @@ mod a_file_that_will_not_open {
 
         assert_eq!(again.unchanged, 0, "it was reopened rather than skipped");
         assert_eq!(again.failed, 0, "and this time it could be read");
+        // Reopening it is not the same as it having changed, and a file that stays
+        // broken must not report itself as changed by every scan there ever is: what
+        // changed here is that it reads, which the count of unreadable files says.
+        assert_eq!(again.changed, 0, "nothing about the file itself changed");
+        assert_eq!(again.added, 0, "and it was already in the collection");
 
         let (_, _, length, since) = told(&pool).await;
         assert!(length.is_some(), "so its length is known now");

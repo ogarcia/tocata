@@ -39,8 +39,15 @@ pub async fn scan(state: &AppState, mode: Mode) {
     match scanner::scan_all(&state.pool, mode, &state.scan).await {
         Ok(Some(outcome)) => {
             info!(
-                "scan finished: {} folders, {} tracks ({} unchanged), {} failed, {} gone",
-                outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
+                "scan finished: {} folders, {} tracks ({} unchanged, {} new, {} changed), \
+                 {} failed, {} gone",
+                outcome.folders,
+                outcome.tracks,
+                outcome.unchanged,
+                outcome.added,
+                outcome.changed,
+                outcome.failed,
+                outcome.gone
             );
 
             ran(state).await;

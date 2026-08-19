@@ -367,11 +367,14 @@ fn ScanStrip(scan: ReadSignal<Option<Status>>) -> impl IntoView {
                         <Pair label=t!("scan.folders").to_string() figure=Signal::derive(move || {
                             thousands(running().map(|status| status.folders).unwrap_or_default())
                         }) />
+                        // What arrived, which used to be worked out here as everything
+                        // seen less everything skipped. That is the count of files
+                        // reopened, and it is not the same thing: a full scan reopens
+                        // every file there is and this said the whole collection was
+                        // new. The scanner counts the two apart now, so the strip can
+                        // say the one it means.
                         <Pair label=t!("scan.added").to_string() figure=Signal::derive(move || {
-                            let status = running();
-                            let seen = status.as_ref().map(|status| status.tracks).unwrap_or_default();
-                            let known = status.map(|status| status.unchanged).unwrap_or_default();
-                            thousands(seen.saturating_sub(known))
+                            thousands(running().map(|status| status.added).unwrap_or_default())
                         }) />
                         <Pair label=t!("scan.failed").to_string() figure=Signal::derive(move || {
                             thousands(running().map(|status| status.failed).unwrap_or_default())

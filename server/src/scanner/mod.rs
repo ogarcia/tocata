@@ -183,8 +183,38 @@ pub struct Outcome {
     pub folders: u64,
     pub tracks: u64,
     pub unchanged: u64,
+    /// Files this scan had never seen at this path, and did not recognise as one
+    /// that had moved. What arrived.
+    pub added: u64,
+    /// Files that were already recorded and are not as they were: a different size
+    /// or a different modification time, or a file that would not read last time
+    /// and might now. A moved file counts here rather than as an arrival — it is the
+    /// same music with a new path, and the row it kept says so.
+    pub changed: u64,
     pub failed: u64,
     pub gone: u64,
+}
+
+/// What a file already was to the collection, before this scan read it.
+///
+/// Worked out from what was recorded and never from the mode of the scan, so that
+/// the figures mean the same thing in both: a full scan reopens every file there is,
+/// and eleven thousand tracks reported as changed because they were reopened would
+/// be a summary saying the collection had been rewritten when nothing in it moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Already {
+    /// Nothing was recorded at this path. Which is also when a file that moved is
+    /// worth looking for, and finding one makes it [`Already::Changed`] after all.
+    New,
+    /// Recorded, and different from outside than it was recorded as: another size or
+    /// another modification time. Never a file that would not read and was opened
+    /// again — that one is reopened by every scan until it reads, and nothing about it
+    /// has changed. What changed there is that it can be read now, and the count of
+    /// unreadable files falling to zero is what says so.
+    Changed,
+    /// Recorded and no different. Reached only by a full scan, which reopens a file
+    /// whether or not anything about it says to.
+    Same,
 }
 
 /// One entry, already read from disk. Metadata is absent when the file could
@@ -198,9 +228,8 @@ enum Scanned {
     /// opened. All it needs is to be counted as seen.
     Unchanged { path: PathBuf },
     Track {
-        /// False when no row existed at this path, which is when a moved file
-        /// is worth looking for.
-        known: bool,
+        /// What it was to the collection before this scan opened it.
+        already: Already,
         path: PathBuf,
         extension: String,
         size: u64,
@@ -270,12 +299,22 @@ pub async fn scan_all(
             return Ok(None);
         };
         info!(
-            "scanned '{}': {} folders, {} tracks ({} unchanged), {} failed, {} gone",
-            path, outcome.folders, outcome.tracks, outcome.unchanged, outcome.failed, outcome.gone
+            "scanned '{}': {} folders, {} tracks ({} unchanged, {} new, {} changed), \
+             {} failed, {} gone",
+            path,
+            outcome.folders,
+            outcome.tracks,
+            outcome.unchanged,
+            outcome.added,
+            outcome.changed,
+            outcome.failed,
+            outcome.gone
         );
         total.folders += outcome.folders;
         total.tracks += outcome.tracks;
         total.unchanged += outcome.unchanged;
+        total.added += outcome.added;
+        total.changed += outcome.changed;
         total.failed += outcome.failed;
         total.gone += outcome.gone;
     }
@@ -359,21 +398,26 @@ async fn scan_library(
                     // tagger writing within the padding of an existing tag can
                     // leave the size untouched, and one asked to preserve
                     // timestamps leaves the other untouched.
-                    //
-                    // And never a file we could not read last time, whatever its size
-                    // and time say. Those two are how the file looked from outside,
-                    // and from outside nothing changed: the permissions came back, the
-                    // disk started answering, and the file is exactly as it was. It
-                    // would be skipped for ever and stay as bare as the failed scan
-                    // left it, which is what happened.
-                    let unchanged = mode == Mode::Incremental
-                        && recorded.is_some_and(|recorded| {
-                            !recorded.unreadable
-                                && recorded.size == size as i64
-                                && recorded.modified == epoch_to_iso8601(modified)
-                        });
+                    // What the file says about itself from outside, which is all a
+                    // scan knows before it opens one.
+                    let differs = recorded.is_some_and(|recorded| {
+                        recorded.size != size as i64
+                            || recorded.modified != epoch_to_iso8601(modified)
+                    });
 
-                    if unchanged {
+                    // A file we could not read is opened again whatever those two say,
+                    // and is not a file that changed. From outside nothing about it
+                    // changed: the permissions came back, the disk started answering,
+                    // and the file is exactly as it was. It would be skipped for ever
+                    // and stay as bare as the failed scan left it, which is what
+                    // happened — and a file that stays broken would otherwise report
+                    // itself as changed on every scan there ever is.
+                    let retry = recorded.is_some_and(|recorded| recorded.unreadable);
+
+                    // Skipped only by an incremental scan. What the file is to the
+                    // collection is the same answer either way, and it is what the
+                    // summary of a scan is made of.
+                    if mode == Mode::Incremental && recorded.is_some() && !differs && !retry {
                         Scanned::Unchanged { path }
                     } else {
                         let read = match tags::read(&path) {
@@ -384,8 +428,14 @@ async fn scan_library(
                                 Err(why)
                             }
                         };
+                        let already = match (recorded.is_some(), differs) {
+                            (false, _) => Already::New,
+                            (true, true) => Already::Changed,
+                            (true, false) => Already::Same,
+                        };
+
                         Scanned::Track {
-                            known: recorded.is_some(),
+                            already,
                             path,
                             extension,
                             size,
@@ -447,7 +497,7 @@ async fn scan_library(
                 progress.observed(Item::Unchanged, &path);
             }
             Scanned::Track {
-                known,
+                mut already,
                 path,
                 extension,
                 size,
@@ -458,14 +508,25 @@ async fn scan_library(
                 if !readable {
                     outcome.failed += 1;
                 }
-                if !known {
-                    state.reclaim_moved(&mut tx_db, &path, size, &read).await?;
+                // A file nothing was recorded at may still be a file the collection
+                // already holds, under the path it used to be at. Where it is, the
+                // row moves to here and this is not an arrival: the music was
+                // already in the collection and only its path is new.
+                if already == Already::New
+                    && state.reclaim_moved(&mut tx_db, &path, size, &read).await?
+                {
+                    already = Already::Changed;
                 }
                 state
                     .insert_track(&mut tx_db, &path, &extension, size, modified, read)
                     .await?;
                 outcome.tracks += 1;
-                progress.observed(Item::Track { readable }, &path);
+                match already {
+                    Already::New => outcome.added += 1,
+                    Already::Changed => outcome.changed += 1,
+                    Already::Same => {}
+                }
+                progress.observed(Item::Track { readable, already }, &path);
             }
         }
 
@@ -927,15 +988,17 @@ impl<'a> State<'a> {
     /// file turns up the old row is still unmarked. Rows already marked are
     /// preferred, since a row this scan simply has not reached yet might still
     /// be there.
+    /// Whether it found one, so that a file which moved is not counted as a file
+    /// which arrived.
     async fn reclaim_moved(
         &mut self,
         tx: &mut Transaction<'_, Sqlite>,
         path: &Path,
         size: u64,
         read: &Result<Box<Metadata>, String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let Ok(metadata) = read else {
-            return Ok(());
+            return Ok(false);
         };
 
         // The title from the tag, and only from the tag. For a file with no
@@ -982,17 +1045,19 @@ impl<'a> State<'a> {
         }
         .context("looking for a moved file")?;
 
-        if let Some(id) = candidate {
-            debug!("{} is a file that moved; keeping its row", path.display());
-            sqlx::query("UPDATE tracks SET path = ? WHERE id = ?")
-                .bind(self.relative(path))
-                .bind(id)
-                .execute(&mut **tx)
-                .await
-                .context("moving a reclaimed track to its new path")?;
-        }
+        let Some(id) = candidate else {
+            return Ok(false);
+        };
 
-        Ok(())
+        debug!("{} is a file that moved; keeping its row", path.display());
+        sqlx::query("UPDATE tracks SET path = ? WHERE id = ?")
+            .bind(self.relative(path))
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .context("moving a reclaimed track to its new path")?;
+
+        Ok(true)
     }
 
     /// Marks everything this scan did not touch, unless so much of the library
@@ -1746,13 +1811,17 @@ const UPDATE_DEPTH: usize = 8;
 const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 
 /// One kind of thing a scan has just dealt with.
+///
+/// The scanner's own word, like [`Already`] which it carries: what leaves this module
+/// is a [`Snapshot`], and nobody outside hands anything to a scan.
 #[derive(Debug, Clone, Copy)]
-pub enum Item {
+enum Item {
     Folder,
     /// A file that was read. `readable` is false when its tags could not be
     /// understood, which still counts as a track: the file is there.
     Track {
         readable: bool,
+        already: Already,
     },
     /// A file that has not changed since the last scan, so it was not reopened.
     Unchanged,
@@ -1773,6 +1842,10 @@ pub struct Snapshot {
     pub folders: u64,
     pub tracks: u64,
     pub unchanged: u64,
+    /// Files that were not there last time, and files that are not as they were.
+    /// What a scan actually did, as against how much of the library it walked.
+    pub added: u64,
+    pub changed: u64,
     pub failed: u64,
     pub gone: u64,
     pub started_at: Option<String>,
@@ -1805,6 +1878,8 @@ pub struct Progress {
     folders: AtomicU64,
     tracks: AtomicU64,
     unchanged: AtomicU64,
+    added: AtomicU64,
+    changed: AtomicU64,
     failed: AtomicU64,
     gone: AtomicU64,
     current: RwLock<Current>,
@@ -1820,6 +1895,8 @@ impl Default for Progress {
             folders: AtomicU64::new(0),
             tracks: AtomicU64::new(0),
             unchanged: AtomicU64::new(0),
+            added: AtomicU64::new(0),
+            changed: AtomicU64::new(0),
             failed: AtomicU64::new(0),
             gone: AtomicU64::new(0),
             current: RwLock::new(Current::default()),
@@ -1855,6 +1932,8 @@ impl Progress {
             folders: self.folders.load(Ordering::Relaxed),
             tracks: self.tracks.load(Ordering::Relaxed),
             unchanged: self.unchanged.load(Ordering::Relaxed),
+            added: self.added.load(Ordering::Relaxed),
+            changed: self.changed.load(Ordering::Relaxed),
             failed: self.failed.load(Ordering::Relaxed),
             gone: self.gone.load(Ordering::Relaxed),
             started_at: current.started_at.clone(),
@@ -1900,6 +1979,8 @@ impl Progress {
                     &self.folders,
                     &self.tracks,
                     &self.unchanged,
+                    &self.added,
+                    &self.changed,
                     &self.failed,
                     &self.gone,
                 ] {
@@ -1935,10 +2016,19 @@ impl Progress {
             Item::Folder => {
                 self.folders.fetch_add(1, Ordering::Relaxed);
             }
-            Item::Track { readable } => {
+            Item::Track { readable, already } => {
                 self.tracks.fetch_add(1, Ordering::Relaxed);
                 if !readable {
                     self.failed.fetch_add(1, Ordering::Relaxed);
+                }
+                match already {
+                    Already::New => {
+                        self.added.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Already::Changed => {
+                        self.changed.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Already::Same => {}
                 }
             }
             Item::Unchanged => {

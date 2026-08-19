@@ -227,7 +227,7 @@ fn Figures(
             <Process resources />
         </Show>
 
-        <LastScan scan />
+        <LastScan scan missing=stats.missing unreadable=stats.unreadable />
     }
 }
 
@@ -400,9 +400,24 @@ fn Gauge(
 /// and hiding the four numbers behind a click. A scan having finished is the normal
 /// state of a server, and four numbers fit on a line — so there was nothing to
 /// save by folding them, and a fold on the normal state is a fold nobody opens.
+///
+/// The first two places on the line change what they hold. A scan that brought
+/// nothing and altered nothing has one thing worth reporting — how much it walked to
+/// find that out — and a scan that did either has something better to say in the same
+/// space: what arrived, and what is not as it was. Which means the interesting figure
+/// is always in the same place and never has to be looked for, and a scan of a
+/// collection nobody has touched still says four things rather than two zeroes.
+///
+/// `missing` and `unreadable` are what the collection is holding now, and they decide
+/// only whether the two figures that name a problem are a way into it. The figures
+/// themselves are the scan's and stay as they are: that scan did find twelve absent
+/// files, and it goes on having found them after a purge has taken them out.
 #[component]
-fn LastScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
+fn LastScan(scan: ReadSignal<Option<Status>>, missing: i64, unreadable: i64) -> impl IntoView {
     let done = move || scan.get().filter(|status| status.finished_at.is_some());
+
+    let arrived = Signal::derive(move || done().map_or(0, |status| status.added));
+    let altered = Signal::derive(move || done().map_or(0, |status| status.changed));
 
     view! {
         <Show when=move || done().is_some()>
@@ -419,22 +434,40 @@ fn LastScan(scan: ReadSignal<Option<Status>>) -> impl IntoView {
 
                 <div class="figures">
                     <Figure
-                        label=t!("scan.folders").to_string()
-                        figure=Signal::derive(move || counted(done(), |status| status.folders))
+                        label=Signal::derive(move || {
+                            if arrived.get() > 0 {
+                                t!("scan.added").to_string()
+                            } else {
+                                t!("scan.folders").to_string()
+                            }
+                        })
+                        figure=Signal::derive(move || match arrived.get() {
+                            0 => counted(done(), |status| status.folders),
+                            added => super::thousands(added as i64),
+                        })
                     />
                     <Figure
-                        label=t!("scan.unchanged").to_string()
-                        figure=Signal::derive(move || counted(done(), |status| status.unchanged))
+                        label=Signal::derive(move || {
+                            if altered.get() > 0 {
+                                t!("scan.changed").to_string()
+                            } else {
+                                t!("scan.unchanged").to_string()
+                            }
+                        })
+                        figure=Signal::derive(move || match altered.get() {
+                            0 => counted(done(), |status| status.unchanged),
+                            altered => super::thousands(altered as i64),
+                        })
                     />
                     <Figure
-                        label=t!("scan.failed").to_string()
+                        label=Signal::derive(|| t!("scan.failed").to_string())
                         figure=Signal::derive(move || counted(done(), |status| status.failed))
-                        to=into_it(scan, |status| status.failed)
+                        to=into_it(scan, |status| status.failed, unreadable > 0)
                     />
                     <Figure
-                        label=t!("scan.gone").to_string()
+                        label=Signal::derive(|| t!("scan.gone").to_string())
                         figure=Signal::derive(move || counted(done(), |status| status.gone))
-                        to=into_it(scan, |status| status.gone)
+                        to=into_it(scan, |status| status.gone, missing > 0)
                     />
                 </div>
             </section>
@@ -448,18 +481,24 @@ fn counted(status: Option<Status>, of: fn(&Status) -> u64) -> String {
 
 /// Where a figure of the last scan goes, while it is worth going there.
 ///
-/// Only the two that mean something is wrong, and only above zero: at zero there is
-/// nothing to see, and a link onto an empty screen is a tap somebody does not get
-/// back. Read from the status rather than settled when the block is built, because
-/// the block is not built again when a scan finishes — the numbers in it change
-/// under it, and a link that did not would be a link about the scan before.
+/// Only the two that mean something is wrong, and only where there is still something
+/// to see: a link onto an empty screen is a tap somebody does not get back. Which
+/// takes both figures to decide — the scan's, because a scan that found nothing wrong
+/// has nowhere to send anybody, and `still`, because what it found may have been dealt
+/// with since. Purging the absent files leaves a scan that counted twelve of them and
+/// a Maintenance screen with nothing on it.
+///
+/// Read from the status rather than settled when the block is built, because the block
+/// is not built again when a scan finishes — the numbers in it change under it, and a
+/// link that did not would be a link about the scan before.
 fn into_it(
     scan: ReadSignal<Option<Status>>,
     of: fn(&Status) -> u64,
+    still: bool,
 ) -> Signal<Option<&'static str>> {
     Signal::derive(move || {
         scan.get()
-            .filter(|status| status.finished_at.is_some() && of(status) > 0)
+            .filter(|status| still && status.finished_at.is_some() && of(status) > 0)
             .map(|_| "/maintenance")
     })
 }
@@ -472,17 +511,17 @@ fn into_it(
 /// colour on one of them answers a question nobody was asking.
 #[component]
 fn Figure(
-    label: String,
+    /// A signal like the figure beside it, because two of the four places on this line
+    /// are named after whatever the scan turned out to have done.
+    label: Signal<String>,
     figure: Signal<String>,
     #[prop(optional)] to: Option<Signal<Option<&'static str>>>,
 ) -> impl IntoView {
-    let label = StoredValue::new(label);
-
     move || match to.and_then(|to| to.get()) {
         None => view! {
             <div>
                 <span class="figure">{move || figure.get()}</span>
-                <span class="quiet">{label.get_value()}</span>
+                <span class="quiet">{move || label.get()}</span>
             </div>
         }
         .into_any(),
@@ -490,7 +529,7 @@ fn Figure(
             <A href=to attr:class="amiss">
                 <span class="figure">{move || figure.get()}</span>
                 <span class="opens">
-                    {label.get_value()}
+                    {move || label.get()}
                     <Glyph icon=Icon::Arrow />
                 </span>
             </A>
