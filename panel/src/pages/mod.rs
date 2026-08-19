@@ -279,12 +279,15 @@ pub fn thousands(count: i64) -> String {
     if count < 0 { format!("-{out}") } else { out }
 }
 
-/// How long one track lasts.
+/// How long a piece of music lasts, whether that is one track, everything an artist
+/// has, or the whole collection.
 ///
 /// Zero-padded from the minutes down but never at the front: "3:44" rather than
 /// "03:44", which is how a length is written everywhere it is read as one. Hours
 /// appear only when there are any — a recording of a whole concert is one track,
-/// and "97:20" is not how anybody says an hour and a half.
+/// and "97:20" is not how anybody says an hour and a half. Which is also what makes
+/// this the right way to write a figure of four hundred hours: "412:17" beside a
+/// collection could be read as either, and "412:17:37" can only be read one way.
 pub fn length(seconds: i64) -> String {
     let seconds = seconds.max(0);
     let (hours, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);

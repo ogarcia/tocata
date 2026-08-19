@@ -187,7 +187,7 @@ fn Figures(
                 <h2>{t!("home.collection")}</h2>
                 <dl class="facts">
                     <Row label=t!("home.size").to_string() value=super::bytes(stats.total_size) />
-                    <Row label=t!("home.duration").to_string() value=length(stats.total_duration) />
+                    <Row label=t!("home.duration").to_string() value=super::length(stats.total_duration) />
                     <Row label=t!("home.playlists").to_string() value=super::thousands(stats.playlists) />
                     // The two problems in one row, and one row because the two panes
                     // carry the same number of them on purpose — see the note at the
@@ -668,9 +668,4 @@ fn ago(status: &Status) -> String {
     } else {
         ago
     }
-}
-
-/// Hours and minutes. A collection is measured in days of music, not in seconds.
-fn length(seconds: i64) -> String {
-    format!("{}:{:02}", seconds / 3600, (seconds % 3600) / 60)
 }
