@@ -356,9 +356,10 @@ fn Words(read: Lyrics, mine: String) -> impl IntoView {
     // The last line whose moment has passed. Nothing before the first one, which is
     // where a song's opening bars are.
     //
-    // A signal rather than a closure because every line asks it, and a closure would
-    // have to be moved into the first of them.
-    let at_the_playhead = Signal::derive(move || {
+    // A memo rather than a closure because every line asks it, and a memo rather than
+    // a plain signal because the playhead moves four times a second while this answer
+    // changes once a line — and what hangs off it moves the reading.
+    let at_the_playhead = Memo::new(move |_| {
         if !sounding() {
             return None;
         }
@@ -416,8 +417,11 @@ fn Words(read: Lyrics, mine: String) -> impl IntoView {
                     </div>
 
                     {if synced {
+                        let timed = NodeRef::new();
+                        follow(timed, at_the_playhead);
+
                         view! {
-                            <div class="timed">
+                            <div class="timed" node_ref=timed>
                                 {words
                                     .into_iter()
                                     .enumerate()
@@ -460,6 +464,68 @@ fn Words(read: Lyrics, mine: String) -> impl IntoView {
             }
         }}
     }
+}
+
+/// Keeps the line that is sounding in view, for as long as that is the line somebody
+/// is looking at.
+///
+/// A line lit below the fold is no use lit, so each new one is brought to the middle
+/// of the reading. What this must not do is insist: reading the last verse of a song
+/// still on its first is an ordinary thing to do, and words that pulled themselves
+/// back every few seconds would make it impossible. So it only moves when the line
+/// being left was itself in view — read somewhere else and the words stay where they
+/// were put, come back to the playhead and it is followed again, with nothing to
+/// press either way.
+fn follow(timed: NodeRef<leptos::html::Div>, at_the_playhead: Memo<Option<usize>>) {
+    // What each run hands the next is the line it left where somebody could see it,
+    // which is not always the line that is lit: nothing at all until the words are in
+    // the document, and nothing while no line is lit.
+    Effect::new(move |left: Option<Option<usize>>| {
+        let left = left.flatten();
+        let now = at_the_playhead.get();
+
+        // Nothing lit — the opening bars, or another song sounding — is nothing to
+        // bring into view, and the words hold still.
+        let (Some(words), Some(nth)) = (timed.get(), now) else {
+            return None;
+        };
+
+        let lines = words.children();
+
+        // The box that scrolls is the whole panel under its head: the words are one
+        // tab of it, so moving them means moving that.
+        let (Some(line), Ok(Some(reading))) = (lines.item(nth as u32), words.closest(".leafing"))
+        else {
+            return None;
+        };
+
+        // Nothing left behind counts as following, which is what puts the words on
+        // the line that is sounding when they are opened halfway through a song.
+        let following = left
+            .and_then(|was| lines.item(was as u32))
+            .is_none_or(|was| in_view(&reading, &was));
+
+        if following {
+            let how = web_sys::ScrollIntoViewOptions::new();
+            how.set_block(web_sys::ScrollLogicalPosition::Center);
+            line.scroll_into_view_with_scroll_into_view_options(&how);
+        }
+
+        // Either way this line is now the one to ask about next time: left where it
+        // was put if it was followed, and wherever the reader went if it was not —
+        // which is how the playhead is picked up again when they come back to it.
+        now
+    });
+}
+
+/// Whether a line is anywhere in the part of the words on screen.
+fn in_view(reading: &web_sys::Element, line: &web_sys::Element) -> bool {
+    let (reading, line) = (
+        reading.get_bounding_client_rect(),
+        line.get_bounding_client_rect(),
+    );
+
+    line.bottom() > reading.top() && line.top() < reading.bottom()
 }
 
 /// Every tag the file carries, under the names its own format writes.

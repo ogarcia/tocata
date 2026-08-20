@@ -5287,6 +5287,14 @@ select.narrow { width: 12.5rem; }
   min-height: 0;
   overflow-y: auto;
   padding: 1.625rem 1.75rem 2rem;
+  /* Timed words scroll this box themselves, to keep the line that is sounding in
+   * view. How that looks is decided here rather than where it is asked for, so a
+   * reader who wants less motion is answered in the one place readers are. */
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leafing { scroll-behavior: auto; }
 }
 
 /* The small capitals over a run of rows, wherever that run is. Was written inside
