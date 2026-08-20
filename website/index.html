@@ -12,13 +12,42 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tocata — an OpenSubsonic music server in Rust</title>
-    <meta
-      name="description"
-      content="An OpenSubsonic compatible music server written in Rust. One static
-               binary with its administration panel inside it: nothing to install
-               beside it, no runtime to provide, no web server to put in front."
-    />
-    <link rel="icon" href="favicon.svg" />
+
+    <!-- One line, and it has to be. A description wrapped in the source arrives
+         with the wrapping still in it: nothing between here and a chat window
+         collapses the whitespace an attribute is allowed to hold, so what gets
+         shown is this file's own margins, ragged and indented. -->
+    <meta name="description" content="An OpenSubsonic compatible music server written in Rust. One static binary with its administration panel inside it: nothing else to install, no runtime to provide, no web server in front." />
+    <link rel="canonical" href="https://tocata.ogarcia.me/" />
+
+    <!-- What a link to this page looks like where somebody pastes it. Open Graph
+         is what reads it — Telegram, Slack, Mastodon, Discord — and the one
+         `twitter:` line is for the readers that only know those, which take the
+         rest from the tags above. Absolute URLs: a preview is fetched by a
+         machine that has no page to be relative to. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Tocata" />
+    <meta property="og:title" content="Tocata — an OpenSubsonic music server in Rust" />
+    <meta property="og:description" content="One static binary with its administration panel inside it: nothing else to install, no runtime to provide, no web server in front." />
+    <meta property="og:url" content="https://tocata.ogarcia.me/" />
+    <meta property="og:image" content="https://tocata.ogarcia.me/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Tocata's mark over its name, and one line: an OpenSubsonic music server, written in Rust" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- The SVG for anything that will take one, and the ICO for whatever asks
+         for /favicon.ico without reading the page first. The touch icon is the
+         one that cannot be transparent: what shows through it on a home screen
+         is black. -->
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon.ico" sizes="48x48 32x32 16x16" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+    <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101012" media="(prefers-color-scheme: dark)" />
+
     <link rel="stylesheet" href="tocata.css" />
   </head>
 
