@@ -6,11 +6,18 @@ name: CI
 on:
   push:
     branches: [master]
+    # A tag is a release, and the tag is the version written the way Cargo writes
+    # it, with no `v` in front. What a release adds to an ordinary push is at the
+    # bottom of this file: the image's own version tag, `latest` moving to it, and
+    # a page carrying the binaries.
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
     # The website has a workflow of its own, and nothing it says is checked by a
     # compiler: a change to it need not compile the server, build the panel and
     # publish an image identical to the one already published. Only on `push` —
     # a required check that is skipped on a pull request never reports at all,
-    # and a branch waiting for it waits for ever.
+    # and a branch waiting for it waits for ever. Tags are unaffected either way:
+    # GitHub does not evaluate path filters for a tag push, so a release cut from
+    # a commit that only touched the site still builds.
     paths-ignore: ['website/**']
   pull_request:
 
@@ -34,6 +41,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # First, and only for a tag: a tag saying one thing while Cargo.toml says
+      # another is a release that misreports itself everywhere the version shows
+      # — the panel's overview, the image's label, the answer to a client asking
+      # what it is talking to. Ten seconds here rather than a wrong release.
+      - name: The tag has to be the version
+        if: github.ref_type == 'tag'
+        run: |
+          declared=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "the tag is $GITHUB_REF_NAME and Cargo.toml says $declared"
+          test "$declared" = "$GITHUB_REF_NAME"
+
       - uses: actions/cache@v6
         with:
           path: |
@@ -47,38 +65,9 @@ jobs:
 
       # The server carries the panel inside its binary, so the panel is built
       # first or there is nothing to carry.
-      - run: rustup target add wasm32-unknown-unknown
-
-      # Trunk fetches wasm-bindgen and wasm-opt itself on first use, which is
-      # the one thing in this build that reaches the network without being
-      # pinned. Caching that directory is what keeps a run from downloading them
-      # again, and what keeps two runs a month apart from getting different
-      # tools.
-      - uses: actions/cache@v6
+      - uses: ./.github/actions/panel
         with:
-          path: ~/.cache/trunk
-          key: trunk-tools-${{ runner.arch }}-${{ env.TRUNK_VERSION }}
-
-      # Straight from the release, at a version we chose, rather than through a
-      # third party action that would decide for us what "latest" means today.
-      - name: Install trunk
-        run: |
-          case "${{ runner.arch }}" in
-            X64)   arch=x86_64 ;;
-            ARM64) arch=aarch64 ;;
-            *) echo "no trunk build for ${{ runner.arch }}" >&2; exit 1 ;;
-          esac
-          url="https://github.com/trunk-rs/trunk/releases/download/v$TRUNK_VERSION"
-          name="trunk-$arch-unknown-linux-musl.tar.gz"
-          curl -fsSL "$url/$name" -o trunk.tar.gz
-          curl -fsSL "$url/$name.sha256" -o trunk.sha256
-          # The name inside the checksum file is the one it was published under.
-          echo "$(cut -d' ' -f1 trunk.sha256)  trunk.tar.gz" | sha256sum --check
-          tar -xzf trunk.tar.gz -C /usr/local/bin trunk
-          rm trunk.tar.gz trunk.sha256
-
-      - run: trunk build --release
-        working-directory: panel
+          trunk-version: ${{ env.TRUNK_VERSION }}
 
       # The first two are what the pre-commit hook already refuses to commit
       # without. The third is the part the hook leaves to us, so that a local
@@ -124,38 +113,9 @@ jobs:
 
       # The server carries the panel inside its binary, so the panel is built
       # first or there is nothing to carry.
-      - run: rustup target add wasm32-unknown-unknown
-
-      # Trunk fetches wasm-bindgen and wasm-opt itself on first use, which is
-      # the one thing in this build that reaches the network without being
-      # pinned. Caching that directory is what keeps a run from downloading them
-      # again, and what keeps two runs a month apart from getting different
-      # tools.
-      - uses: actions/cache@v6
+      - uses: ./.github/actions/panel
         with:
-          path: ~/.cache/trunk
-          key: trunk-tools-${{ runner.arch }}-${{ env.TRUNK_VERSION }}
-
-      # Straight from the release, at a version we chose, rather than through a
-      # third party action that would decide for us what "latest" means today.
-      - name: Install trunk
-        run: |
-          case "${{ runner.arch }}" in
-            X64)   arch=x86_64 ;;
-            ARM64) arch=aarch64 ;;
-            *) echo "no trunk build for ${{ runner.arch }}" >&2; exit 1 ;;
-          esac
-          url="https://github.com/trunk-rs/trunk/releases/download/v$TRUNK_VERSION"
-          name="trunk-$arch-unknown-linux-musl.tar.gz"
-          curl -fsSL "$url/$name" -o trunk.tar.gz
-          curl -fsSL "$url/$name.sha256" -o trunk.sha256
-          # The name inside the checksum file is the one it was published under.
-          echo "$(cut -d' ' -f1 trunk.sha256)  trunk.tar.gz" | sha256sum --check
-          tar -xzf trunk.tar.gz -C /usr/local/bin trunk
-          rm trunk.tar.gz trunk.sha256
-
-      - run: trunk build --release
-        working-directory: panel
+          trunk-version: ${{ env.TRUNK_VERSION }}
 
       # Static linking is the musl target's own default, so no flag asks for it
       # here either.
@@ -210,9 +170,19 @@ jobs:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
-      # A branch name may carry a slash; an image tag may not.
-      - name: Work out the tag
-        run: echo "TAG=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+      # A branch name may carry a slash; an image tag may not. A release is also
+      # what `latest` means from then on, which is what somebody who pulled
+      # without naming a version gets.
+      - name: Work out the tags
+        run: |
+          image="ghcr.io/${{ github.repository }}"
+          tags="$image:${GITHUB_REF_NAME//\//-}"
+
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tags="$tags $image:latest"
+          fi
+
+          echo "TAGS=$tags" >> "$GITHUB_ENV"
 
       # No compiler runs in this job: it wraps the binaries the job before it
       # made, which is the path a release will take and therefore the one worth
@@ -253,14 +223,71 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Both architectures under one manifest, tagged with the branch it came
-      # from, and only once the amd64 build of it has served a request. A pull
-      # request builds and gets tested; it does not publish.
+      # Both architectures under one manifest, tagged with the branch or the
+      # version it came from, and only once the amd64 build of it has served a
+      # request. A pull request builds and gets tested; it does not publish.
       - name: Publish
         if: github.event_name == 'push'
         run: |
+          named=()
+          for tag in $TAGS; do
+            named+=(--tag "$tag")
+          done
+
           docker buildx build \
             --build-arg BINARY_SOURCE=prebuilt \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.version="$GITHUB_REF_NAME" \
             --platform linux/amd64,linux/arm64 \
-            --push --tag "ghcr.io/${{ github.repository }}:$TAG" .
+            --push "${named[@]}" .
+
+  release:
+    name: The release page
+    # The one job a release adds. Everything above runs on every push; this runs
+    # when the push was a version, and only after the checks have passed and the
+    # image built from these very binaries has answered a request.
+    if: github.ref_type == 'tag'
+    needs: [check, binary, image]
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the release, which is the only thing here that writes.
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tocata-amd64
+          path: amd64
+      - uses: actions/download-artifact@v8
+        with:
+          name: tocata-arm64
+          path: arm64
+
+      # A tarball rather than the bare binary, because an artifact travels as a
+      # zip and a zip does not carry permissions: the executable bit is put back
+      # here, and a tar keeps it, so what somebody downloads runs without them
+      # having to be told to chmod it first.
+      - name: Pack them
+        run: |
+          mkdir dist
+
+          for arch in amd64 arm64; do
+            chmod +x "$arch/tocata"
+            tar -czf "dist/tocata-$GITHUB_REF_NAME-$arch.tar.gz" -C "$arch" tocata
+          done
+
+          (cd dist && sha256sum ./*.tar.gz > sha256sums.txt)
+
+      # The notes are the tag's own message, so what a release says is written
+      # where the release is cut rather than in a box on a website afterwards. A
+      # tag with no message stops this on purpose: an empty release page says
+      # nothing about what changed.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes-from-tag \
+            --verify-tag

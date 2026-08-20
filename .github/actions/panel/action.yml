@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+name: Build the panel
+description: >
+  Installs the WebAssembly target and trunk, and builds the panel the server
+  carries inside its own binary. Every job that compiles the server needs this
+  first, or there is nothing to carry — which is why it is here rather than
+  written out in each of them.
+
+inputs:
+  trunk-version:
+    description: >
+      The trunk release to use. Pinned by the caller, because the panel's build
+      tool decides what the bundle looks like.
+    required: true
+
+runs:
+  using: composite
+
+  steps:
+    - run: rustup target add wasm32-unknown-unknown
+      shell: bash
+
+    # Trunk fetches wasm-bindgen and wasm-opt itself on first use, which is the
+    # one thing in this build that reaches the network without being pinned.
+    # Caching that directory is what keeps a run from downloading them again, and
+    # what keeps two runs a month apart from getting different tools.
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/trunk
+        key: trunk-tools-${{ runner.arch }}-${{ inputs.trunk-version }}
+
+    # Straight from the release, at a version the caller chose, rather than
+    # through a third party action that would decide for us what "latest" means
+    # today.
+    - name: Install trunk
+      shell: bash
+      env:
+        TRUNK_VERSION: ${{ inputs.trunk-version }}
+      run: |
+        case "${{ runner.arch }}" in
+          X64)   arch=x86_64 ;;
+          ARM64) arch=aarch64 ;;
+          *) echo "no trunk build for ${{ runner.arch }}" >&2; exit 1 ;;
+        esac
+        url="https://github.com/trunk-rs/trunk/releases/download/v$TRUNK_VERSION"
+        name="trunk-$arch-unknown-linux-musl.tar.gz"
+        curl -fsSL "$url/$name" -o trunk.tar.gz
+        curl -fsSL "$url/$name.sha256" -o trunk.sha256
+        # The name inside the checksum file is the one it was published under.
+        echo "$(cut -d' ' -f1 trunk.sha256)  trunk.tar.gz" | sha256sum --check
+        tar -xzf trunk.tar.gz -C /usr/local/bin trunk
+        rm trunk.tar.gz trunk.sha256
+
+    - run: trunk build --release
+      shell: bash
+      working-directory: panel

@@ -13,23 +13,29 @@ and no web server to put in front of it.
 
 ## Status
 
-Early days, and now being run in earnest to find out what is still wrong. There
-are no releases yet, so what there is to run comes from the last build of the
-`master` branch.
+Early days, and now being run in earnest to find out what is still wrong. The
+first release is 0.1.0.
+
+Releases are what there is to run. `master` is where the work happens: it is
+built and tested on every push and publishes an image of its own, so it is there
+for anybody who wants to see what is coming rather than what is finished.
 
 ## Running it
 
 ### The container image
-
-Published on every push to `master`:
 
 ```sh
 podman run -d --name tocata \
   -p 4224:4224 \
   -v tocata-data:/data \
   -v /srv/music:/media:ro \
-  ghcr.io/ogarcia/tocata:master
+  ghcr.io/ogarcia/tocata:latest
 ```
+
+Three kinds of tag are published. `latest` is the newest release and moves when
+one is cut; a version — `0.1.0` — names one release and never moves again, which
+is the tag to write down somewhere that has to keep working; and `master` is the
+development branch, rebuilt on every push to it.
 
 `docker` in place of `podman` works the same way. Two directories matter: `/data`
 is Tocata's own — the database lives there — and `/media` is where the music is.
@@ -55,9 +61,27 @@ podman build -t tocata .
 
 ### A prebuilt binary
 
-Every build of `master` uploads one per architecture. With the
-[GitHub CLI](https://cli.github.com/), where the run has to be named because
-`gh run download` takes a run and not a branch:
+Every release carries one per architecture, with a `sha256sums.txt` beside them.
+Nothing is needed to fetch one — no session, no tool but the ones already there:
+
+```sh
+version=0.1.0
+base=https://github.com/ogarcia/tocata/releases/download/$version
+curl -fLO "$base/tocata-$version-amd64.tar.gz"
+curl -fLO "$base/sha256sums.txt"
+sha256sum --check --ignore-missing sha256sums.txt
+tar -xzf "tocata-$version-amd64.tar.gz"
+```
+
+`arm64` in place of `amd64` is the other one, and the
+[releases page](https://github.com/ogarcia/tocata/releases) is the same thing to
+click through. A tarball rather than a bare file because a tar carries the
+executable bit, so what comes out runs.
+
+Every build of `master` uploads the same two as run artifacts, for anybody
+following the branch rather than the releases. Those need a GitHub session —
+artifacts are not public downloads — and they travel as zips, which do not carry
+permissions, so the executable bit has to be set by hand:
 
 ```sh
 run=$(gh run list --repo ogarcia/tocata --branch master --workflow CI \
@@ -66,13 +90,8 @@ gh run download --repo ogarcia/tocata "$run" --name tocata-amd64
 chmod +x tocata
 ```
 
-`tocata-arm64` is the other one. They can also be downloaded from the summary page
-of any run under the repository's Actions tab, which needs a GitHub session —
-artifacts are not public downloads. The executable bit is set by hand above
-because a zip file does not carry permissions.
-
-Both are statically linked against musl and bring their own libc, so they run on
-any Linux of the right architecture, distribution and version regardless.
+All of them are statically linked against musl and bring their own libc, so they
+run on any Linux of the right architecture, distribution and version regardless.
 
 ### From source
 
