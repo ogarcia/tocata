@@ -11,6 +11,11 @@ What ships is a single binary with the panel inside it, statically linked and
 bringing its own libc. There is nothing to install beside it, no runtime to provide
 and no web server to put in front of it.
 
+[![The panel's first screen: what the collection holds, what the process is costing, and what the last scan found](website/shots/overview.webp)](https://tocata.ogarcia.me/)
+
+The rest of the screens, and what all this is for, are at
+[tocata.ogarcia.me](https://tocata.ogarcia.me/).
+
 ## Status
 
 Early days, and now being run in earnest to find out what is still wrong. The
