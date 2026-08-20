@@ -6,6 +6,12 @@ name: CI
 on:
   push:
     branches: [master]
+    # The website has a workflow of its own, and nothing it says is checked by a
+    # compiler: a change to it need not compile the server, build the panel and
+    # publish an image identical to the one already published. Only on `push` —
+    # a required check that is skipped on a pull request never reports at all,
+    # and a branch waiting for it waits for ever.
+    paths-ignore: ['website/**']
   pull_request:
 
 # A newer push makes the run before it beside the point.

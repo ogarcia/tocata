@@ -1,0 +1,304 @@
+<!doctype html>
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+  Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+  Tocata's own page, and the same look as the panel it is about: one stylesheet,
+  no framework, nothing that is a card. Everything it claims is in the README —
+  this page says less, links to where the rest is, and shows the screens.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tocata — an OpenSubsonic music server in Rust</title>
+    <meta
+      name="description"
+      content="An OpenSubsonic compatible music server written in Rust. One static
+               binary with its administration panel inside it: nothing to install
+               beside it, no runtime to provide, no web server to put in front."
+    />
+    <link rel="icon" href="favicon.svg" />
+    <link rel="stylesheet" href="tocata.css" />
+  </head>
+
+  <body>
+    <header class="rail">
+      <a class="mark" href="./">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 3.937a9 9 0 1 0 5 8.063" />
+          <path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+          <path d="M19 4a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+          <path d="M20 4l-3.5 10l-2.5 2" />
+        </svg>
+        Tocata
+      </a>
+
+      <nav>
+        <a href="#screens">Screens</a>
+        <a href="#running">Running it</a>
+        <a href="#doors">Logging in</a>
+        <a href="https://github.com/ogarcia/tocata">Source</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h1>An OpenSubsonic music server, written in Rust.</h1>
+
+        <p class="lead">
+          One binary with its administration panel inside it, statically linked and
+          bringing its own libc. There is nothing to install beside it, no runtime to
+          provide and no web server to put in front of it.
+        </p>
+
+        <p class="aside">
+          Early days, and now being run in earnest to find out what is still wrong. The
+          first release is 0.1.0. <code>master</code> is where the work happens — built
+          and tested on every push, and published as an image of its own, for anybody
+          who would rather see what is coming than what is finished.
+        </p>
+
+        <div class="doors">
+          <a class="way" href="#running">How to run it</a>
+          <a href="https://github.com/ogarcia/tocata/releases">Releases</a>
+          <a href="https://github.com/ogarcia/tocata">The source, on GitHub</a>
+        </div>
+      </section>
+
+      <section class="figures">
+        <div>
+          <p class="figure">1</p>
+          <p class="label">binary, panel included</p>
+        </div>
+        <div>
+          <p class="figure">0</p>
+          <p class="label">runtimes to provide</p>
+        </div>
+        <div>
+          <p class="figure">5</p>
+          <p class="label">OpenSubsonic extensions</p>
+        </div>
+        <div>
+          <p class="figure">GPL-3</p>
+          <p class="label">free software</p>
+        </div>
+      </section>
+
+      <section class="split">
+        <div>
+          <p class="lettering">The server side</p>
+          <p>
+            There are already plenty of good players that speak
+            <a href="https://opensubsonic.netlify.app/">OpenSubsonic</a>, so building
+            another one is not the goal. What Tocata ships is the server, and the only
+            interface it carries is a small administration panel: what the collection
+            holds, who may reach which part of it, and the housekeeping that keeps both
+            true.
+          </p>
+        </div>
+
+        <div>
+          <p class="lettering">What it leaves alone</p>
+          <p>
+            Audio is the whole of what this server is for, and the API covers more than
+            audio. Video, transcoding, podcasts, internet radio, chat and sharing are
+            other programs' work. A client is told so where it asks — five extensions
+            declared, an empty listing rather than a 404 — and the reasons, endpoint by
+            endpoint, are
+            <a href="https://github.com/ogarcia/tocata#what-tocata-does-not-answer">
+              in the README</a>.
+          </p>
+        </div>
+      </section>
+
+      <section id="screens">
+        <h2>The panel</h2>
+
+        <figure>
+          <img
+            src="shots/overview.webp" width="1600" height="800"
+            alt="The overview screen: counts of songs, albums, artists and genres, the
+                 collection's size and length, what the process is costing, and what the
+                 last scan found."
+          />
+          <figcaption>
+            What the collection holds, what the process is costing and what the last scan
+            found, on one screen. Eleven thousand eight hundred songs indexed, and the
+            server sitting in twenty-one and a half megabytes while it plays one.
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img
+            src="shots/albums.webp" width="1600" height="800" loading="lazy"
+            alt="A grid of album covers filtered by a search for Genesis, each with its
+                 artist, year, number of tracks and length."
+          />
+          <figcaption>
+            Records, filed and searched. Cover art comes off the files themselves, read
+            when a screen asks for it rather than copied into a second collection beside
+            the first.
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img
+            src="shots/album.webp" width="1600" height="800" loading="lazy"
+            alt="A panel over the album grid showing one record: its tracks, its length,
+                 its label and where it is on disk."
+          />
+          <figcaption>
+            One record: what it is, what it weighs, where on disk it lives and the tracks
+            in the order the files give them.
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img
+            src="shots/lyrics.webp" width="1600" height="800" loading="lazy"
+            alt="A track's panel showing timed lyrics, with the line at the playhead lit
+                 in the accent colour."
+          />
+          <figcaption>
+            Lyrics, timed, read out of the file where they were found. The line at the
+            playhead is lit and the reading follows it — as long as that is the line you
+            are reading: wander off and the words stay where you put them.
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img
+            src="shots/track.webp" width="1600" height="800" loading="lazy"
+            alt="A track's panel showing what the scan recorded: title, artist, album,
+                 year and genre, then the file's length, format, bitrate and path."
+          />
+          <figcaption>
+            One track as the last scan read it. The tabs beside it hold the words and
+            every tag the file carries, both taken off the disk when they are asked for,
+            so a file edited since the scan can be seen disagreeing with it.
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img
+            src="shots/artist.webp" width="1600" height="800" loading="lazy"
+            alt="An artist's panel: five albums, fifty-eight tracks, total length, plays,
+                 the tracks played most, and every record they are credited on."
+          />
+          <figcaption>
+            An artist, and every record they are credited on rather than only the ones
+            filed under their name. What gets played most is counted across everybody who
+            listens on the server, not only you.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="running">
+        <h2>Running it</h2>
+
+        <p class="lettering">The container image</p>
+
+        <pre><code>podman run -d --name tocata \
+  -p 4224:4224 \
+  -v tocata-data:/data \
+  -v /srv/music:/media:ro \
+  ghcr.io/ogarcia/tocata:latest</code></pre>
+
+        <p>
+          Three kinds of tag are published.
+          <a href="https://github.com/ogarcia/tocata/pkgs/container/tocata"><code>latest</code></a>
+          is the newest release and moves when one is cut; a version —
+          <code>0.1.0</code> — names one release and never moves again, which is the tag
+          to write down somewhere that has to keep working; and <code>master</code> is
+          the development branch, rebuilt on every push to it.
+        </p>
+
+        <p>
+          <code>docker</code> in place of <code>podman</code> works the same way. Two
+          directories matter: <code>/data</code> is Tocata's own — the database lives
+          there — and <code>/media</code> is where the music is. Mounting the music read
+          only is not a precaution against Tocata, which never writes to a collection; it
+          is simply true, so the filesystem may as well say so.
+        </p>
+
+        <p>
+          Nothing is scanned for having been mounted: <code>/media</code>, or a directory
+          inside it, is added as a collection in the panel afterwards. Somebody who keeps
+          their music beside their audiobooks wants two collections with different people
+          reaching each, and one mount cannot say that.
+        </p>
+
+        <p class="lettering">The first run</p>
+        <p>
+          Tocata creates its data directory and its database on the way up, and makes one
+          administrator to get in with. That account's password is generated and written
+          to the log exactly once:
+        </p>
+
+        <pre><code>WARN tocata::user: initial password for 'admin': …</code></pre>
+
+        <p>
+          Then the panel is at <code>http://localhost:4224/</code>. Collections are added
+          there, one row each, and adding one reads nothing by itself: the scan is started
+          from the panel's first screen, which is also where it reports what it found
+          while it runs.
+        </p>
+
+        <p class="lettering">The other two ways</p>
+        <p>
+          Every release carries a prebuilt binary per architecture, statically linked
+          against musl and bringing its own libc, so it runs on any Linux of the right
+          architecture whatever the distribution — with the checksums beside it on
+          <a href="https://github.com/ogarcia/tocata/releases">the release page</a>, and
+          nothing needed to fetch it. And Tocata builds from a checkout with Rust, the
+          WebAssembly target and <a href="https://trunkrs.dev/">trunk</a>, which builds
+          the panel the server carries inside itself. Both, with the commands, are
+          <a href="https://github.com/ogarcia/tocata#running-it">in the README</a> —
+          along with every environment variable, since everything about the deployment is
+          read from the environment and everything about the music belongs to the panel.
+        </p>
+      </section>
+
+      <section id="doors">
+        <h2>Logging in</h2>
+
+        <p>
+          There are two doors and they work differently, because a browser and a music
+          player are not in the same situation. The panel takes a username or an email
+          address and a password, and hands back a session it can list and close. A player
+          under <code>/rest</code> proves who it is the way the protocol says, with
+          <code>u</code> and <code>p</code> — or with an API key from the
+          <code>apiKeyAuthentication</code> extension, made in the panel, one per client
+          and each withdrawn on its own.
+        </p>
+
+        <p>
+          What is worth knowing before pointing a client at it: token authentication —
+          <code>s</code> and <code>t=md5(password + salt)</code> — is refused with error
+          42, and cannot be anything else. Verifying that token means having the password
+          to hand, in clear or beside the key that decrypts it, and what Tocata keeps is
+          an Argon2id hash whose whole purpose is that the password cannot be got back out
+          of it. Between the two, the passwords win. Every client we have tried has a
+          setting for the other way, worded as plain, clear text or legacy password
+          authentication depending on the client, and that is what Tocata answers. The
+          long version is
+          <a href="https://github.com/ogarcia/tocata#authentication">in the README</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Tocata is free software under the
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL</a>, version 3 or later.
+        Copyright © 2026 Óscar García Amor.
+      </p>
+      <p class="aside">
+        The glyphs are <a href="https://tabler.io/icons">Tabler Icons</a> by Paweł Kuna,
+        under the MIT licence.
+      </p>
+    </footer>
+  </body>
+</html>

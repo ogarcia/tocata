@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+
+name: Website
+
+# The site in `website/` is HTML and one stylesheet, so there is nothing to
+# build: this uploads the directory as it stands and asks Pages to serve it.
+# It is a workflow rather than the branch setting because that setting can only
+# publish the root of the repository or `docs/`, and `docs/` is being kept for
+# documentation.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+  # For publishing the site again without a change to it — the first time it is
+  # switched on, or after the domain is pointed at it.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  # What `deploy-pages` signs its request with. No secret is configured for any
+  # of this: the token the run already has is the credential.
+  id-token: write
+
+# One deployment at a time, and a running one is left to finish: a half published
+# site is worse than a site a minute out of date.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish the site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # No `configure-pages` step: what it does is hand a generator the base URL
+      # it should write links against, and every link on this site is either
+      # relative or absolute already.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: website
+
+      - id: deploy
+        uses: actions/deploy-pages@v5

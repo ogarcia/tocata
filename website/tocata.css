@@ -1,0 +1,320 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Óscar García Amor <ogarcia@connectical.com>
+ *
+ * The same look as the panel this page is about, and the same rules behind it:
+ * no framework, nothing that is a card, one 1px line wherever a division is
+ * meant and whitespace where it is not. Both schemes come from `color-scheme`
+ * and one set of variables, so the browser picks and nothing is toggled.
+ *
+ * Every measure is in `rem` and every line is in pixels. A hairline has to stay
+ * one physical pixel — in `rem` it lands on a fraction that browsers round
+ * differently from one edge to the next, and this whole look is that its lines
+ * are all the same.
+ *
+ * The colours and the type scale are copied from `panel/panel.css` rather than
+ * imported: the panel's sheet is built into the binary and this page is not
+ * served by it, and a page that fetched it would break the day the panel's
+ * layout stopped being the panel's own. */
+
+:root {
+  color-scheme: light dark;
+
+  --ink: light-dark(#1c1c1e, #ededee);
+  --quiet: light-dark(#77777f, #8f8f98);
+  --paper: light-dark(#fcfcfb, #101012);
+  --line: light-dark(#e6e5e2, #26262a);
+
+  /* The panel's default accent, which is what every screen below was taken in. */
+  --accent: light-dark(#2c6e56, #7fd0ae);
+
+  --lettering: 0.75rem;   /* 12px — small capitals over a run of rows */
+  --aside: 0.8125rem;     /* 13px — the quiet line under almost everything */
+  --text: 1rem;           /* 16px — this page's own size, a notch over the panel's */
+  --lead: 1.25rem;        /* 20px — the sentence under the title */
+  --title: 2.125rem;      /* 34px — the one on the way in */
+
+  /* How wide the page gets. One measure for everything on it rather than a
+   * reading width for the prose and the full width for the screens: a paragraph
+   * that stopped halfway across the screenshot under it read as a column that had
+   * failed to fill, and the eye had two left edges to keep track of. */
+  --page: 76rem;
+
+  font-family: system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+/* Nothing here leans on the margins a browser gives a paragraph or a heading:
+ * every gap is asked for, so the last thing in a section does not decide how
+ * much air is under it. */
+p, h1, h2, figure, pre { margin: 0; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: var(--text);
+  line-height: 1.6;
+}
+
+/* A link is a word in the accent. What underlines is one under the pointer,
+ * which is the answer to "is this clickable". */
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.1875rem;
+}
+
+code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.875em;
+}
+
+/* The bar across the top, which stays. Not a shadow anywhere: it is told apart
+ * from the page by its line and by the page sliding under it. */
+.rail {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 1.125rem 2rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--ink);
+  font-size: var(--lead);
+  letter-spacing: -0.01em;
+}
+
+.mark:hover { text-decoration: none; }
+
+/* The one mark on the page, and it takes the accent while the word beside it
+ * stays ink: the glyph is the badge, the word is the name. */
+.mark svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--accent);
+}
+
+.rail nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  font-size: var(--aside);
+}
+
+.rail nav a { color: var(--quiet); }
+.rail nav a:hover { color: var(--ink); }
+
+main {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+/* Sections are divided by a line, the way the panel divides a run of rows, and
+ * the first one has nothing over it to divide from. */
+main > section {
+  padding: 3.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+main > section:first-child { border-top: none; }
+
+h1 {
+  max-width: 34rem;
+  font-size: var(--title);
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+h2 {
+  margin-bottom: 1.75rem;
+  font-size: 1.625rem;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.hero { padding-top: 4.5rem; }
+
+.lead {
+  margin-top: 1.5rem;
+  font-size: var(--lead);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.aside {
+  font-size: var(--aside);
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+.hero .aside { margin-top: 1.5rem; }
+
+.doors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.75rem;
+  margin-top: 2.25rem;
+  font-size: var(--text);
+}
+
+/* The one thing on the page shaped like a control, because the page has one
+ * thing to ask for. A rule round it rather than a fill: a filled button would
+ * be the only solid shape anywhere in this look. */
+.way {
+  padding: 0.6875rem 1.375rem;
+  border: 1px solid var(--accent);
+}
+
+.way:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  text-decoration: none;
+}
+
+/* The row of figures the panel opens with, and the same construction: divided by
+ * a line each rather than boxed, and the floor gives way on a narrow screen
+ * instead of pushing the last one off the side. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+}
+
+.figures > div {
+  padding: 0 1.5rem;
+  border-left: 1px solid var(--line);
+}
+
+.figures > div:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+.figure {
+  font-size: 1.875rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.label {
+  margin-top: 0.25rem;
+  font-size: var(--aside);
+  color: var(--quiet);
+}
+
+/* Two things said side by side, one column each, because they answer each other:
+ * what this is for, and what it leaves to somebody else. */
+.split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  gap: 2.5rem;
+}
+
+.split p { text-wrap: pretty; }
+
+/* The small capitals over a run of rows, wherever that run is — a column here, a
+ * step of the instructions below. */
+.lettering {
+  margin-bottom: 0.625rem;
+  font-size: var(--lettering);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+#running .lettering { margin-top: 2.75rem; }
+#running .lettering:first-of-type { margin-top: 0; }
+#running p + p { margin-top: 1rem; }
+
+/* A screen is 1600 pixels of panel, so it gets the width and a rule around it:
+ * the panel's own edge is a hairline, and without one the pale paper in the shot
+ * runs into the pale paper of this page. */
+figure { margin-top: 3rem; }
+#screens figure:first-of-type { margin-top: 0; }
+
+figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+}
+
+figcaption {
+  margin-top: 0.875rem;
+  font-size: var(--aside);
+  line-height: 1.6;
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+/* Commands, which are the one place on this page where the paper changes colour:
+ * a line round them would read as a box, and boxes are what this look does not
+ * have. Scrolls sideways rather than wrapping, because a wrapped command line is
+ * one somebody pastes wrong. */
+pre {
+  overflow-x: auto;
+  margin-top: 1rem;
+  padding: 1.125rem 1.25rem;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+pre code { font-size: 1em; }
+
+footer {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 2.5rem 2rem 3.5rem;
+  border-top: 1px solid var(--line);
+}
+
+footer .aside { margin-top: 0.5rem; }
+
+@media (max-width: 45rem) {
+  .rail {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+  }
+
+  main { padding: 0 1.25rem; }
+
+  footer { padding: 2rem 1.25rem 3rem; }
+
+  h1 { font-size: 1.75rem; }
+
+  .hero { padding-top: 3rem; }
+
+  /* Stacked, so the rule that divided them sideways would now be over the wrong
+   * edge: it goes across the top of each instead, and the first has none. */
+  .figures > div {
+    padding: 1rem 0;
+    border-top: 1px solid var(--line);
+    border-left: none;
+  }
+
+  .figures > div:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+}
