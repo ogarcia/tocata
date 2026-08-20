@@ -6,8 +6,13 @@ name: Website
 # The site in `website/` is HTML and one stylesheet, so there is nothing to
 # build: this uploads the directory as it stands and asks Pages to serve it.
 # It is a workflow rather than the branch setting because that setting can only
-# publish the root of the repository or `docs/`, and `docs/` is being kept for
-# documentation.
+# publish the root of the repository or `docs/`, and `docs/` is worth keeping
+# free for documentation.
+#
+# Pages has to be switched on for the repository with GitHub Actions as its
+# source, under Settings, or the deployment has nothing to deploy to and says so
+# with a 404. The custom domain lives in that same screen: a `CNAME` file in the
+# artifact is ignored when a workflow is what publishes.
 on:
   push:
     branches: [master]
@@ -15,15 +20,12 @@ on:
       - 'website/**'
       - '.github/workflows/pages.yml'
   # For publishing the site again without a change to it — the first time it is
-  # switched on, or after the domain is pointed at it.
+  # switched on, after the domain is pointed at it, or after a failure. This
+  # rather than re-running a finished run: see the note over the two jobs.
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  # What `deploy-pages` signs its request with. No secret is configured for any
-  # of this: the token the run already has is the credential.
-  id-token: write
 
 # One deployment at a time, and a running one is left to finish: a half published
 # site is worse than a site a minute out of date.
@@ -31,13 +33,20 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Two jobs to upload one directory and serve it, which looks like ceremony and is
+# not. An artifact outlives the attempt that uploaded it, and `deploy-pages`
+# refuses to choose between two of the same name — "Multiple artifacts named
+# github-pages were unexpectedly found for this workflow run". Split like this,
+# re-running the failed job runs the deployment alone and finds the one artifact
+# already sitting there.
+#
+# Re-running *every* job uploads a second one and dooms that run for good, so the
+# way to publish again from nothing is `workflow_dispatch` above, which starts a
+# run with no artifacts of its own to trip over.
 jobs:
-  publish:
-    name: Publish the site
+  build:
+    name: Pack the site
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -48,5 +57,18 @@ jobs:
         with:
           path: website
 
+  publish:
+    name: Publish the site
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      # What `deploy-pages` signs its request with. No secret is configured for
+      # any of this: the token the run already has is the credential.
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v5
