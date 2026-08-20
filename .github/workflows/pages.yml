@@ -10,9 +10,15 @@ name: Website
 # free for documentation.
 #
 # Pages has to be switched on for the repository with GitHub Actions as its
-# source, under Settings, or the deployment has nothing to deploy to and says so
-# with a 404. The custom domain lives in that same screen: a `CNAME` file in the
-# artifact is ignored when a workflow is what publishes.
+# source, under Settings, or the deployment has nothing to deploy to and answers
+# 404 — which is how the first run of this went.
+#
+# The custom domain is set in that same screen, and `website/CNAME` says it too.
+# GitHub's documentation is clear that a workflow's artifact needs no `CNAME` and
+# that an existing one is ignored; what happens in practice is that a later
+# publish clears the domain when the file is not in the artifact. So the file
+# stays: it costs nothing if the documentation is right, and it keeps the domain
+# if it is not.
 on:
   push:
     branches: [master]
