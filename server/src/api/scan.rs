@@ -171,7 +171,7 @@ mod tests {
         settings::seed(&pool, &[]).await.unwrap();
 
         let state = AppState {
-            pool,
+            pool: pool.clone(),
             scan: Arc::new(Progress::default()),
             portraits: Arc::new(crate::portraits::Fetching::default()),
             attempts: Arc::new(attempts::Attempts::new()),
@@ -179,6 +179,7 @@ mod tests {
                 std::env::temp_dir().join("tocata-scan-api"),
             )),
             meter: Arc::new(resources::Meter::new().unwrap()),
+            settings: Arc::new(crate::settings::Current::for_tests(&pool).await),
             net: net::Net::new(),
             shutdown: watch::channel(false).1,
         };

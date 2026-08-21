@@ -14,7 +14,8 @@
 //! listen sent straight out and lost when it failed would be a listen nobody
 //! could get back, because the moment it happened has passed. So a play writes a
 //! row and comes back at once, and the sending is somebody else's problem: the
-//! task in [`sending`], every minute, for as long as it takes.
+//! task in [`sending`], for as long as it takes. It is told when a row arrives
+//! rather than looking, so nothing in here reaches the database on a timer.
 //!
 //! **What is sounding now does not go through the queue**, and that is not an
 //! inconsistency. A now playing notification is a claim about the present: held
@@ -230,6 +231,12 @@ async fn enqueue(pool: &SqlitePool, user_id: i64, track_id: i64, played_at: &str
             "queued a listen for {} destination(s)",
             queued.rows_affected()
         );
+
+        // Only now, and only if a row was written. The sender is asleep with no
+        // wait set when the queue is empty, so this is what starts it; ringing it
+        // for a listen that was not queued — nowhere to send it, or a song with
+        // no credit — would wake it to find what it already knew.
+        sending::there_is_one(pool);
     }
 
     Ok(())
@@ -258,6 +265,12 @@ pub async fn due_again(pool: &SqlitePool, user_id: i64, service: Service) -> Res
     .in_turn(pool)
     .await
     .context("making a destination's listens due again")?;
+
+    // The hour these rows were waiting for is not the hour they are waiting for
+    // now, and the sender is asleep until the old one. Without this, the fixed
+    // token that this function exists to answer for would still be answered by
+    // nothing happening until the evening.
+    sending::there_is_one(pool);
 
     Ok(())
 }
@@ -424,6 +437,8 @@ async fn switched_on(pool: &SqlitePool, whose: Option<i64>) -> Result<Vec<Destin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration as Wait;
+    use tokio::time::timeout;
 
     /// What is queued, as the columns that matter to a test.
     type Waiting = (
@@ -566,6 +581,69 @@ mod tests {
         .fetch_all(pool)
         .await
         .unwrap()
+    }
+
+    /// The bell is the whole of what wakes the sender when the queue was empty, so
+    /// a row written without ringing it would sit there until the next one arrived.
+    ///
+    /// Rung rather than delivered: a notification with nobody waiting is kept, so
+    /// asking for it afterwards is what a sender that was asleep would have got.
+    #[tokio::test]
+    async fn queueing_a_listen_rings_for_it() {
+        let pool = collection().await;
+        let ana = listener(&pool, "ana", true).await;
+        destination(&pool, ana, Service::ListenBrainz, true).await;
+        let bell = sending::arrivals(&pool);
+
+        queue(&pool, ana, 1, &db::now()).await;
+
+        assert!(
+            timeout(Wait::from_millis(100), bell.notified())
+                .await
+                .is_ok(),
+            "the sender would still be asleep"
+        );
+    }
+
+    /// And not rung otherwise. Nothing was queued — this listener has nowhere to
+    /// send anything — so waking the sender would only tell it what it knew.
+    #[tokio::test]
+    async fn a_listen_with_nowhere_to_go_rings_for_nothing() {
+        let pool = collection().await;
+        let ana = listener(&pool, "ana", true).await;
+        let bell = sending::arrivals(&pool);
+
+        queue(&pool, ana, 1, &db::now()).await;
+
+        assert!(
+            timeout(Wait::from_millis(100), bell.notified())
+                .await
+                .is_err(),
+            "woken for a listen that was never queued"
+        );
+    }
+
+    /// The reason [`due_again`] exists at all: the sender is asleep until an hour
+    /// that these rows are no longer waiting for, so it has to be told.
+    #[tokio::test]
+    async fn making_listens_due_again_rings_for_them() {
+        let pool = collection().await;
+        let ana = listener(&pool, "ana", true).await;
+        destination(&pool, ana, Service::ListenBrainz, true).await;
+        queue(&pool, ana, 1, &db::now()).await;
+
+        // Whatever queueing rang for, out of the way.
+        let bell = sending::arrivals(&pool);
+        timeout(Wait::from_millis(100), bell.notified()).await.ok();
+
+        due_again(&pool, ana, Service::ListenBrainz).await.unwrap();
+
+        assert!(
+            timeout(Wait::from_millis(100), bell.notified())
+                .await
+                .is_ok(),
+            "a corrected token would be answered by nothing until the evening"
+        );
     }
 
     /// The whole point of a row per service: two destinations means the same listen

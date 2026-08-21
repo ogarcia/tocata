@@ -9,6 +9,7 @@ use crate::net::Net;
 use crate::portraits::Fetching;
 use crate::resources::Meter;
 use crate::scanner::Progress;
+use crate::settings;
 use axum::extract::FromRef;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -30,6 +31,10 @@ pub struct AppState {
     /// Who has been getting their password wrong lately. Shared because it is
     /// the whole point: a count kept per request would count to one for ever.
     pub attempts: Arc<Attempts>,
+    /// The settings, kept in memory so the one loop that watches the clock does
+    /// not have to ask the database every minute what hour it is watching for.
+    /// Shared because it is also where a change to them is published.
+    pub settings: Arc<settings::Current>,
     /// For reaching somebody else's server, which today means passing listens on.
     /// Shared for the connection pool inside it: one kept per request would open
     /// a fresh connection, and a fresh TLS handshake, for every song.
@@ -52,6 +57,12 @@ impl FromRef<AppState> for SqlitePool {
 impl FromRef<AppState> for Arc<Progress> {
     fn from_ref(state: &AppState) -> Self {
         state.scan.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<settings::Current> {
+    fn from_ref(state: &AppState) -> Self {
+        state.settings.clone()
     }
 }
 

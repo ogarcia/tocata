@@ -176,7 +176,7 @@ mod every_endpoint {
         .unwrap();
 
         let state = AppState {
-            pool,
+            pool: pool.clone(),
             scan: Arc::new(scanner::Progress::default()),
             portraits: Arc::new(crate::portraits::Fetching::default()),
             attempts: Arc::new(attempts::Attempts::new()),
@@ -184,6 +184,7 @@ mod every_endpoint {
                 std::env::temp_dir().join("tocata-every-endpoint"),
             )),
             meter: Arc::new(resources::Meter::new().unwrap()),
+            settings: Arc::new(crate::settings::Current::for_tests(&pool).await),
             net: net::Net::new(),
             shutdown: watch::channel(false).1,
         };

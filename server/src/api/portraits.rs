@@ -212,6 +212,7 @@ mod tests {
             )),
             meter: Arc::new(crate::resources::Meter::new().unwrap()),
             attempts: Arc::new(crate::attempts::Attempts::new()),
+            settings: Arc::new(settings::Current::for_tests(&pool).await),
             net: crate::net::Net::new(),
             shutdown: tokio::sync::watch::channel(false).1,
         };
@@ -230,7 +231,7 @@ mod tests {
         assert!(!reported.run.fetching);
 
         settings.reach_out = true;
-        settings::store(&pool, &settings).await.unwrap();
+        state.settings.save(&pool, &settings).await.unwrap();
 
         let reported = told(&pool, &state.portraits).await.unwrap();
         assert!(reported.allowed);

@@ -146,12 +146,13 @@ mod tests {
         settings::seed(&pool, &[]).await.unwrap();
 
         AppState {
-            pool,
+            pool: pool.clone(),
             scan: Arc::new(scanner::Progress::default()),
             portraits: Arc::new(crate::portraits::Fetching::default()),
             attempts: Arc::new(attempts::Attempts::new()),
             config: Arc::new(Config::for_tests(data_dir)),
             meter: Arc::new(resources::Meter::new().unwrap()),
+            settings: Arc::new(settings::Current::for_tests(&pool).await),
             net: net::Net::new(),
             shutdown: watch::channel(false).1,
         }

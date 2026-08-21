@@ -71,6 +71,7 @@ pub async fn read(
 pub async fn change(
     _admin: Administrator,
     State(pool): State<SqlitePool>,
+    State(settings): State<Arc<settings::Current>>,
     State(fetching): State<Arc<Fetching>>,
     Json(changes): Json<SettingsChanges>,
 ) -> Result<Json<Settings>, ApiError> {
@@ -135,7 +136,10 @@ pub async fn change(
         current.reach_out = looking;
     }
 
-    settings::store(&pool, &current)
+    // Which also tells the scheduler, and is the only way to: it watches the hour
+    // from memory rather than reading the row every minute.
+    settings
+        .save(&pool, &current)
         .await
         .map_err(|e| ApiError::internal(e, "changing the settings"))?;
 
@@ -178,6 +182,13 @@ mod tests {
         Json(serde_json::from_str(json).unwrap())
     }
 
+    /// The settings as the handler will publish them. Held rather than mocked,
+    /// because publishing is half of what saving now means and a test that skipped
+    /// it would not be exercising the handler.
+    async fn held(pool: &SqlitePool) -> State<Arc<settings::Current>> {
+        State(Arc::new(settings::Current::for_tests(pool).await))
+    }
+
     /// A walk after portraits that is not going, which is what every test here has:
     /// the handler only ever asks it to stop, and asking a walk that is not running
     /// to stop is what it is for.
@@ -194,6 +205,7 @@ mod tests {
         let Json(after) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"sessionDays":7}"#),
         )
@@ -214,6 +226,7 @@ mod tests {
         let Json(set) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"scanAt":"04:00"}"#),
         )
@@ -224,6 +237,7 @@ mod tests {
         let Json(untouched) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"sessionDays":30}"#),
         )
@@ -234,6 +248,7 @@ mod tests {
         let Json(cleared) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"scanAt":null}"#),
         )
@@ -251,6 +266,7 @@ mod tests {
         let Json(at_once) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"absentGraceDays":0}"#),
         )
@@ -261,6 +277,7 @@ mod tests {
         let Json(never) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"absentGraceDays":null}"#),
         )
@@ -289,6 +306,7 @@ mod tests {
         let Json(after) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             State(walking.0.clone()),
             asking(r#"{"reachOut":false}"#),
         )
@@ -305,6 +323,7 @@ mod tests {
         let Json(after) = change(
             same(&admin),
             State(pool.clone()),
+            held(&pool).await,
             idle(),
             asking(r#"{"reachOut":true}"#),
         )
@@ -327,7 +346,14 @@ mod tests {
             r#"{"sessionDays":0}"#,
             r#"{"ignoredArticles":["Los Del"]}"#,
         ] {
-            let refused = change(same(&admin), State(pool.clone()), idle(), asking(asked)).await;
+            let refused = change(
+                same(&admin),
+                State(pool.clone()),
+                held(&pool).await,
+                idle(),
+                asking(asked),
+            )
+            .await;
 
             assert!(
                 matches!(refused, Err(ApiError::Invalid(_))),

@@ -16,6 +16,7 @@ use crate::db::InTurn;
 use crate::db::now;
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
+use tokio::sync::watch;
 
 /// How a time of day is written, both in the row and in the field somebody types
 /// it into. Local time: it is chosen by somebody who means "while I am asleep".
@@ -98,13 +99,76 @@ pub async fn load(pool: &SqlitePool) -> Result<Settings> {
     })
 }
 
+/// The settings as they stand, held in memory.
+///
+/// **For the one reader that would otherwise ask on a timer.** Everything else
+/// here reads the row when it needs it — once per request, or once after a scan —
+/// and that is right: the row is the truth and a read is a lookup by primary key.
+/// The scheduler is the exception, because it wakes every minute to look at the
+/// clock and does not otherwise need the database at all. Asking there kept a
+/// connection to SQLite alive for ever, and a connection is a thread with a two
+/// megabyte stack, so a server nobody was using paid for one all night to be told
+/// the same time of day 1,440 times.
+///
+/// **Writing is the only way to publish, and publishing is the only way to
+/// write.** [`Current::save`] does both and [`store`] is private, so a change
+/// cannot reach the row without reaching this — which is the one way this could
+/// have gone wrong.
+///
+/// The price is narrow and worth naming: a row edited by hand underneath a running
+/// server is no longer noticed within the minute. The panel is the way in, and it
+/// comes through here.
+pub struct Current(watch::Sender<Settings>);
+
+impl Current {
+    /// Reads the row once, and holds on to what it said.
+    ///
+    /// After [`seed`], because there has to be a row to read.
+    pub async fn read(pool: &SqlitePool) -> Result<Self> {
+        Ok(Self(watch::Sender::new(load(pool).await?)))
+    }
+
+    /// A held copy for a test that has a database and no interest in what is in
+    /// the row. Seeding is what puts one there, and it leaves an existing one
+    /// alone, so this is safe on a database that has already been seeded.
+    #[cfg(test)]
+    pub async fn for_tests(pool: &SqlitePool) -> Self {
+        seed(pool, &[]).await.expect("seeding for a test");
+        Self::read(pool).await.expect("reading for a test")
+    }
+
+    /// What they say at this moment.
+    ///
+    /// Borrowed rather than cloned, because the caller usually wants one field and
+    /// the articles are a list. The guard holds a read lock, and cannot be held
+    /// across an await: it is not `Send`, so the compiler refuses rather than the
+    /// program deadlocking.
+    pub fn borrow(&self) -> watch::Ref<'_, Settings> {
+        self.0.borrow()
+    }
+
+    /// Writes them and then says so.
+    ///
+    /// In that order, and not the other: what is published is what the database
+    /// took. A write that fails publishes nothing, so a reader here is never
+    /// holding a setting the row does not have.
+    pub async fn save(&self, pool: &SqlitePool, settings: &Settings) -> Result<()> {
+        store(pool, settings).await?;
+        self.0.send_replace(settings.clone());
+
+        Ok(())
+    }
+}
+
 /// Writes the row back, whole.
 ///
 /// The caller reads, changes what it was asked to change and stores the result,
 /// so a partial change never has to be expressed in SQL. There is one row and one
 /// administrator writing it, so the read and the write not being one statement
 /// costs nothing.
-pub async fn store(pool: &SqlitePool, settings: &Settings) -> Result<()> {
+///
+/// Private on purpose: see [`Current`].
+async fn store(pool: &SqlitePool, settings: &Settings) -> Result<()> {
     sqlx::query(
         "UPDATE settings
             SET ignored_articles = ?, scan_at_startup = ?, scan_at = ?,
@@ -138,6 +202,31 @@ mod tests {
 
     fn words(of: &[&str]) -> Vec<String> {
         of.iter().map(|w| w.to_string()).collect()
+    }
+
+    /// The invariant the whole of [`Current`] rests on. The scheduler reads the
+    /// hour from here and not from the row, so a save that wrote one without
+    /// saying so would leave it watching for an hour nobody chose — and it would
+    /// keep doing it until the next restart, which is the kind of wrong that is
+    /// found months later.
+    #[tokio::test]
+    async fn saving_publishes_what_was_saved() {
+        let pool = empty().await;
+        seed(&pool, &words(&["The"])).await.unwrap();
+        let current = Current::read(&pool).await.unwrap();
+
+        assert_eq!(current.borrow().scan_at, None, "nothing scheduled yet");
+
+        let mut changed = current.borrow().clone();
+        changed.scan_at = Some("04:00".to_string());
+        current.save(&pool, &changed).await.unwrap();
+
+        assert_eq!(current.borrow().scan_at.as_deref(), Some("04:00"));
+        assert_eq!(
+            load(&pool).await.unwrap().scan_at.as_deref(),
+            Some("04:00"),
+            "and the row says the same thing"
+        );
     }
 
     #[tokio::test]

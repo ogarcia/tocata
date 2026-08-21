@@ -52,6 +52,11 @@ async fn main() -> Result<()> {
     scanner::sync_libraries(&pool, config.library_paths()).await?;
     settings::seed(&pool, config.ignored_articles()).await?;
 
+    // Read once, here, and from now on read from memory. Everything that wants a
+    // setting inside a request still asks the row; this is for the scheduler,
+    // which wants one every minute and nothing else.
+    let settings = Arc::new(settings::Current::read(&pool).await?);
+
     // Held here and handed out through the state, so a handler that keeps a
     // connection open can tell when to let go of it.
     let (stopping, is_stopping) = watch::channel(false);
@@ -67,6 +72,7 @@ async fn main() -> Result<()> {
         attempts: Arc::new(attempts::Attempts::new()),
         config: config.clone(),
         meter: Arc::new(meter),
+        settings: settings.clone(),
         net: net::Net::new(),
         shutdown: is_stopping,
     };
@@ -84,7 +90,7 @@ async fn main() -> Result<()> {
     // Only once the port is ours: starting a scan before knowing whether the
     // server can even listen would leave a half finished run behind every
     // failed start.
-    if settings::load(&pool).await?.scan_at_startup {
+    if settings.borrow().scan_at_startup {
         let initial = state.clone();
         tokio::spawn(async move {
             upkeep::scan(&initial, scanner::Mode::Incremental).await;

@@ -11,7 +11,15 @@
 //!
 //! The schedule is checked once a minute rather than slept until, because the
 //! hour can be changed from the panel while the server is running and a sleep
-//! decided an hour ago would not know.
+//! decided an hour ago would not know. It is a time of day, too, so a sleep would
+//! have to answer for the clock going back an hour and for the machine suspending
+//! through the appointment; looking at what time it is cannot get either wrong.
+//!
+//! **Looking at the clock is free; asking the database is not.** So the hour being
+//! watched for comes from [`crate::settings::Current`] rather than from the row,
+//! and a minute in which nothing is due now costs nothing at all. It used to cost
+//! a query, which kept a connection — and so a thread — alive in a server that was
+//! otherwise idle all night.
 //!
 //! **Nothing here reaches the network.** Looking for pictures of the artists is
 //! not one of the things that follows a scan, and that is deliberate: a scan
@@ -107,13 +115,9 @@ pub async fn on_schedule(state: AppState) {
         let now = Local::now().naive_local();
         let since = std::mem::replace(&mut previous, now);
 
-        let at = match settings::load(&state.pool).await {
-            Ok(settings) => settings.scan_at,
-            Err(e) => {
-                warn!("could not read the scan schedule: {e:#}");
-                continue;
-            }
-        };
+        // Cloned out of the borrow rather than read through it: what follows
+        // waits on a scan, and a guard cannot be held across that.
+        let at = state.settings.borrow().scan_at.clone();
 
         let Some(at) = at.as_deref().and_then(when) else {
             continue;
